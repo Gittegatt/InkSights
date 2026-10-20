@@ -137,5 +137,11 @@ input[type="password"] { font: inherit; color: var(--fg); background: var(--bg);
 .panel-pick { flex-wrap: wrap; gap: 6px 12px; }
 .panel-pick select { min-width: 0; max-width: 100%; }
 /* simulator: settings of the simulated hardware */
-.sim-grid { display: grid; grid-template-columns: auto repeat(6, minmax(0, auto)); gap: 8px 16px; align-items: center; justify-content: start; overflow-x: auto; padding-bottom: 2px; }
-.sim-grid .label { white-space: nowrap; }
+/* Simulation card, displays: one block per display, its fields wrap when the card gets narrow */
+.sim-grid { display: flex; flex-direction: column; gap: 10px; }
+.sim-hw { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; }
+.sim-hw + .sim-hw { border-top: 1px solid var(--line); padding-top: 10px; }
+.sim-hw .sim-id { flex-basis: 100%; }
+.sim-f { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 100%; }
+.sim-f > .label { white-space: nowrap; }
+.sim-f select, .sim-f input { max-width: 100%; }

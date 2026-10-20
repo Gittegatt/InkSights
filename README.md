@@ -106,6 +106,7 @@ Script on the NAS server (loop or cron) ──USB──> board 1 ──> e-paper
 |---|---|
 | `firmware/InkSights/` | Arduino sketch, the same for every board (`BoardProfile.h`: pins per board) |
 | `platformio.ini` | PlatformIO environments, one per board |
+| `scripts/` | builds the ready-made firmware files of a release (`build_release.py`) |
 | `server/inksights.sh` | collects the data and sends every display its frame |
 | `server/web/` | settings page (`inksights-web.py`, `index.html`, `inksights-ui.js`, `inksights-render.js`, `inksights.css`) |
 | `server/docker/docker-compose.yaml` | Docker stack that runs the settings page |
@@ -143,6 +144,39 @@ Good Display for the GDEY042T81, and insert the flat cable with the contacts fac
 
 The same firmware goes on **every** board. Only the board is chosen when building; the panel type and the pins are
 chosen later on the settings page.
+
+### Easiest: ready-made files, nothing to install
+
+Download the file of your board from the [releases](https://github.com/Gittegatt/InkSights/releases). The name
+ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
+`inksights-v1.0-esp32-c3-supermini-factory.bin`.
+
+**ESP32 boards (`-factory.bin`) in the browser** with [ESPWebTool](https://esptool.spacehuhn.com/) (Chrome or Edge):
+
+1. Plug in the board, click **Connect** and choose its port. Not found: hold BOOT while plugging in.
+2. Keep only one file row and delete all others.
+3. Set its address to `0x0000` (if `0x` is already shown in front, enter only `0`) and choose the `-factory.bin`.
+4. Click **Erase**. This also removes pins, panel type and WiFi settings stored on the board.
+5. Connect again if asked, then click **Program**.
+6. If the board does not restart by itself, press RESET or plug it in again.
+
+The factory image holds everything the board needs at the right places. Always flash it as one file at `0x0000`,
+never split it up.
+
+**XIAO SAMD21 (`.uf2`) by drag and drop:**
+
+1. Plug in the board and press RESET twice quickly (the two pads next to the USB port; touch them twice with
+   tweezers or a wire). The orange LED pulses and a drive named **Arduino** appears.
+2. Copy `inksights-v1.0-xiao-samd21.uf2` onto that drive.
+3. The board restarts with the new firmware by itself; the drive disappears.
+
+`SHA256SUMS.txt` in the release lists the checksums of all files.
+
+**Build the files yourself:** `python scripts/build_release.py` builds every board and writes the files to
+`dist/v<version>/` (`--environment <env>` for one board only). Pushing a tag such as `v1.0` to GitHub builds them
+there as well and creates a draft release with them.
+
+### With PlatformIO or the Arduino IDE
 
 **With PlatformIO (VS Code):** open the project folder, pick the environment of your board
 ([Boards](#boards)) and upload, e.g. `pio run -e esp32-c3-supermini -t upload`.
@@ -425,7 +459,7 @@ access point name and password. See [4. WiFi](#4-wifi-optional).
 
 | Setting | Options | Notes |
 |---|---|---|
-| **Ink** | tick | An extra page after the disk pages with the rows **WiFi** (network, or the setup access point), **IP** (address) and **Online** (how long the board has been connected without a break). The WiFi settings apply either way. |
+| **Ink** | tick | An extra page after the disk pages with the rows **WiFi** (network, or the setup access point), **IP** (address) and **Connected** (how long the board has been connected without a break). The WiFi settings apply either way. |
 | **Icons** | On, Off | Symbol at the left of each row. |
 
 The WiFi page is shown in the preview so far; the firmware does not draw it yet.
@@ -435,6 +469,7 @@ The WiFi page is shown in the preview so far; the firmware does not draw it yet.
 `simulator/simulator.html` opens in any browser straight from the folder. It is the same settings page with simulated
 data. Below the displays, the **Simulation** section sets the simulated boards, panels and connections, the system
 values (incl. when the server started), the disks (with or without ZFS), or a frame pasted from a dry run.
+**No data** at a display shows what it draws when it gets no fresh data any more.
 Nothing is sent anywhere.
 
 ## Update
@@ -496,6 +531,12 @@ All values come from `/proc` and `/sys`, never from the hard disks:
 - **Spares the panel.** A display does not redraw when nothing changed, and never more often than every 3 minutes;
   with several pages it turns one page per redraw. Only "Redraw now" skips both. "1 min (redraw on change)" gets
   changes there as fast as possible. With fast refresh (black/white panels) it redraws as often as set.
+- **NO DATA.** E-paper keeps its picture even without power, so a display that gets nothing any more would look
+  the same as one that works. Without fresh data for twice the **Update every** time plus 2 minutes (at least
+  10 minutes; e.g. 22 minutes at 10 minutes), the display shows **NO DATA** in the top line, where the page number
+  or the uptime stands, and **Check connection** in the middle, and stops turning pages. The time at the top right
+  stays: that is when the last data came. With the next fresh data the pages come back. Reasons: the board is
+  unplugged or the NAS server is off, the script or the settings page does not run, or a WiFi board lost its WiFi.
 - **"Update every" and fast refresh:** "Update every" stays the interval of the full updates (disks, pools, the
   settings page); fast refresh comes on top.
 - **The app is isolated.** It has no USB access and no rights on the NAS server; it only shares the data folder with
@@ -510,6 +551,7 @@ All values come from `/proc` and `/sys`, never from the hard disks:
 | Something does not work as expected | Look at the log: `sudo tail -n 50 /var/run/inksights/inksights.log` |
 | Picture shifted, cut off or just noise | The panel type does not match: choose the next type under **Panel** and save; the board restarts with it. |
 | Display does not appear on the settings page | Is the script running as root (`tmux ls`)? Is the board plugged in? A board with an old firmware shows up as "No answer with chip ID": upload the firmware again. |
+| **NO DATA** and "Check connection" | The display got no fresh data for a while. Is the script running as root (`tmux ls`)? Is the board plugged in? WiFi boards: is the WiFi there, does the settings page run (`sudo docker ps`)? See "NO DATA" in [Good to know](#good-to-know). |
 | `--:--` (badge) or a circle with a dash (ring) | The spindown timer is not running, or its status file is older than two rounds. The symbol then shows the last known state. |
 | Setup page of the board does not open | Wait up to a minute after power-up, or open **http://192.168.4.1** yourself while connected to **InkSights**. |
 | Port not found when uploading | SAMD21: press RESET twice quickly. ESP32: hold BOOT while plugging in. |
@@ -533,7 +575,7 @@ table). A WiFi board also reports `net=sta|ap|off` and `ip=…`; a panel with fa
 
 | Line | Fields | Notes |
 |---|---|---|
-| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, timer, ring direction, symbols, details in the bar, fast refresh, uptime, uptime months] | The last seven are optional: timer 0 badge / 1 ring; ring direction 0 clockwise / 1 counterclockwise; symbols 1 on / 0 off; details in the bar 0 none / 1 percentage / 2 used capacity; fast refresh in seconds, 0 = off; uptime in minutes after the full calendar months, -1 = page number; full calendar months. |
+| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, timer, ring direction, symbols, details in the bar, fast refresh, uptime, uptime months, WiFi page, no data after] | The last nine are optional: timer 0 badge / 1 ring; ring direction 0 clockwise / 1 counterclockwise; symbols 1 on / 0 off; details in the bar 0 none / 1 percentage / 2 used capacity; fast refresh in seconds, 0 = off; uptime in minutes after the full calendar months, -1 = page number; full calendar months; WiFi page 0 off / 1 with symbols / 2 without; seconds without fresh data before "NO DATA", 0 = never. |
 | `D` | device, pool, used, total, percent, filled boxes, total boxes, state, seconds until spindown, timeout seconds | The boxes are no longer drawn. Seconds until spindown -1 = timer not running. State: `A` spinning, `S` asleep, `N` SSD/NVMe, `?` unknown, `-` timer off (HDDs only). Percent -1 = no pool and nothing mounted (total = the size of the disk, or `-`). |
 | `S` | rows, CPU %, CPU °C, CPU W, RAM used MiB, ZFS cache MiB, RAM total MiB, interface, down KiB/s, up KiB/s, link Mb/s, NVMe °C,…, SSD °C,… | Only with the system page. Rows: `C` CPU, `R` RAM, `N` network, `V` NVMe, `S` SSD, `I` = symbols on. -1 = unknown, `-` = none; at most six temperatures each. |
 | `P` | CS, D/C, Reset, Busy [, panel] | Only when pins or the panel type are set on the settings page. Pin numbers of the board (D numbers on the SAMD21, GPIO numbers on the ESP32 boards). New values → store and restart. |

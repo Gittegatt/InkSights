@@ -244,7 +244,7 @@
       if (override != null) return { text: override, override: true };
       const title = (s.name || state.host || "SYSTEM").slice(0, 12);
       const fast = panelOf(entry.live, s).fast;
-      return { text: EPD.buildFrame(state.disks || [], s, title, state.timeText || hhmm(state.updated), state.system || null, fast), override: false };
+      return { text: EPD.buildFrame(state.disks || [], s, title, state.timeText || hhmm(state.updated), state.system || null, fast, interval), override: false };
     }
 
     function drawPreview(entry) {
@@ -278,6 +278,7 @@
       model.wifi = { net: live ? (live.transport === "wifi" ? "sta" : live.net || "off") : "off", ssid: (live && live.ssid) || s.wifi.ssid,
         ip: live ? live.ip || "" : "", ap: s.wifi.apSsid || DEFAULT_AP_SSID,
         online: live && Number.isInteger(live.online) && live.online >= 0 ? Math.floor(live.online / 60) : -1 };   // black/white panel: highlighted used/total inverted instead of in colour
+      model.noData = !!(live && live.noData);   // no fresh data for too long (simulator: "No data")
       if (override) { model.timer = s.timer; model.ringDir = s.ringDir; model.icons = s.icons; model.pctBar = s.pctBar ? (s.barCap ? 2 : 1) : 0; }
       EPD.drawScreen(fb, model);
       paint(canvas, fb, w, h);

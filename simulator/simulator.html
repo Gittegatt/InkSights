@@ -14,7 +14,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="../server/web/inksights.css">
+<script>
+// Load the shared page files fresh every time (opened from disk, browsers may keep an old copy)
+const BUST = "?" + Date.now();
+document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}">`);
+</script>
 </head>
 <body>
 <main class="wrap">
@@ -59,8 +63,9 @@
   </section>
 </main>
 
-<script src="../server/web/inksights-render.js"></script>
-<script src="../server/web/inksights-ui.js"></script>
+<script>
+document.write(`<script src="../server/web/inksights-render.js${BUST}"><\/script><script src="../server/web/inksights-ui.js${BUST}"><\/script>`);
+</script>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -211,7 +216,8 @@ function stateNow() {
     displays.push({ id: IDS[i], port: wifi ? "WiFi" : PORTS[i], transport: wifi ? "wifi" : "usb", size: panel.size.join("x"),
       colors: panel.colors, panel: panel.id, pins: pins.join(","), board: h.board, wifi: board.wifi ? 1 : 0, fw: "1.0", net,
       ssid: net === "sta" ? h.ssid || "" : "", online: net === "sta" ? onlineSecs(h.since) : -1,   // seconds connected
-      ip: net === "sta" ? IPS[i] : net === "ap" ? "192.168.4.1" : "", fast: panel.fast ? 1 : 0, answer: "OK" });
+      ip: net === "sta" ? IPS[i] : net === "ap" ? "192.168.4.1" : "", fast: panel.fast ? 1 : 0, answer: "OK",
+      noData: !!h.noData });   // the board got no fresh frame for too long: "NO DATA" / "Check connection"
   });
   if (sim.oldFw) displays.push({ port: "/dev/ttyACM2", id: "", error: "No answer with chip ID (old firmware?)" });
   const disks = sim.disks.map(toState);
@@ -304,8 +310,9 @@ function simRadios(name, options, current, onPick) {
 }
 
 function buildHw() {
-  const head = ["", "Board", "Panel", "Connected", "Connection", "WiFi network", "Connected since"].map(t => el("span", { class: "label" }, t));
-  const rows = sim.hw.flatMap((h, i) => {
+  // one block per display; every field with its label above, so they wrap on narrow screens
+  const f = (label, control) => el("label", { class: "sim-f" }, el("span", { class: "label" }, label), control);
+  const blocks = sim.hw.map((h, i) => {
     const board = InkSightsUI.BOARDS[h.board] || InkSightsUI.BOARDS[InkSightsUI.DEFAULT_BOARD];
     const conn = !board.wifi ? el("span", { class: "count" }, "USB")
       : el("select", { "aria-label": `Connection of display ${IDS[i]}`, onchange: e => {
@@ -313,30 +320,30 @@ function buildHw() {
         } },
         ...[["usb:off", "USB, WiFi off"], ["usb:ap", "USB, setup access point"], ["usb:sta", "USB, WiFi connected"], ["wifi:sta", "WiFi only"]]
           .map(([v, l]) => el("option", { value: v, selected: v === `${h.transport}:${h.transport === "wifi" ? "sta" : h.net}` }, l)));
-    return [
-      el("span", { class: "ro" }, IDS[i]),
-      el("select", { "aria-label": `Board of display ${IDS[i]}`, onchange: e => {
+    return el("div", { class: "sim-hw" },
+      el("span", { class: "ro sim-id" }, IDS[i]),
+      f("Board", el("select", { "aria-label": `Board of display ${IDS[i]}`, onchange: e => {
         h.board = e.target.value;
         if (!InkSightsUI.BOARDS[h.board].wifi) { h.transport = "usb"; h.net = "off"; }
         if (sim.config[IDS[i]]) sim.config[IDS[i]].pins = null;   // the new board starts with its own default pins
         buildHw(); update(true);
-      } }, ...Object.entries(InkSightsUI.BOARDS).map(([id, b]) => el("option", { value: id, selected: id === h.board }, b.name))),
+      } }, ...Object.entries(InkSightsUI.BOARDS).map(([id, b]) => el("option", { value: id, selected: id === h.board }, b.name)))),
       // the panel type the board runs (as after a fresh upload): a type chosen on the page is dropped
-      el("select", { "aria-label": `Panel of display ${IDS[i]}`, onchange: e => {
+      f("Panel", el("select", { "aria-label": `Panel of display ${IDS[i]}`, onchange: e => {
         h.panel = Number(e.target.value);
         if (sim.config[IDS[i]]) sim.config[IDS[i]].panel = null;
         update(true);
-      } }, ...PANELS.map(p => el("option", { value: String(p.id), selected: p.id === h.panel }, InkSightsUI.panelLabel(p)))),
-      el("label", { class: "check" }, el("input", { type: "checkbox", checked: h.connected, onchange: e => { h.connected = e.target.checked; update(true); } }), "Connected"),
-      conn,
+      } }, ...PANELS.map(p => el("option", { value: String(p.id), selected: p.id === h.panel }, InkSightsUI.panelLabel(p))))),
+      f("Connection", conn),
       // what a board connected to a WiFi reports (WiFi page): network name and since when
-      el("input", { type: "text", maxlength: "32", value: h.ssid || "", disabled: !board.wifi, autocomplete: "off", style: "width: 9em",
-        "aria-label": `WiFi network of display ${IDS[i]}`, oninput: e => { h.ssid = e.target.value; update(); } }),
-      el("input", { type: "datetime-local", value: h.since || "", disabled: !board.wifi,
-        "aria-label": `Connected since, display ${IDS[i]}`, oninput: e => { h.since = e.target.value; update(); } }),
-    ];
+      f("WiFi network", el("input", { type: "text", maxlength: "32", value: h.ssid || "", disabled: !board.wifi, autocomplete: "off", style: "width: 9em",
+        "aria-label": `WiFi network of display ${IDS[i]}`, oninput: e => { h.ssid = e.target.value; update(); } })),
+      f("Connected since", el("input", { type: "datetime-local", value: h.since || "", disabled: !board.wifi,
+        "aria-label": `Connected since, display ${IDS[i]}`, oninput: e => { h.since = e.target.value; update(); } })),
+      el("label", { class: "check" }, el("input", { type: "checkbox", checked: h.connected, onchange: e => { h.connected = e.target.checked; update(true); } }), "Connected"),
+      el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!h.noData, onchange: e => { h.noData = e.target.checked; update(); } }), "No data"));
   });
-  $("hw").replaceChildren(...head, ...rows);
+  $("hw").replaceChildren(...blocks);
 }
 
 function buildDisks() {

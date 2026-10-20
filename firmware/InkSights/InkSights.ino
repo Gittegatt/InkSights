@@ -42,7 +42,7 @@
  *
  * Protocol (one line per record, fields separated by '|'):
  *   #BEGIN
- *   H|<title>|<HH:MM>|<rows>|<warn>|<rot>|<page>[|<timer>|<ringdir>|<icons>|<pct>|<fast>|<uptime>|<months>]
+ *   H|<title>|<HH:MM>|<rows>|<warn>|<rot>|<page>[|<timer>|<ringdir>|<icons>|<pct>|<fast>|<uptime>|<months>|<wifi>|<nodata>]
  *     rows   : 2 to 6 (6 only on the 4.2"), 0/missing = automatic
  *     warn   : % used from which bar and used/total are highlighted (third colour, or inverted
  *              on black/white panels); 0 = never, missing = WARN_PCT
@@ -57,6 +57,10 @@
  *              number ("2M 1W 3d", "3d 4h 5m"): minutes after the full calendar months; missing / -1 =
  *              page number
  *     months : (14th field) full calendar months of the uptime, missing = 0
+ *     wifi   : (15th field) WiFi page 0 off / 1 with symbols / 2 without (not drawn here yet)
+ *     nodata : (16th field) seconds without a fresh frame (one that differs, its time included)
+ *              before the display shows "NO DATA" in the header and "Check connection" instead
+ *              of the pages; 0 / missing = never
  *     fast   : seconds between fast refreshes (2, 5, 10, 30), 0 = off (default). Only panels
  *              that can redraw without flashing (black/white, PANELS fast): partial refresh at most this
  *              often, a full refresh on page turns and every FULL_REFRESH_MS against ghosting.
@@ -234,6 +238,7 @@ struct Head {
   int32_t  uptime;   // header: uptime of the NAS server instead of the page number, minutes after the
                      // full months, -1 = page number
   uint16_t upMonths; // full calendar months of the uptime
+  uint32_t noData;   // seconds without fresh data before "NO DATA" is shown, 0 = never
 };
 
 // System page from the S line (memset before filling: the change detection hashes the raw bytes)
@@ -361,6 +366,9 @@ bool     pending       = false;  // redraw as soon as allowed
 bool     turnPage      = false;  // show the next page with that redraw
 bool     rxRedraw      = false;  // frame being received asks for a redraw now
 bool     forceRedraw   = false;  // redraw without waiting for MIN_REFRESH_MS
+uint32_t freshHash     = 0;      // frame including its time: a new one means the NAS server is still sending
+uint32_t lastFreshMs   = 0;      // when the last fresh frame arrived
+bool     noDataShown   = false;  // "NO DATA" screen on the panel (or being drawn)
 
 // ---------------------------------------------------------------- helpers
 
@@ -531,6 +539,12 @@ uint8_t pageCount() {
 
 // Fast refresh switched on by the NAS server and possible on this panel
 bool fastMode() { return fastPanel && dataReceived && head.fast > 0; }
+
+// No fresh frame for head.noData seconds (cable, WiFi, settings page or script down): the display
+// shows "NO DATA" in the header and "Check connection" instead of the pages, until data comes again.
+// Over WiFi the settings page keeps handing out the last frame when the script stops, so only a
+// frame that differs (its time changes every minute) counts as fresh.
+bool noDataNow() { return dataReceived && head.noData > 0 && millis() - lastFreshMs >= head.noData * 1000UL; }
 
 bool canRefreshNow() {
   if (!refreshed || screenIsSplash || forceRedraw) return true;
@@ -1687,6 +1701,23 @@ void drawScreen() {
   printAt(timeX, hy, timeStr, WH, hs);
   const uint8_t pages = pageCount();
   int16_t titleEnd = timeX - 6 * hs;   // the title is cut where it would run into the page or the time
+  if (noDataShown) {
+    // "NO DATA" inverted in the place of the uptime or the page number (never into the time), and
+    // "Check connection" in the middle of the rest; the time stays: when the last data came
+    const char* nd = "NO DATA";
+    const int16_t ndW = textW(nd) * hs;
+    const int16_t right = timeX - 6 * hs - ndW;
+    const int16_t ndX = head.uptime >= 0 ? right : imin((W - ndW) / 2, right);
+    epd->fillRect(ndX - 2 * hs, hy - hs, ndW + 4 * hs, 9 * hs, WH);
+    printAt(ndX, hy, nd, RD, hs);
+    char title[17];
+    fFit(hs == 2 ? F5X2 : F5, hostName, ndX - 6 * hs - hx, title, sizeof(title));
+    printAt(hx, hy, title, WH, hs);
+    const char* msg = "Check connection";
+    const uint8_t ms = textW(msg) * 2 <= W - 8 ? 2 : 1;
+    printAt((W - textW(msg) * ms) / 2, HH + (H - HH - 7 * ms) / 2, msg, BK, ms);
+    return;
+  }
   if (head.uptime >= 0) {
     // uptime instead of the page number: right before the time, as long as at least 5 characters
     // of the title stay visible
@@ -1761,6 +1792,7 @@ void refresh() {
   const bool fast = fastMode();
   const bool full = !fast || !refreshed || screenIsSplash || forceRedraw || page != shownPage ||
                     millis() - lastFullMs >= FULL_REFRESH_MS;
+  noDataShown = noDataNow();
   if (full) epd->setFullWindow();
   else      epd->setPartialWindow(0, 0, epd->width(), epd->height());
   epd->firstPage();
@@ -1855,6 +1887,9 @@ void commitFrame() {
                             rxHead.upMonths };
   const uint32_t h = fnv1a(&rxSys, sizeof(rxSys), fnv1a(rxDisks, sizeof(Disk) * rxCount, fnv1a(hv, sizeof(hv))));
   const bool first = !dataReceived;
+  const uint32_t fh = fnv1a(rxTime, strlen(rxTime), h);   // with the time: still the same frame?
+  if (first || fh != freshHash) lastFreshMs = millis();
+  freshHash = fh;
 
   memcpy(disks, rxDisks, sizeof(Disk) * rxCount);
   diskCount = rxCount;
@@ -1943,8 +1978,8 @@ void handleLine(char* line) {
     rxActive = false;
     commitFrame();
   } else if (line[0] == 'H' && line[1] == '|') {
-    char* f[14];
-    const uint8_t n = splitFields(line, f, 14);
+    char* f[16];
+    const uint8_t n = splitFields(line, f, 16);
     if (n >= 3) {
       copyStr(rxHost, f[1], sizeof(rxHost));
       copyStr(rxTime, f[2], sizeof(rxTime));
@@ -1960,6 +1995,8 @@ void handleLine(char* line) {
       rxHead.fast    = n >= 12 ? constrain(atoi(f[11]), 0, 30) : 0;
       rxHead.uptime  = n >= 13 && isdigit((unsigned char)f[12][0]) ? (int32_t)min(atol(f[12]), 99999999L) : -1;
       rxHead.upMonths = n >= 14 ? (uint16_t)constrain(atol(f[13]), 0L, 9999L) : 0;
+      // field 15: WiFi page (not drawn by the firmware yet); field 16: seconds until "NO DATA"
+      rxHead.noData  = n >= 16 ? (uint32_t)constrain(atol(f[15]), 0L, 604800L) : 0;
     }
   } else if (line[0] == 'D' && line[1] == '|') {
     parseDisk(line);
@@ -2045,8 +2082,11 @@ void loop() {
   }
 #endif
 
-  // Automatic page turn (the redraw itself still waits for MIN_REFRESH_MS)
-  if (dataReceived && head.page > 0 && pageCount() > 1 && !turnPage &&
+  // "NO DATA" on or off again (fresh data after it: redraw even if the data are the same as before)
+  if (dataReceived && noDataNow() != noDataShown) pending = true;
+
+  // Automatic page turn (the redraw itself still waits for MIN_REFRESH_MS); not while "NO DATA"
+  if (dataReceived && !noDataShown && !noDataNow() && head.page > 0 && pageCount() > 1 && !turnPage &&
       millis() - lastPageMs >= head.page * 1000UL) {
     turnPage = true;
     pending  = true;

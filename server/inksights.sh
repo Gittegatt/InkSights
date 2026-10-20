@@ -36,7 +36,7 @@
 #
 # Frame format (one line per record, fields separated by '|'):
 #   #BEGIN
-#   H|<title>|<HH:MM>|<rows per page, 0 = auto>|<highlight from % used, 0 = never>|<quarter turns 0-3>|<page turn s, 0 = off>[|<timer 0 badge / 1 ring>|<ring direction 0 cw / 1 ccw>|<symbols 1 on / 0 off>|<details in the bar 0 none / 1 percentage / 2 used capacity>|<fast refresh s, 0 = off>|<uptime: minutes after the full months, -1 = page number>|<uptime: full calendar months>]
+#   H|<title>|<HH:MM>|<rows per page, 0 = auto>|<highlight from % used, 0 = never>|<quarter turns 0-3>|<page turn s, 0 = off>[|<timer 0 badge / 1 ring>|<ring direction 0 cw / 1 ccw>|<symbols 1 on / 0 off>|<details in the bar 0 none / 1 percentage / 2 used capacity>|<fast refresh s, 0 = off>|<uptime: minutes after the full months, -1 = page number>|<uptime: full calendar months>|<WiFi page 0 off / 1 symbols / 2 without>|<s without a fresh frame before "NO DATA", 0 = never>]
 #   D|<disk>|<pool>|<used>|<total>|<pct>|<idle boxes>|<boxes>|<state A/S/N/?/- (timer off, flash drives keep N)>|<s until spindown, -1 = unknown>|<timeout s>
 #   S|<components>|<cpu %>|<cpu °C>|<cpu W>|<RAM used MiB>|<ZFS cache MiB>|<RAM total MiB>|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<NVMe °C,...>|<SSD °C,...>
 #                              (only with the system page; components: C cpu, R ram, N network, V NVMe,
@@ -170,6 +170,10 @@ if [ "$INTERVAL_SET" = false ] && [[ -r "$CONF_FILE" ]]; then
     [[ "${conf_interval:-}" =~ ^[0-9]{1,3}$ ]] && (( 10#$conf_interval >= 1 && 10#$conf_interval <= 120 )) && INTERVAL=$((10#$conf_interval))
 fi
 [[ "$INTERVAL" =~ ^[1-9][0-9]*$ ]] || INTERVAL=10
+# A display that gets no fresh frame for this long shows "NO DATA": two full updates missed plus
+# 2 minutes, at least 10 minutes (same rule as noDataSecs() in inksights-render.js)
+NODATA_SECS=$(( INTERVAL * 120 + 120 ))
+(( NODATA_SECS < 600 )) && NODATA_SECS=600
 
 STATE_FILE="$DATA_DIR/state.json"
 REFRESH_FILE="$DATA_DIR/refresh-request"
@@ -940,7 +944,7 @@ build_frame() {
     local title="$1" types=",$2," maxb="$3" rows="$4" warn="$7" turns=$(( ${8:-0} / 90 )) pagesec="${9:-$DEFAULT_PAGE}"
     local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}"
     local d steps idle tmo poll st remain tsec head i
-    local -a sv defs=(0 0 1 0 0 -1 0)
+    local -a sv defs=(0 0 1 0 0 -1 0 0 0)
     order_disks "$5" "$6"
     local hm
     printf -v hm '%(%H:%M)T' -1
@@ -948,10 +952,12 @@ build_frame() {
     IFS=, read -ra sv <<< "$style"
     # field 11: details in the bar 0 none / 1 percentage / 2 used capacity (style: details on, capacity)
     (( sv[3] == 1 && ${sv[4]:-0} == 1 )) && sv[3]=2
-    sv=("${sv[@]:0:4}" "$fast" -1 0)
+    # field 15: WiFi page (not sent yet, 0 = off); field 16: seconds without a fresh frame before
+    # the display shows "NO DATA"
+    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$NODATA_SECS")
     # header: uptime instead of the page number (minutes after the full months, months)
     [[ "$header" == 1 && "$UP_REST" =~ ^[0-9]+$ ]] && sv[5]=$UP_REST sv[6]=$UP_MONTHS
-    local n=7
+    local n=9
     while (( n > 0 )) && [[ "${sv[n-1]}" == "${defs[n-1]}" ]]; do n=$((n - 1)); done
     for (( i = 0; i < n; i++ )); do head+="|${sv[i]}"; done
     FRAME=("#BEGIN" "$head")

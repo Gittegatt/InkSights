@@ -440,6 +440,18 @@
     fb.text(timeX, hy, m.time, WH, hs);
     const pages = pageCount(m.disks.length, fb.h, wanted, W, !!m.sys, !!m.wifiPage);
     let titleEnd = timeX - 6 * hs;   // the title is cut where it would run into the page or the time
+    if (m.noData) {
+      // "NO DATA" inverted in the place of the uptime or the page number (never into the time), and
+      // "Check connection" in the middle of the rest; the time stays: when the last data came
+      const nd = "NO DATA", ndW = textW(nd) * hs, right = timeX - 6 * hs - ndW;
+      const ndX = m.uptime >= 0 ? right : Math.min(Math.trunc((W - ndW) / 2), right);
+      fb.fillRect(ndX - 2 * hs, hy - hs, ndW + 4 * hs, 9 * hs, WH);
+      fb.text(ndX, hy, nd, m.mono ? BK : RD, hs);
+      fb.text(hx, hy, fFit(hs === 2 ? "5x7x2" : "5x7", m.host, ndX - 6 * hs - hx), WH, hs);
+      const msg = "Check connection", ms = textW(msg) * 2 <= W - 8 ? 2 : 1;
+      fb.text(Math.trunc((W - textW(msg) * ms) / 2), HH + Math.trunc((fb.h - HH - 7 * ms) / 2), msg, BK, ms);
+      return;
+    }
     if (m.uptime >= 0) {
       // uptime instead of the page number: right before the time, as long as at least 5 characters
       // of the title stay visible
@@ -624,13 +636,15 @@
       { icon: "wifi", label: "WiFi", info: sta ? wifi.ssid || "--" : ap ? `AP ${wifi.ap || ""}`.trim() : "not connected", value: "", bar: null, inline: true },
       { icon: "net", label: "IP", info: sta ? wifi.ip || "--" : ap ? "192.168.4.1" : "--", value: "", bar: null, inline: true },
       // duration in the units of the header uptime, as many as fit
-      { icon: "clock", label: "Online", info: "--", dur: sta && wifi.online >= 0 ? wifi.online : -1, value: "", bar: null, inline: true },
+      { icon: "clock", label: "Connected", info: "--", dur: sta && wifi.online >= 0 ? wifi.online : -1, value: "", bar: null, inline: true },
     ];
   }
-  function drawWifi(fb, wifi, HH, wide, stacked, icons) { drawRows(fb, wifiRows(wifi), HH, wide, stacked, icons); }
+  // labels: nothing stands beside them on the WiFi page, so they may take a third of the width
+  // (upright the whole first line) and "Connected" is not cut
+  function drawWifi(fb, wifi, HH, wide, stacked, icons) { drawRows(fb, wifiRows(wifi), HH, wide, stacked, icons, true); }
 
-  // Rows of the system page and the WiFi page
-  function drawRows(fb, rows, HH, wide, stacked, icons) {
+  // Rows of the system page and the WiFi page; longLabels: see drawWifi
+  function drawRows(fb, rows, HH, wide, stacked, icons, longLabels = false) {
     const W = fb.w, n = rows.length;
     if (!n) { fb.text(wide ? 4 : 2, HH + 6, "No values", BK, wide ? 2 : 1); return; }
     const rowH = Math.trunc(rowsArea(fb.h, W) / n);
@@ -639,7 +653,8 @@
     const icon = icons ? (wide ? Math.max(21, (sc.bar + 3) | 1) : (sc.bar + 3) | 1) : 0;
     const ix0 = wide ? 4 : 2, x0 = icon ? ix0 + icon + (icon >= 17 ? 5 : 3) : ix0, end = W - ix0;
     const colGap = fAsc(sc.dev) >= 12 ? 8 : 6;
-    for (const r of rows) r.label = fFit(sc.dev, r.label, stacked ? Math.trunc((end - x0) / 2) : Math.trunc(W / 4));
+    const labelMax = stacked ? (longLabels ? end - x0 : Math.trunc((end - x0) / 2)) : Math.trunc(W / (longLabels ? 3 : 4));
+    for (const r of rows) r.label = fFit(sc.dev, r.label, labelMax);
     const labelW = Math.max(...rows.map(r => fW(sc.dev, r.label)));
     const lineAsc = stacked ? Math.max(fAsc(sc.dev), fAsc(sc.cap)) : Math.max(fAsc(sc.dev), fAsc(sc.pool), fAsc(sc.cap));
     const line2 = stacked ? fAsc(sc.pool) + 3 : 0;
@@ -750,7 +765,7 @@
       if (!rx) continue;
       if (line === "#END") { done = rx; rx = null; continue; }
       if (line.startsWith("H|")) {
-        const f = splitFields(line, 15);
+        const f = splitFields(line, 16);
         if (f.length >= 3) {
           rx.host = f[1].slice(0, 16); rx.time = f[2].slice(0, 5);
           rx.rows = f.length >= 4 ? clamp(atoi(f[3]), 0, 6) : 0;
@@ -765,6 +780,7 @@
           const wp = f.length >= 15 ? clamp(atoi(f[14]), 0, 2) : 0;       // WiFi page after the disk pages:
           rx.wifiPage = wp > 0 ? 1 : 0;                                       // 0 off, 1 with symbols, 2 without
           rx.wifiIcons = wp === 1;
+          rx.noDataSecs = f.length >= 16 ? clamp(atoi(f[15]), 0, 604800) : 0;   // seconds until "NO DATA", 0 = never
         }
       } else if (line.startsWith("S|")) {
         // system page: components (C R N V S) | cpu % | cpu °C | cpu W | RAM used MiB | ZFS cache MiB |
@@ -795,6 +811,10 @@
     }
     return done;
   }
+
+  // Seconds without a fresh frame before a display shows "NO DATA": two full updates missed plus
+  // 2 minutes, at least 10 minutes (like NODATA_SECS in inksights.sh); interval in minutes
+  const noDataSecs = interval => Math.max(600, interval * 120 + 120);
 
   // Bytes -> 3.62T / 219G, like hsize() in inksights.sh
   function hsize(b) {
@@ -833,13 +853,14 @@
   // system: state.system (inksights.sh), for the system page (s.sys = components: cpu, ram, net,
   // nvme, ssd; none = no system page; s.net = interface,
   // "" = the one with the default route; s.zfs = 0: ZFS cache hidden). fast: the panel can do fast refreshes (s.fast seconds).
-  function buildFrame(disks, s, title, time, system = null, fast = false) {
+  function buildFrame(disks, s, title, time, system = null, fast = false, interval = 0) {
     // H fields 13 and 14: uptime (header shows it instead of the page number) as minutes after the
     // full calendar months, and the months; -1 = page number
     const up = s.headerUp && system && Number.isInteger(system.upRest) && system.upRest >= 0;
     const extra = [s.timer || 0, s.ringDir || 0, s.icons === 0 ? 0 : 1, s.pctBar ? (s.barCap ? 2 : 1) : 0, fast ? s.fast || 0 : 0,
-      up ? system.upRest : -1, up ? system.upMonths || 0 : 0, s.showWifi ? (s.wifiIcons === 0 ? 2 : 1) : 0];   // H field 15: WiFi page
-    const defaults = [0, 0, 1, 0, 0, -1, 0, 0];
+      up ? system.upRest : -1, up ? system.upMonths || 0 : 0, s.showWifi ? (s.wifiIcons === 0 ? 2 : 1) : 0,   // H field 15: WiFi page
+      interval > 0 ? noDataSecs(interval) : 0];   // H field 16: seconds until "NO DATA"
+    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0];
     while (extra.length && extra[extra.length - 1] === defaults[extra.length - 1]) extra.pop();
     const head = [`H|${title}|${time}|${s.rows || 0}|${s.warn ?? L.WARN_PCT}|${Math.trunc((s.rot || 0) / 90)}|${s.page ?? 600}`, ...extra].join("|");
     const lines = ["#BEGIN", head];
@@ -902,5 +923,5 @@
   // Largest whole-number scale at which fbWidth display pixels fit into cssWidth
   const fitScale = (cssWidth, fbWidth) => Math.max(1, Math.floor(cssWidth * (window.devicePixelRatio || 1) / fbWidth));
 
-  window.EPD = { WH, BK, RD, Fb, drawScreen, parseFrame, buildFrame, systemLine, uptimeSplit, orderDisks, pageCount, rowsPerPage, hsize, blit, fitScale };
+  window.EPD = { WH, BK, RD, Fb, drawScreen, parseFrame, buildFrame, noDataSecs, systemLine, uptimeSplit, orderDisks, pageCount, rowsPerPage, hsize, blit, fitScale };
 })();
