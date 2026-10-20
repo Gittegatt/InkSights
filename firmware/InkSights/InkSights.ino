@@ -42,7 +42,7 @@
  *
  * Protocol (one line per record, fields separated by '|'):
  *   #BEGIN
- *   H|<title>|<HH:MM>|<rows>|<warn>|<rot>|<page>[|<timer>|<ringdir>|<icons>|<pct>|<fast>|<uptime>|<months>|<wifi>|<nodata>]
+ *   H|<title>|<HH:MM>|<rows>|<warn>|<rot>|<page>[|<timer>|<ringdir>|<icons>|<pct>|<fast>|<uptime>|<months>|<wifi>|<nodata>|<layout>|<disks>|<netbar>|<neticons>|<temps>|<stby>|<headinv>]
  *     rows   : 2 to 6 (6 only on the 4.2"), 0/missing = automatic
  *     warn   : % used from which bar and used/total are highlighted (third colour, or inverted
  *              on black/white panels); 0 = never, missing = WARN_PCT
@@ -61,22 +61,50 @@
  *     nodata : (16th field) seconds without a fresh frame (one that differs, its time included)
  *              before the display shows "NO DATA" in the header and "Check connection" instead
  *              of the pages; 0 / missing = never
+ *     layout : (17th field) header left, middle, right: T title, P page number, U uptime, C time,
+ *              - nothing; lower case = that place highlighted (black on white); T, P, U, C each at
+ *              most once; "---" = no header line (the rows get its room); missing / invalid = TCP
+ *              (TCU when the uptime field is set). "NO DATA" takes the place of P, else U, else a
+ *              free one (the middle first), else the middle, and brings the header back.
+ *     disks  : (18th field) disk pages 1 on (default) / 0 off; with no system page and no network
+ *              page either the display shows "Nothing to ink"
+ *     netbar : (19th field) network pages: details in the bar 0 none / 1 percentage of the link /
+ *              2 link speed (e.g. 1G)
+ *     neticons: (20th field) network pages: symbols 1 on (default) / 0 off
+ *     temps  : (21st field) drive temperatures in the rows 1 on / 0 off (default); the D lines then
+ *              carry the temperature as their 12th field
+ *     stby   : (22nd field) asleep hard disks (temperature -2) 1 = "STBY", 0 = "--" (default),
+ *              in the drive rows and the HDD row of the system page
+ *     headinv: (23rd field) header 1 = inverted (white with black text and a black line at the
+ *              bottom, highlighted places black with white text), 0 = black with white text (default)
+ *   N|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<wireless 1/0>|<state U / L / D>
+ *                              (optional, at most 8) network pages after the disk pages, one row per
+ *                              interface like the network row of the system page: WiFi symbol when
+ *                              wireless; L no link / D down: "no link" / "down" in the bar's place.
+ *                              The S line's letters may add W (wireless) and L / D for its interface.
  *     fast   : seconds between fast refreshes (2, 5, 10, 30), 0 = off (default). Only panels
  *              that can redraw without flashing (black/white, PANELS fast): partial refresh at most this
  *              often, a full refresh on page turns and every FULL_REFRESH_MS against ghosting.
  *              Over WiFi the board then also fetches its frame this often.
- *   D|<device>|<pool>|<used>|<total>|<pct>|<idle>|<boxes>|<state>[|<remain>|<timeout>]
+ *   D|<device>|<pool>|<used>|<total>|<pct>|<idle>|<boxes>|<state>[|<remain>|<timeout>[|<°C>]]
  *   #END
- *     pct     : 0..100, -1 = no pool / nothing mounted (total = disk size or "-")
+ *     pct     : 0..100, also with 1 or 2 decimals ("35.47", cut) for the text in the bar;
+ *               -1 = no pool / nothing mounted (total = disk size or "-")
  *     idle, boxes : old spindown box count (still sent, not drawn any more)
  *     state   : A = spinning, S = standby, N = SSD/NVMe, ? = unknown,
  *               - = timer off for this display (HDDs only, no timer at the right)
  *     remain  : seconds until spindown, -1 = timer not running (no fresh status)
  *     timeout : spindown timeout in seconds
+ *     °C      : drive temperature (only with the temps field), -1 = unknown: "--",
+ *               -2 = asleep hard disk: "--", or "STBY" with the stby field
  *   S|<rows>|<cpu %>|<cpu C>|<cpu W>|<RAM used MiB>|<ZFS cache MiB>|<RAM total MiB>|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<NVMe C,...>|<SSD C,...>
  *                              (optional) system page, shown as page 1 before the disk pages; rows:
- *                              C cpu, R ram, N network, V NVMe, S SSD temperatures, I = symbols on;
+ *                              C cpu, R ram, N network, V NVMe, S SSD temperatures, H HDD
+ *                              temperatures (from the T line), I = symbols on;
  *                              -1 = unknown, "-" = none, at most 6 temperatures each
+ *   T|<HDD C,...>              (optional, after the S line) HDD temperatures of the system page,
+ *                              -1 = unknown ("--"), -2 = asleep ("--" or "STBY", like the D lines);
+ *                              only when drive-temp-export runs on the NAS server
  *   P|<cs>|<dc>|<rst>|<busy>[|<panel>]
  *                              (optional) pin numbers of the board (D numbers on the SAMD21, GPIO
  *                              numbers on the ESP32 boards), rst/busy -1 = not connected, and
@@ -92,7 +120,10 @@
  *   Answer: "OK disks=<n> page=<p>/<n> refresh=now|later|no" (+ " pins=saved restart")
  *   "PING" -> "PONG InkSights id=<chip id> size=<w>x<h> colors=<2|3> rows=<n>
  *              pins=<cs>,<dc>,<rst>,<busy> panel=<1-5> board=<board id> wifi=<0|1> fw=<version>
- *              [fast=1] [net=<sta|ap|off> ip=<address>]"   (fast=1: the panel can do fast refreshes)
+ *              [fast=1] [net=<sta|ap|off> ip=<address> ssid=<hex> host=<hex> server=<hex> ap=<1|0>
+ *              apssid=<hex> apdelay=<s> pass=<1|0>]"   (fast=1: the panel can do fast refreshes; WiFi
+ *              boards: the stored WiFi settings, texts UTF-8 hex encoded and only when set, never the
+ *              passwords: pass=1 only says one is stored)
  *     The chip ID differs on every board. The NAS server uses it to tell which display
  *     gets which settings. It is shown on the start screen after power-up.
  *
@@ -216,6 +247,8 @@ struct Lay {
   int16_t x0, devX, devW, lineAsc, line2, line3, colGap, barDy, barH, boxX, textEnd, barW;
   int16_t iconBox, iconDy, timerDy, rowDy, ringW, contentH;
   bool    stacked, capLine, hasG, ccw, deepChip, boldDots, shineTurned, greyToRim, greyWider, capBelow;
+  bool    driveTemp;       // temperatures in the rows (H field 21)
+  bool    stby;            // asleep hard disks "STBY" instead of "--" (H field 22)
   uint8_t timer, pctBar;   // pctBar: details in the bar, 0 none, 1 percentage, 2 used capacity
   Geo     g;
 };
@@ -225,10 +258,13 @@ struct Disk {
   char    pool[16];
   char    used[8];
   char    total[8];
+  char    pctTxt[7]; // the percentage as sent, up to 2 decimals ("35.47"), cut not rounded
   int8_t  pct;
   char    state;
   int32_t remain;    // seconds until spindown, -1 = timer not running
   int32_t timeout;   // spindown timeout in seconds
+  int16_t temp;      // °C, -1 = unknown, -2 = asleep (only with hasTemp: the D line carries it)
+  bool    hasTemp;
 };
 
 // Settings of the screen from the H line
@@ -239,24 +275,41 @@ struct Head {
                      // full months, -1 = page number
   uint16_t upMonths; // full calendar months of the uptime
   uint32_t noData;   // seconds without fresh data before "NO DATA" is shown, 0 = never
+  char     layout[4];// header left, middle, right: T title, P page, U uptime, C time, - nothing (lower case = highlighted)
+  uint8_t  diskPages;// 1 = disk pages on, 0 = off (with nothing else on: "Nothing to ink")
+  uint8_t  netBar;   // network pages: details in the bar 0 none, 1 percentage of the link, 2 link speed
+  uint8_t  netIcons; // network pages: symbols 1 on / 0 off
+  uint8_t  driveTemp;// temperatures in the drive rows 1 on / 0 off
+  uint8_t  stby;     // asleep hard disks: 1 "STBY", 0 "--"
+  uint8_t  headInv;  // header 1 = inverted (white with black text), 0 = black with white text
 };
 
 // System page from the S line (memset before filling: the change detection hashes the raw bytes)
 struct SysInfo {
   bool    on;          // the frame has a system page
   bool    icons;       // symbols left of the rows
-  char    parts[6];    // rows: C cpu, R ram, N network, V NVMe, S SSD
+  char    parts[8];    // rows: C cpu, R ram, N network, V NVMe, S SSD, H HDD
   char    iface[16];
   int32_t cpu, temp, power, ramUsed, ramArc, ramTotal, rx, tx, link;   // -1 = unknown
-  int16_t nvme[6], ssd[6];
-  uint8_t nNvme, nSsd;
+  int16_t nvme[6], ssd[6], hdd[6];   // hdd: from the T line, -1 = asleep
+  uint8_t nNvme, nSsd, nHdd;
+  bool    wifiNet;     // the interface is wireless (letter W): WiFi symbol
+  char    netState;    // U up, L no link, D down (letters L / D)
 };
 
-// One row of the system page
-enum SysIcon : uint8_t { SI_CPU, SI_RAM, SI_NET, SI_CHIP };
+// One interface of the network pages (N line; memset before filling: hashed)
+struct NetIf {
+  char    name[16];
+  int32_t rx, tx, link;   // KiB/s, KiB/s, Mb/s; -1 = unknown / none
+  bool    wifi;           // wireless
+  char    state;          // U up, L no link, D down
+};
+
+// One row of the system page and the network pages
+enum SysIcon : uint8_t { SI_CPU, SI_RAM, SI_NET, SI_CHIP, SI_WIFI, SI_HDD };
 struct SysRow {
   SysIcon icon;
-  char    label[16], info[40], value[24];
+  char    label[16], info[40], value[24], barText[8];
   bool    hasBar, pair, inl;   // pair: down and up belong together; inl: temperatures, no bar
   int16_t p1, p2;              // bar: black up to p1 %, grey up to p2 %
 };
@@ -333,11 +386,16 @@ Disk    rxDisks[MAX_DISKS];    // what is being received
 uint8_t diskCount  = 0;
 uint8_t rxCount    = 0;
 bool    rxActive   = false;
-const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1 };
+const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0 };
 Head    head   = HEAD_DEFAULT;
 Head    rxHead = HEAD_DEFAULT;
 SysInfo sys;                   // system page shown
 SysInfo rxSys;                 // system page being received
+const uint8_t MAX_NETS = 8;    // interfaces of the network pages (N lines)
+NetIf   nets[MAX_NETS];        // shown
+NetIf   rxNets[MAX_NETS];      // being received
+uint8_t netCount   = 0;
+uint8_t rxNetCount = 0;
 uint32_t lastPageMs = 0;        // when the page was last turned
 
 char chipId[9]    = "";
@@ -403,12 +461,12 @@ void printAt(int16_t x, int16_t y, const char* s, uint16_t color, uint8_t size =
   epd->setTextSize(1);
 }
 
-void printClipped(int16_t x, int16_t y, const char* s, int16_t maxChars, uint16_t color) {
+void printClipped(int16_t x, int16_t y, const char* s, int16_t maxChars, uint16_t color, uint8_t size = 1) {
   if (maxChars <= 0) return;
-  char buf[24];
+  char buf[40];
   copyStr(buf, s, sizeof(buf));
   if (maxChars < (int16_t)strlen(buf)) buf[maxChars] = '\0';
-  printAt(x, y, buf, color);
+  printAt(x, y, buf, color, size);
 }
 
 uint32_t fnv1a(const void* data, size_t len, uint32_t h = 2166136261UL) {
@@ -518,7 +576,7 @@ uint8_t currentRotation() { return (ROTATION + head.rot) % 4; }
 bool isBig(int16_t w, int16_t h) { return imax(w, h) >= 360; }
 // Upright panels (turned by 90°, about 100 px wide): pool and used/total in a second line
 bool isUpright(int16_t w) { return w > 0 && w < 150; }
-int16_t headerH(int16_t w, int16_t h) { return isBig(w, h) ? 20 : HEADER_H; }
+int16_t headerH(int16_t w, int16_t h) { return !headerOn() ? 0 : isBig(w, h) ? 20 : HEADER_H; }   // 0 = header off, the rows get its room
 
 int16_t rowsArea() { return epd->height() - headerH(epd->width(), epd->height()) - 1; }
 
@@ -531,14 +589,29 @@ uint8_t rowsPerPage() {
 
 int16_t rowHeight() { return rowsArea() / rowsPerPage(); }
 
-// The system page (S line) comes first, before the disk pages; without disks it is the only page
+// Pages: the system page (S line) first, then the disk pages and the network pages (N lines, as
+// many rows per page as the disk pages); without disks the others are the only pages
 uint8_t pageCount() {
   const uint8_t rows = rowsPerPage();
-  return (sys.on ? 1 : 0) + (diskCount == 0 ? (sys.on ? 0 : 1) : (diskCount + rows - 1) / rows);
+  return (sys.on ? 1 : 0) + (netCount + rows - 1) / rows +
+         (diskCount == 0 ? (sys.on || netCount ? 0 : 1) : (diskCount + rows - 1) / rows);
 }
 
 // Fast refresh switched on by the NAS server and possible on this panel
 bool fastMode() { return fastPanel && dataReceived && head.fast > 0; }
+
+// Header layout from the H line: three of T, I, C, '-', each of T, I, C at most once
+bool layoutValid(const char* s) {
+  if (strlen(s) != 3) return false;
+  for (uint8_t i = 0; i < 3; i++) {
+    if (!strchr("TPUCtpuc-", s[i])) return false;
+    for (uint8_t j = 0; j < i; j++) if (s[i] != '-' && toupper(s[i]) == toupper(s[j])) return false;
+  }
+  return true;
+}
+
+// Header line shown: not switched off (layout "---"), or "NO DATA" must be shown
+bool headerOn() { return noDataShown || strcmp(head.layout, "---") != 0; }
 
 // No fresh frame for head.noData seconds (cable, WiFi, settings page or script down): the display
 // shows "NO DATA" in the header and "Check connection" instead of the pages, until data comes again.
@@ -714,7 +787,17 @@ void netLine(char* buf, size_t size) {
   else snprintf(buf, size, "off");
 }
 
-// Hex text <-> string (W line: any character, no '|' trouble)
+// Hex text <-> string (W line, ssid= in PONG and the WiFi query: any character, no '|' trouble)
+String toHex(const String& s) {
+  static const char digits[] = "0123456789abcdef";
+  String out;
+  for (size_t i = 0; i < s.length(); i++) {
+    const uint8_t b = (uint8_t)s[i];
+    out += digits[b >> 4];
+    out += digits[b & 15];
+  }
+  return out;
+}
 bool fromHex(const char* h, String& out) {
   out = "";
   if (strcmp(h, "-") == 0) return true;
@@ -946,12 +1029,14 @@ void pollServer() {
   lastPollMs = millis();
   char pinsBuf[24];
   snprintf(pinsBuf, sizeof(pinsBuf), "%d,%d,%d,%d", pins.cs, pins.dc, pins.rst, pins.busy);
+  String ssidArg;   // the stored WiFi network (hex), for the WiFi page of the settings page
+  if (!net.ssid.isEmpty()) ssidArg = String("&ssid=") + toHex(net.ssid);
   String url = net.server;
   while (url.endsWith("/")) url.remove(url.length() - 1);
   url += "/api/frame?id=" + String(chipId) + "&size=" + String(epd->width()) + "x" + String(epd->height()) +
          "&colors=" + String(hasColor ? 3 : 2) + "&rows=" + String(rowsPerPage()) + "&pins=" + urlEncode(pinsBuf) +
          "&panel=" + String(pins.panel) + "&board=" BOARD_ID "&fw=" + String(FW_VERSION) + (fastPanel ? "&fast=1" : "") +
-         "&ip=" + netIp() +
+         "&ip=" + netIp() + ssidArg +
          "&answer=" + urlEncode(lastAnswer);
   HTTPClient http;
   http.setTimeout(8000);
@@ -1040,7 +1125,12 @@ void drawBar(int16_t x, int16_t y, int16_t w, int16_t h, int pct, bool warn, con
   if (pct > 0 && uw == 0) uw = 1;
   if (uw > 0) epd->fillRect(x + 1, y + 1, uw, ih, warn && hasColor ? RD : BK);
   fillRaster(x + 1 + uw, y + 1, iw - uw, ih);  // free part
+  barText(x, y, w, h, uw, text, pctSize);
+}
+// Text centred in a bar of w x h with uw px used (see drawBar); also the network bars
+void barText(int16_t x, int16_t y, int16_t w, int16_t h, int16_t uw, const char* text, int16_t pctSize) {
   if (!text || !*text) return;
+  const int16_t iw = w - 2, ih = h - 2;
   const char* t = text;
   int16_t z = pctSize;
   while (z > 1 && (ih < 7 * z + 2 || textW(t) * z > iw - 2)) z--;   // double size: 1 px air above and below
@@ -1287,6 +1377,17 @@ Lay rowLayout(int16_t W, int16_t rowH, const Scale& sc, int16_t x0, int16_t icon
 // Text at the top right of a disk row: used/total; only the total when the used capacity stands in
 // the bar (saves room). The bar shows it only if it fits (like drawBar, at least in 5x7).
 bool barTextFits(int16_t w, int16_t h, const char* t) { return h - 2 >= 7 && textW(t) <= w - 4; }
+// Percentage in the bar: as sent ("35.47%"), with fewer decimals when that is too wide (like
+// pctLabel() in inksights-render.js)
+void pctLabel(const Disk& d, const Lay& lay, char* out, size_t size) {
+  const char* dot = strchr(d.pctTxt, '.');
+  const size_t len = strlen(d.pctTxt), cuts[3] = { len, dot ? (size_t)(dot - d.pctTxt) + 2 : len, dot ? (size_t)(dot - d.pctTxt) : len };
+  for (uint8_t i = 0; i < 3; i++) {
+    const size_t n = cuts[i] < len ? cuts[i] : len;
+    snprintf(out, size, "%.*s%%", (int)n, d.pctTxt);
+    if (barTextFits(lay.barW, lay.barH, out)) return;
+  }
+}
 void capText(const Disk& d, const Lay& lay, uint8_t pctBar, char* out, size_t size) {
   out[0] = '\0';
   if (d.pct < 0) {   // not mounted: the disk size
@@ -1333,11 +1434,46 @@ void drawDisk(const Disk& d, int16_t y, const Lay& lay) {
   const int16_t lastBase = base + lay.line2 + lay.line3;
   const int16_t devBase = lay.stacked && d.pct < 0 ? lastBase : base;
   fText(lay.sc.dev, lay.devX, devBase - fAsc(lay.sc.dev), d.dev, BK);
+  // Drive temperature (H field 21; "--" = unknown, asleep "--" or "STBY" by H field 22), ending at the right edge: landscape
+  // in the first text line above the timer column (two-line rows: beside the device name); without
+  // a timer column used/total moves left before it. Upright in the pool line (the pool gets
+  // shorter), in the first line when used/total stands in the pool line. In the row font, else
+  // 5x7, else without the "C"; nothing when that does not fit either. Like drawDisk() in
+  // inksights-render.js.
+  char temp[8] = "";
+  if (lay.driveTemp && d.hasTemp) tempText(d.temp, lay.stby, temp, sizeof(temp));
+  const int16_t tEnd = epd->width() - lay.x0;
+  char tStr[8] = "";
+  Font tFont = F5;
+  // the longest temperature text that fits into room px: tStr / tFont, false when none
+  auto tPick = [&](int16_t room) -> bool {
+    char shortT[8];
+    copyStr(shortT, temp, sizeof(shortT));
+    const size_t n = strlen(shortT);
+    if (n > 2 && shortT[n - 1] == 'C') shortT[n - 1] = '\0';   // "38°C" -> "38°"
+    const char* variants[2] = { temp, shortT };
+    const uint8_t count = d.temp < 0 ? 1 : 2;   // "--" / "STBY" have no short form
+    for (uint8_t v = 0; v < count; v++)
+      for (uint8_t k = 0; k < 2; k++) {
+        const Font f = k == 0 ? lay.sc.pool : F5;
+        if (fW(f, variants[v]) <= room) { copyStr(tStr, variants[v], sizeof(tStr)); tFont = f; return true; }
+      }
+    return false;
+  };
+  int16_t capEnd = lay.textEnd;
+  bool tOn = false;
+  uint8_t tLine = 0;   // 0 first text line, 1 pool line
+  if (temp[0] && !lay.stacked && !lay.hasG && !lay.capBelow) {   // no timer column: used/total gives way
+    copyStr(tStr, temp, sizeof(tStr));
+    tFont = lay.sc.pool;
+    tOn = true;
+    capEnd = tEnd - fW(tFont, tStr) - lay.colGap;
+  }
   char cap[20];
   capText(d, lay, lay.pctBar, cap, sizeof(cap));
   Font capFont = lay.sc.cap;
-  if (!lay.stacked && lay.textEnd - fW(capFont, cap) < lay.devX + lay.devW + 4) capFont = F5;   // does not fit beside the name
-  const int16_t capW = fW(capFont, cap), capX = lay.textEnd - capW;
+  if (!lay.stacked && capEnd - fW(capFont, cap) < lay.devX + lay.devW + 4) capFont = F5;   // does not fit beside the name
+  const int16_t capW = fW(capFont, cap), capX = capEnd - capW;
   // upright: used/total beside the device; only if it does not fit there, in the pool line
   const bool capLow = lay.stacked && (lay.capBelow || d.pct < 0 || capX < lay.devX + fW(lay.sc.dev, d.dev) + 4);
   // three lines (upright): used/total in its own last line, the pool keeps the whole second line
@@ -1351,15 +1487,23 @@ void drawDisk(const Disk& d, int16_t y, const Lay& lay) {
   }
   const int16_t poolX = lay.stacked ? lay.devX : lay.devX + lay.devW + lay.colGap;
   const int16_t poolBase = lay.stacked ? base + lay.line2 : base;
+  if (temp[0] && !tOn) {
+    if (lay.stacked && !(capLow && !lay.capLine)) { tLine = 1; tOn = tPick(tEnd - poolX); }   // pool line
+    else if (lay.stacked || lay.capBelow) tOn = tPick(tEnd - (d.pct < 0 && lay.stacked ? lay.devX : lay.devX + fW(lay.sc.dev, d.dev) + 4));
+    else tOn = tPick(tEnd - (capEnd + 4));   // above the timer column, after used/total
+  }
+  const int16_t tX = tOn ? tEnd - fW(tFont, tStr) : tEnd;
   char pool[16];
   // no pool and nothing mounted: nothing in the pool column, the disk size at the right and
   // "not mounted" in the place of the bar
+  const int16_t poolEnd = lay.stacked && (!capLow || lay.capLine) ? (tOn && tLine == 1 ? tX - lay.colGap : lay.textEnd) : capX - lay.colGap;
   if (d.pct < 0) pool[0] = '\0';
-  else fFit(lay.sc.pool, d.pool, (lay.stacked && (!capLow || lay.capLine) ? lay.textEnd : capX - lay.colGap) - poolX, pool, sizeof(pool));
+  else fFit(lay.sc.pool, d.pool, poolEnd - poolX, pool, sizeof(pool));
   if (pool[0]) fText(lay.sc.pool, poolX, poolBase - fAsc(lay.sc.pool), pool, BK);
+  if (tOn) fText(tFont, tX, (tLine == 1 ? base + lay.line2 : base) - fAsc(tFont), tStr, BK);
   const int16_t by = y + lay.barDy;
   char barText[8] = "";   // details in the bar: percentage or used capacity
-  if (lay.pctBar == 1) snprintf(barText, sizeof(barText), "%d%%", d.pct);
+  if (lay.pctBar == 1) pctLabel(d, lay, barText, sizeof(barText));
   else if (lay.pctBar == 2) copyStr(barText, d.used, sizeof(barText));
   if (d.pct >= 0) drawBar(lay.devX, by, lay.barW, lay.barH, d.pct, warn, lay.pctBar ? barText : nullptr, lay.sc.cap == F5X2 ? 2 : 1);
   else {   // in the size of the row text (5x7 when that is much taller than the bar), centred on the bar
@@ -1419,14 +1563,50 @@ void mib(int32_t v, char* out, size_t size) { hsize((uint64_t)(v < 0 ? 0 : v) * 
 int16_t pct100(int64_t v) { return v > 100 ? 100 : v < 0 ? 0 : (int16_t)v; }
 int16_t sysPct(int64_t a, int64_t b) { return b > 0 && a >= 0 ? pct100(a * 100 / b) : -1; }
 
+// Drive temperature text: °C, asleep (-2) "STBY" when wanted (H field 22), else "--"
+void tempText(int16_t t, bool stby, char* out, size_t size) {
+  if (t >= 0) snprintf(out, size, "%d%cC", t, SYM_DEG);
+  else copyStr(out, t == -2 && stby ? "STBY" : "--", size);
+}
+
 void tempList(const int16_t* t, uint8_t n, char* out, size_t size) {
   out[0] = '\0';
   for (uint8_t i = 0; i < n; i++) {
     char one[8];
-    if (t[i] >= 0) snprintf(one, sizeof(one), "%d%cC", t[i], SYM_DEG); else copyStr(one, "--", sizeof(one));
+    tempText(t[i], head.stby == 1, one, sizeof(one));
     if (i) strncat(out, " ", size - strlen(out) - 1);
     strncat(out, one, size - strlen(out) - 1);
   }
+}
+
+// Link speed in Mb/s -> "100M", "1G", "2.5G" (like linkText in inksights-render.js)
+void linkText(int32_t mbs, char* out, size_t size) {
+  if (mbs < 1000) { snprintf(out, size, "%ldM", (long)mbs); return; }
+  const long d = mbs / 100;   // tenths of Gb/s
+  if (d % 10) snprintf(out, size, "%ld.%ldG", d / 10, d % 10);
+  else        snprintf(out, size, "%ldG", d / 10);
+}
+
+// A network row (system page and network pages): name | down | up, the bar = the busier direction
+// of the link speed (none without a link speed: the values below the name instead). Symbol: WiFi
+// for a wireless interface, else the network one. Down / without a link: "down" / "no link" in the
+// bar's place instead of the values. barMode (network pages): 1 percentage / 2 link speed in the bar.
+void netRow(const NetIf& ni, uint8_t barMode, SysRow& r) {
+  char a[16];
+  memset(&r, 0, sizeof(r));
+  r.icon = ni.wifi ? SI_WIFI : SI_NET;
+  copyStr(r.label, ni.name, sizeof(r.label));
+  r.pair = true;   // down and up belong together
+  if (ni.state == 'D' || ni.state == 'L') { copyStr(r.info, ni.state == 'D' ? "down" : "no link", sizeof(r.info)); return; }
+  const int32_t busy = ni.rx > ni.tx ? ni.rx : ni.tx;   // KiB/s of Mb/s
+  const int16_t link = ni.link > 0 && busy >= 0 ? pct100((int64_t)busy * 8192 / ((int64_t)ni.link * 10000)) : -1;
+  if (ni.rx >= 0) { kib(ni.rx, a, sizeof(a)); snprintf(r.info, sizeof(r.info), "%c%s", SYM_DOWN, a); }
+  if (ni.tx >= 0) { kib(ni.tx, a, sizeof(a)); snprintf(r.value, sizeof(r.value), "%c%s", SYM_UP, a); }
+  else copyStr(r.value, "--", sizeof(r.value));
+  r.hasBar = link >= 0;
+  r.p1 = r.p2 = link;
+  if (link >= 0 && barMode == 1) snprintf(r.barText, sizeof(r.barText), "%d%%", link);
+  else if (link >= 0 && barMode == 2) linkText(ni.link, r.barText, sizeof(r.barText));
 }
 
 uint8_t sysRows(SysRow* rows) {
@@ -1462,18 +1642,11 @@ uint8_t sysRows(SysRow* rows) {
     }
   }
   if (N) {
-    const int32_t busy = sys.rx > sys.tx ? sys.rx : sys.tx;   // KiB/s of Mb/s
-    const int16_t link = sys.link > 0 && busy >= 0 ? pct100((int64_t)busy * 8192 / ((int64_t)sys.link * 10000)) : -1;
-    SysRow& r = rows[n++];
-    memset(&r, 0, sizeof(r));
-    r.icon = SI_NET;
-    copyStr(r.label, sys.iface[0] ? sys.iface : "NET", sizeof(r.label));
-    if (sys.rx >= 0) { kib(sys.rx, a, sizeof(a)); snprintf(r.info, sizeof(r.info), "%c%s", SYM_DOWN, a); }
-    if (sys.tx >= 0) { kib(sys.tx, a, sizeof(a)); snprintf(r.value, sizeof(r.value), "%c%s", SYM_UP, a); }
-    else copyStr(r.value, "--", sizeof(r.value));
-    r.hasBar = link >= 0;
-    r.p1 = r.p2 = link;
-    r.pair = true;   // down and up belong together
+    NetIf ni;
+    memset(&ni, 0, sizeof(ni));
+    copyStr(ni.name, sys.iface[0] ? sys.iface : "NET", sizeof(ni.name));
+    ni.rx = sys.rx; ni.tx = sys.tx; ni.link = sys.link; ni.wifi = sys.wifiNet; ni.state = sys.netState;
+    netRow(ni, 0, rows[n++]);
   }
   if (V && sys.nNvme) {
     SysRow& r = rows[n++];
@@ -1491,11 +1664,20 @@ uint8_t sysRows(SysRow* rows) {
     tempList(sys.ssd, sys.nSsd, r.info, sizeof(r.info));
     r.inl = true;
   }
+  if (strchr(sys.parts, 'H') && sys.nHdd) {   // HDD temperatures (T line, from drive-temp-export; asleep = "--" or "STBY")
+    SysRow& r = rows[n++];
+    memset(&r, 0, sizeof(r));
+    r.icon = SI_HDD;
+    copyStr(r.label, "HDD", sizeof(r.label));
+    tempList(sys.hdd, sys.nHdd, r.info, sizeof(r.info));
+    r.inl = true;
+  }
   return n;
 }
 
-// Bar of the system page: black up to p1 %, grey up to p2 %, light after that
-void drawSysBar(int16_t x, int16_t y, int16_t w, int16_t h, int16_t p1, int16_t p2) {
+// Bar of the system page: black up to p1 %, grey up to p2 %, light after that; text: details in
+// the bar (network pages), like on the disk bars
+void drawSysBar(int16_t x, int16_t y, int16_t w, int16_t h, int16_t p1, int16_t p2, const char* text, int16_t size) {
   epd->drawRect(x, y, w, h, BK);
   const int16_t iw = w - 2, ih = h - 2;
   int16_t u1 = (int32_t)iw * p1 / 100, u2 = (int32_t)iw * p2 / 100;
@@ -1504,6 +1686,7 @@ void drawSysBar(int16_t x, int16_t y, int16_t w, int16_t h, int16_t p1, int16_t 
   u2 = imin(imax(u2, u1), iw);
   if (u1 > 0) fillBox(x + 1, y + 1, u1, ih, BK);
   fillRaster(x + 1 + u1, y + 1, u2 - u1, ih);
+  barText(x, y, w, h, u1, text, size);
 }
 
 // Symbols of the system page in a box of B px (odd):
@@ -1541,17 +1724,53 @@ void drawNet(int16_t x, int16_t y, int16_t B) {
   fillBox(x + c, y + mid, 1, B - s - mid, BK);               // down to the bottom boxes
   fillBox(x + B - 1 - c, y + mid, 1, B - s - mid, BK);
 }
-void drawSysIcon(SysIcon kind, int16_t x, int16_t y, int16_t B, bool deep) {
+// WiFi: a dot at the bottom and three arcs above it (a quarter circle each, opening upwards)
+void drawWifiIcon(int16_t x, int16_t y, int16_t B) {
+  const int16_t t = B >= 27 ? 3 : B >= 15 ? 2 : 1, cx = (B - 1) / 2, cy = B - 1 - t, R = B - 1 - t;
+  fillBox(x + cx - (t - 1), y + cy, 2 * t - 1, t, BK);   // the dot
+  for (int16_t k = 1; k <= 3; k++) {
+    const int16_t r = k * R / 3, r0 = r - t;
+    for (int16_t dy = -r; dy < 0; dy++)
+      for (int16_t dx = -cx; dx <= cx; dx++) {
+        const int32_t d2 = (int32_t)dx * dx + (int32_t)dy * dy;
+        if (d2 > (int32_t)r0 * r0 && d2 <= (int32_t)r * r && abs(dx) <= -dy) px(x + cx + dx, y + cy + dy, BK);
+      }
+  }
+}
+// SI_HDD: the spinning disc of the drive pages, in the style of its size (like there; wide = 4.2")
+void drawSysIcon(SysIcon kind, int16_t x, int16_t y, int16_t B, bool deep, bool wide) {
+  if (kind == SI_HDD) {
+    const int16_t r = (B - 1) / 2;
+    drawDiscIcon(x + r, y + r, r, true, !wide && (B == 11 || B == 13), !wide && B == 17, !wide && B == 11);
+    return;
+  }
   if (kind == SI_CPU) drawCpu(x, y, B);
   else if (kind == SI_RAM) drawRam(x, y, B);
   else if (kind == SI_NET) drawNet(x, y, B);
+  else if (kind == SI_WIFI) drawWifiIcon(x, y, B);
   else drawChip(x, y, B, deep);
 }
 
 void drawSystem(int16_t HH, bool wide, bool stacked) {
-  const int16_t W = epd->width();
-  SysRow rows[5];
+  SysRow rows[6];   // CPU, RAM, network, NVMe, SSD, HDD
   const uint8_t n = sysRows(rows);
+  drawRows(rows, n, 0, HH, wide, stacked, sys.icons);
+}
+
+// Network page np (0 = the first): its interfaces, every page sized for as many rows as the fullest one
+void drawNetPage(uint8_t np, int16_t HH, bool wide, bool stacked) {
+  const uint8_t per = rowsPerPage(), from = np * per;
+  SysRow rows[MAX_NETS];
+  uint8_t n = 0;
+  for (uint8_t i = from; i < netCount && n < per && n < MAX_NETS; i++) netRow(nets[i], head.netBar, rows[n++]);
+  drawRows(rows, n, imin(netCount, per), HH, wide, stacked, head.netIcons);
+}
+
+// Rows of the system page and the network pages; slots: sized for this many rows (network pages:
+// the last page keeps the size), 0 = as many as given
+void drawRows(SysRow* rows, uint8_t count, uint8_t slots, int16_t HH, bool wide, bool stacked, bool icons) {
+  const int16_t W = epd->width();
+  const uint8_t n = slots ? slots : count;
   if (!n) { printAt(wide ? 4 : 2, HH + 6, "No values", BK, wide ? 2 : 1); return; }
   const int16_t rowH = rowsArea() / n;
   Scale sc;
@@ -1562,11 +1781,11 @@ void drawSystem(int16_t HH, bool wide, bool stacked) {
     sc = SCALE_213[iclamp(n, 2, 5) - 2];
   }
   // symbols like on the disk pages: a box of bar + 3 (odd), at least 21 on the 4.2"; text and bars start after it
-  const int16_t icon = sys.icons ? (wide ? imax(21, (sc.bar + 3) | 1) : (sc.bar + 3) | 1) : 0;
+  const int16_t icon = icons ? (wide ? imax(21, (sc.bar + 3) | 1) : (sc.bar + 3) | 1) : 0;
   const int16_t ix0 = wide ? 4 : 2, x0 = icon ? ix0 + icon + (icon >= 17 ? 5 : 3) : ix0, end = W - ix0;
   const int16_t colGap = fAsc(sc.dev) >= 12 ? 8 : 6;
   int16_t labelW = 0;
-  for (uint8_t i = 0; i < n; i++) {
+  for (uint8_t i = 0; i < count; i++) {
     char t[16];
     fFit(sc.dev, rows[i].label, stacked ? (end - x0) / 2 : W / 4, t, sizeof(t));
     copyStr(rows[i].label, t, sizeof(rows[i].label));
@@ -1577,7 +1796,7 @@ void drawSystem(int16_t HH, bool wide, bool stacked) {
   const int16_t barDy = lineAsc + line2 + 3;
   const int16_t rowDy = imax(0, (rowH - (barDy + sc.bar)) / 2);
   char t[40];
-  for (uint8_t i = 0; i < n; i++) {
+  for (uint8_t i = 0; i < count; i++) {
     const SysRow& r = rows[i];
     // temperature rows have no bar: their text sits in the middle of the space a bar row takes,
     // so the gaps above and below them look even
@@ -1587,7 +1806,7 @@ void drawSystem(int16_t HH, bool wide, bool stacked) {
       // centred on the bar (or the values in its place); temperature rows: on their text lines
       const int16_t top = r.inl ? base - fAsc(sc.dev) : y + barDy;
       const int16_t h = r.inl ? (stacked ? line2 : 0) + fAsc(sc.dev) : sc.bar;
-      drawSysIcon(r.icon, ix0, top + floorDiv(h - icon, 2), icon, wide && n == 2);
+      drawSysIcon(r.icon, ix0, top + floorDiv(h - icon, 2), icon, wide && n == 2, wide);
     }
     fText(sc.dev, x0, base - fAsc(sc.dev), r.label, BK);
     if (r.inl) {   // temperatures: landscape after the name (info column), upright in the second line
@@ -1612,7 +1831,7 @@ void drawSystem(int16_t HH, bool wide, bool stacked) {
     const int16_t infoX = stacked ? x0 : x0 + labelW + colGap;
     fFit(sc.pool, r.info, (stacked && !low ? end : vX - colGap) - infoX, t, sizeof(t));
     fText(sc.pool, infoX, (stacked ? base + line2 : base) - fAsc(sc.pool), t, BK);
-    drawSysBar(x0, y + barDy, end - x0, sc.bar, r.p1, r.p2);
+    drawSysBar(x0, y + barDy, end - x0, sc.bar, r.p1, r.p2, r.barText, sc.cap == F5X2 ? 2 : 1);
   }
 }
 
@@ -1621,48 +1840,71 @@ void pinText(char* buf, size_t size, int8_t p) {
   else       snprintf(buf, size, "%d", p);
 }
 
-// Start screen: header like the normal screen, then ID, board, panel, pins and WiFi
+// Start screen: a header like the normal screen, below it the product name big and centred, then
+// the lines ID, board, panel, pins (and WiFi, key), both together in the middle of the room above
+// "Waiting for data ..." at the bottom. Everything in u = 1 (2.13") or 2 (4.2", like its header
+// and rows): the name as big as fits (at most 3u x), the lines 11u px apart (down to 9 on the
+// 2.13" when room is short). Like drawSplash() in inksights-render.js.
 void drawSplash() {
-  const int16_t W = epd->width();
-  char line[40];
-  epd->fillRect(0, 0, W, HEADER_H, BK);
+  const int16_t W = epd->width(), H = epd->height();
+  const uint8_t u = isBig(W, H) ? 2 : 1;
+  const int16_t CW = CHAR_W * u, HH = isBig(W, H) ? 20 : HEADER_H, hx = 2 * u, hy = u == 2 ? 3 : 2;
+  char line[48];
+  epd->fillRect(0, 0, W, HH, BK);
   snprintf(line, sizeof(line), "v%s", FW_VERSION);
-  const int16_t verX = W - 2 - textW(line);
-  printAt(verX, 2, line, WH);
-  printClipped(2, 2, PRODUCT_NAME, (verX - 6 - 2) / CHAR_W, WH);  // cut before the version
+  const int16_t verX = W - hx - textW(line) * u;
+  printAt(verX, hy, line, WH, u);
+  printClipped(hx, hy, PRODUCT_NAME, (verX - CW - hx) / CW, WH, u);  // cut before the version
 
-  const int16_t x = 2 + 7 * CHAR_W;  // value column
-  printAt(2, 22, "ID", BK);
-  printAt(x, 22, chipId, BK);
-  printAt(x + 1, 22, chipId, BK);  // bold
+  const int16_t lh = 7 * u, waitY = H - 2 * u - lh, avail = waitY - 4 * u - HH;   // room between the header and the waiting line
+#if HAS_WIFI
+  const uint8_t lines = 4 + 1 + (apActive ? 1 : 0);
+#else
+  const uint8_t lines = 4;
+#endif
+  int16_t pitch = 11 * u;
+  while (pitch > 9 * u && 7 * 2 * u + 6 * u + (lines - 1) * pitch + lh > avail) pitch--;
+  const int16_t blockH = (lines - 1) * pitch + lh;
+  int16_t z = 3 * u;
+  while (z > 1 && (7 * z + 6 * u + blockH > avail || textW(PRODUCT_NAME) * z > W - 2 * hx)) z--;
+  const int16_t gap = iclamp(avail - 7 * z - blockH - 4 * u, 2 * u, 12 * u), group = 7 * z + gap + blockH;
+  const int16_t ty = HH + imax(2 * u, (avail - group) / 2);
+  printAt((W - textW(PRODUCT_NAME) * z) / 2, ty, PRODUCT_NAME, BK, z);
 
-  printAt(2, 33, "Board", BK);
-  printClipped(x, 33, BOARD_NAME, (W - x) / CHAR_W, BK);
-
-  printAt(2, 44, "Panel", BK);
+  const int16_t x = hx + 7 * CW;  // value column
+  int16_t y = ty + 7 * z + gap;
+  printAt(hx, y, "ID", BK, u);
+  printAt(x, y, chipId, BK, u);
+  printAt(x + u, y, chipId, BK, u);  // bold
+  y += pitch;
+  printAt(hx, y, "Board", BK, u);
+  printClipped(x, y, BOARD_NAME, (W - x) / CW, BK, u);
+  y += pitch;
+  printAt(hx, y, "Panel", BK, u);
   snprintf(line, sizeof(line), "%s %s", panelInfo().name, hasColor ? "b/w/color" : "b/w");
-  printAt(x, 44, line, BK);
-
+  printAt(x, y, line, BK, u);
+  y += pitch;
   char cs[4], dc[4], rst[4], busy[4];
   pinText(cs, sizeof(cs), pins.cs);
   pinText(dc, sizeof(dc), pins.dc);
   pinText(rst,  sizeof(rst),  pins.rst);
   pinText(busy, sizeof(busy), pins.busy);
-  printAt(2, 55, PIN_TITLE, BK);
+  printAt(hx, y, PIN_TITLE, BK, u);
   snprintf(line, sizeof(line), "CS%s DC%s RST%s BUSY%s", cs, dc, rst, busy);
-  printClipped(x, 55, line, (W - x) / CHAR_W, BK);
+  printClipped(x, y, line, (W - x) / CW, BK, u);
 
 #if HAS_WIFI
-  printAt(2, 66, "WiFi", BK);
+  y += pitch;
+  printAt(hx, y, "WiFi", BK, u);
   netLine(netShown, sizeof(netShown));
-  printClipped(x, 66, netShown, (W - x) / CHAR_W, BK);
+  printClipped(x, y, netShown, (W - x) / CW, BK, u);
   if (apActive) {   // how to set it up: the access point password
     snprintf(line, sizeof(line), "Key %s", net.apPass.c_str());
-    printClipped(x, 77, line, (W - x) / CHAR_W, BK);
+    printClipped(x, y + pitch, line, (W - x) / CW, BK, u);
   }
 #endif
 
-  printAt(2, epd->height() - 16, "Waiting for data from system ...", BK);
+  printAt(hx, waitY, "Waiting for data from system ...", BK, u);
 }
 
 // Uptime of the NAS server for the header: full calendar months plus the minutes after them; the
@@ -1683,6 +1925,79 @@ void uptimeText(uint16_t months, int32_t min, int16_t maxChars, char* out, size_
   }
 }
 
+// Header: three places (left, middle, right) as in head.layout: T title, P page number, U uptime of
+// the NAS server, C time, - nothing (default TCP; "---" = no header line, the rows get its room);
+// a lower-case letter highlights its place (black text on a white box; inverted header, H field
+// 23: white with black text and a black line at the bottom, highlighted white on black). Left and right stand at
+// the edges, the middle one centred but never into its neighbours; only the title is cut, and
+// where there is room the others leave 5 of its characters. "NO DATA" stands in the place of the
+// page number, else of the uptime, else in a free place (the middle first), else in the middle;
+// it brings the header line back when it is switched off.
+void drawHeader(int16_t W, bool wide) {
+  if (!headerOn()) return;
+  const uint8_t hs = wide ? 2 : 1;
+  const int16_t hx = wide ? 4 : 2, hy = wide ? 3 : 2, gap = 6 * hs;
+  const bool inv = head.headInv == 1;
+  const uint16_t bg = inv ? WH : BK, fg = inv ? BK : WH;
+  const int16_t HH = headerH(W, epd->height());
+  epd->fillRect(0, 0, W, HH, bg);
+  if (inv) epd->fillRect(0, HH - 1, W, 1, BK);
+  char lay[4];
+  bool lit[3];
+  for (uint8_t i = 0; i < 3; i++) { lay[i] = toupper(head.layout[i]); lit[i] = islower(head.layout[i]); }
+  lay[3] = '\0';
+  if (noDataShown) {
+    const char* p = strchr(lay, 'P');
+    if (!p) p = strchr(lay, 'U');
+    const uint8_t at = p ? p - lay : lay[1] == '-' ? 1 : lay[2] == '-' ? 2 : lay[0] == '-' ? 0 : 1;
+    lay[at] = 'N';
+  }
+  const bool hasT = strchr(lay, 'T') != nullptr;
+  const int16_t keep = hasT ? imin(strlen(hostName), 5) * 6 * hs : 0;
+  const uint8_t pages = pageCount();
+  char pg[8] = "", up[16] = "";
+  if (pages > 1) snprintf(pg, sizeof(pg), "%u/%u", page + 1, pages);
+  auto txt = [&](char k) -> const char* { return k == 'C' ? timeStr : k == 'P' ? pg : k == 'N' ? "NO DATA" : k == 'U' ? up : ""; };
+  if (strchr(lay, 'U') && head.uptime >= 0) {   // as many units as fit beside the others and 5 characters of the title
+    int16_t room = W - 2 * hx - (hasT ? keep - hs + gap : 0);
+    for (uint8_t i = 0; i < 3; i++) if (strchr("CPN", lay[i]) && txt(lay[i])[0]) room -= textW(txt(lay[i])) * hs + gap;
+    uptimeText(head.upMonths, head.uptime, (room + hs) / (6 * hs), up, sizeof(up));
+  }
+  char item[3];
+  for (uint8_t i = 0; i < 3; i++) item[i] = lay[i] != 'T' && lay[i] != '-' && !txt(lay[i])[0] ? '-' : lay[i];
+  auto fixed = [](char k) { return k != 'T' && k != '-'; };
+  auto wOf = [&](char k) -> int16_t { return fixed(k) ? textW(txt(k)) * hs : 0; };
+  // highlighted: a box in the text colour 2 px (4 px on the 4.2") wider than the text on each
+  // side, the text in the header colour; "NO DATA": white box, text in the third colour (inverted
+  // header: a box in the third colour, white text)
+  auto put = [&](uint8_t i, int16_t px, const char* s) {
+    const bool nd = item[i] == 'N';
+    if (lit[i] || nd) epd->fillRect(px - 2 * hs, hy - hs, textW(s) * hs + 4 * hs, 9 * hs, nd ? (inv ? RD : WH) : fg);
+    printAt(px, hy, s, nd ? (inv ? WH : RD) : lit[i] ? bg : fg, hs);
+  };
+  int16_t x[3] = { 0, 0, 0 };
+  if (fixed(item[0])) x[0] = hx;
+  if (fixed(item[2])) x[2] = W - hx - wOf(item[2]);
+  if (fixed(item[1])) {
+    const int16_t w = wOf(item[1]);
+    const int16_t lo = item[0] == 'T' ? hx + keep + 5 * hs : item[0] == '-' ? hx : x[0] + wOf(item[0]) + gap;
+    const int16_t hi = item[2] == 'T' ? W - hx - (keep - hs) - gap - w : item[2] == '-' ? W - hx - w : x[2] - gap - w;
+    x[1] = imin(hi, imax(lo, (W - w) / 2));
+  }
+  int8_t ti = -1;
+  for (int8_t i = 0; i < 3; i++) if (item[i] == 'T') ti = i;
+  if (ti >= 0) {   // the title gets the room between its neighbours
+    int16_t start = hx, end = W - hx;
+    for (int8_t i = ti - 1; i >= 0; i--) if (item[i] != '-') { start = x[i] + wOf(item[i]) + gap; break; }
+    for (int8_t i = ti + 1; i < 3; i++) if (item[i] != '-') { end = x[i] - gap; break; }
+    char t[17];
+    fFit(hs == 2 ? F5X2 : F5, hostName, end - start, t, sizeof(t));
+    const int16_t tw = textW(t) * hs;
+    if (t[0]) put(ti, ti == 0 ? start : ti == 2 ? end - tw : imin(end - tw, imax(start, (W - tw) / 2)), t);
+  }
+  for (uint8_t i = 0; i < 3; i++) if (fixed(item[i])) put(i, x[i], txt(item[i]));   // "NO DATA": inverted, in the third colour
+}
+
 void drawScreen() {
   const int16_t W = epd->width(), H = epd->height();
   epd->fillScreen(WH);
@@ -1691,56 +2006,29 @@ void drawScreen() {
 
   if (!dataReceived) { drawSplash(); return; }
 
-  // Header: title | page | time
   const bool wide = isBig(W, H);   // 4.2" in any rotation: double text size
   const bool stacked = W < H;      // upright: device | used/total, the pool in a second line
   const uint8_t hs = wide ? 2 : 1;
-  const int16_t HH = headerH(W, H), hx = wide ? 4 : 2, hy = wide ? 3 : 2;
-  epd->fillRect(0, 0, W, HH, BK);
-  const int16_t timeX = W - hx - textW(timeStr) * hs;
-  printAt(timeX, hy, timeStr, WH, hs);
-  const uint8_t pages = pageCount();
-  int16_t titleEnd = timeX - 6 * hs;   // the title is cut where it would run into the page or the time
-  if (noDataShown) {
-    // "NO DATA" inverted in the place of the uptime or the page number (never into the time), and
-    // "Check connection" in the middle of the rest; the time stays: when the last data came
-    const char* nd = "NO DATA";
-    const int16_t ndW = textW(nd) * hs;
-    const int16_t right = timeX - 6 * hs - ndW;
-    const int16_t ndX = head.uptime >= 0 ? right : imin((W - ndW) / 2, right);
-    epd->fillRect(ndX - 2 * hs, hy - hs, ndW + 4 * hs, 9 * hs, WH);
-    printAt(ndX, hy, nd, RD, hs);
-    char title[17];
-    fFit(hs == 2 ? F5X2 : F5, hostName, ndX - 6 * hs - hx, title, sizeof(title));
-    printAt(hx, hy, title, WH, hs);
-    const char* msg = "Check connection";
-    const uint8_t ms = textW(msg) * 2 <= W - 8 ? 2 : 1;
+  const int16_t HH = headerH(W, H), hx = wide ? 4 : 2;
+  drawHeader(W, wide);
+  // "Check connection" (the time stays: when the last data came), or "Nothing to ink" when every
+  // page is switched off (no system page, disk pages off), in the middle of the rest; triple size
+  // on the 4.2", double on the 2.13", smaller while wider than W - 8
+  if (noDataShown || (!sys.on && !netCount && diskCount == 0 && head.diskPages == 0)) {
+    const char* msg = noDataShown ? "Check connection" : "Nothing to ink";
+    uint8_t ms = wide ? 3 : 2;
+    while (ms > 1 && textW(msg) * ms > W - 8) ms--;
     printAt((W - textW(msg) * ms) / 2, HH + (H - HH - 7 * ms) / 2, msg, BK, ms);
     return;
   }
-  if (head.uptime >= 0) {
-    // uptime instead of the page number: right before the time, as long as at least 5 characters
-    // of the title stay visible
-    const int16_t keep = imin(strlen(hostName), 5) * 6 * hs;
-    char up[16];
-    uptimeText(head.upMonths, head.uptime, (timeX - 6 * hs - hx - keep + hs) / (6 * hs), up, sizeof(up));
-    if (up[0]) {
-      const int16_t upX = timeX - 6 * hs - textW(up) * hs;
-      printAt(upX, hy, up, WH, hs);
-      titleEnd = upX - 6 * hs;
-    }
-  } else if (pages > 1) {
-    char pg[8];
-    snprintf(pg, sizeof(pg), "%u/%u", page + 1, pages);
-    const int16_t pgX = (W - textW(pg) * hs) / 2;
-    printAt(pgX, hy, pg, WH, hs);
-    titleEnd = pgX - 6 * hs;
-  }
-  char title[17];
-  fFit(hs == 2 ? F5X2 : F5, hostName, titleEnd - hx, title, sizeof(title));
-  printAt(hx, hy, title, WH, hs);
   if (sys.on && page == 0) { drawSystem(HH, wide, stacked); return; }
-  if (diskCount == 0) { printAt(hx, HH + 6, "No disks", BK, hs); return; }
+  // network pages after the disk pages
+  {
+    const uint8_t per = rowsPerPage(), dp = (diskCount + per - 1) / per;
+    const int16_t np = (int16_t)page - (sys.on ? 1 : 0) - dp;
+    if (netCount && np >= 0) { drawNetPage(np, HH, wide, stacked); return; }
+  }
+  if (diskCount == 0) { printAt(hx, HH + 6, "No drives", BK, hs); return; }
 
   const uint8_t rows = rowsPerPage();
   const int16_t rowH = rowHeight();
@@ -1771,6 +2059,8 @@ void drawScreen() {
   }
   lay.ccw = head.ringDir == 1;          // progress rings counterclockwise
   lay.pctBar = head.pctBar;             // details inside the bar: 0 none, 1 percentage, 2 used capacity
+  lay.driveTemp = head.driveTemp == 1;  // temperatures in the rows
+  lay.stby = head.stby == 1;            // asleep hard disks "STBY" instead of "--"
   // Symbol style by panel, the same in every rotation: the 4.2" style, or on the 2.13" the style of
   // its symbol size (9 / 11 / 13 / 17 px = 5 / 4 / 3 / 2 rows in landscape; upright: 11 px)
   const bool big = wide;
@@ -1810,8 +2100,8 @@ void refresh() {
 // -------------------------------------------------------------- receiving
 
 void parseDisk(char* line) {
-  char* f[11];
-  const uint8_t n = splitFields(line, f, 11);
+  char* f[12];
+  const uint8_t n = splitFields(line, f, 12);
   if (n < 9 || rxCount >= MAX_DISKS) return;
   Disk& d = rxDisks[rxCount++];
   memset(&d, 0, sizeof(d));  // every byte must be defined for the comparison (hash)
@@ -1821,9 +2111,26 @@ void parseDisk(char* line) {
   copyStr(d.total, f[4], sizeof(d.total));
   sanitize(d.dev); sanitize(d.pool); sanitize(d.used); sanitize(d.total);
   d.pct   = constrain(atoi(f[5]), -1, 100);
+  if (pctValid(f[5])) copyStr(d.pctTxt, f[5], sizeof(d.pctTxt));
+  else snprintf(d.pctTxt, sizeof(d.pctTxt), "%d", d.pct);
   d.state = f[8][0] ? f[8][0] : '?';
   d.remain  = n >= 10 && f[9][0] ? iclamp(atol(f[9]), -1, 359999) : -1;
   d.timeout = n >= 11 ? iclamp(atol(f[10]), 0, 359999) : 0;
+  d.hasTemp = n >= 12 && f[11][0];   // drive temperature (only with H field 21), -1 = unknown, -2 = asleep
+  d.temp = d.hasTemp ? tempNum(f[11]) : -1;
+}
+
+// Percentage "35", "35.4" or "35.47", at most 100
+bool pctValid(const char* f) {
+  uint8_t digits = 0, dec = 0;
+  bool dot = false;
+  for (const char* q = f; *q; q++) {
+    if (*q == '.' && !dot && digits) dot = true;
+    else if (!isdigit((unsigned char)*q)) return false;
+    else if (dot) dec++;
+    else digits++;
+  }
+  return digits >= 1 && digits <= 3 && (!dot || (dec >= 1 && dec <= 2)) && atof(f) <= 100.0;
 }
 
 // "-?digits" -> value clamped to -1..hi, anything else -1 (like num() in the preview)
@@ -1834,7 +2141,9 @@ int32_t sysNum(const char* f, int32_t hi) {
   const long v = strtol(f, nullptr, 10);   // saturates on overflow, then clamped like the preview
   return v > hi ? hi : v < -1 ? -1 : (int32_t)v;
 }
-// Temperatures "41,38" ("-" = none) -> up to 6 values, -1 = unknown
+// Temperature "-2" = asleep, else like sysNum (-1 = unknown, at most 199)
+int16_t tempNum(const char* f) { return strcmp(f, "-2") == 0 ? -2 : (int16_t)sysNum(f, 199); }
+// Temperatures "41,38" ("-" = none) -> up to 6 values, -1 = unknown, -2 = asleep
 uint8_t sysTemps(char* f, int16_t* out) {
   if (strcmp(f, "-") == 0) return 0;
   uint8_t n = 0;
@@ -1842,7 +2151,7 @@ uint8_t sysTemps(char* f, int16_t* out) {
   while (n < 6) {
     char* comma = strchr(p, ',');
     if (comma) *comma = '\0';
-    out[n++] = (int16_t)sysNum(p, 199);
+    out[n++] = tempNum(p);
     if (!comma) break;
     p = comma + 1;
   }
@@ -1851,6 +2160,22 @@ uint8_t sysTemps(char* f, int16_t* out) {
 
 // S line (after "S|"): rows | cpu % | cpu C | cpu W | RAM used MiB | ZFS cache MiB | RAM total MiB |
 // interface | down KiB/s | up KiB/s | link Mb/s | NVMe C,... | SSD C,...
+// N line (after "N|"): interface | down KiB/s | up KiB/s | link Mb/s | wireless 1/0 | state U / L / D
+void parseNet(char* line) {
+  char* f[6];
+  if (splitFields(line, f, 6) < 6 || rxNetCount >= MAX_NETS) return;
+  NetIf& ni = rxNets[rxNetCount++];
+  memset(&ni, 0, sizeof(ni));   // every byte must be defined for the comparison (hash)
+  uint8_t k = 0;
+  for (const char* c = f[0]; *c && k < sizeof(ni.name) - 1; c++)
+    if (isalnum((unsigned char)*c) || *c == '.' || *c == '_' || *c == '-') ni.name[k++] = *c;
+  ni.rx = sysNum(f[1], 2147483647L);
+  ni.tx = sysNum(f[2], 2147483647L);
+  ni.link = sysNum(f[3], 1000000L);
+  ni.wifi = strcmp(f[4], "1") == 0;
+  ni.state = f[5][0] == 'D' || f[5][0] == 'L' ? f[5][0] : 'U';
+}
+
 void parseSys(char* line) {
   char* f[13];
   if (splitFields(line, f, 13) < 13) return;
@@ -1858,9 +2183,12 @@ void parseSys(char* line) {
   memset(&s, 0, sizeof(s));
   s.on = true;
   uint8_t k = 0;
-  for (const char* c = f[0]; *c && k < sizeof(s.parts) - 1; c++) {
-    if (strchr("CRNVS", *c)) s.parts[k++] = *c;
+  s.netState = 'U';
+  for (const char* c = f[0]; *c; c++) {
+    if (strchr("CRNVSH", *c) && k < sizeof(s.parts) - 1) s.parts[k++] = *c;
     if (*c == 'I') s.icons = true;
+    if (*c == 'W') s.wifiNet = true;                 // the interface is wireless
+    if (*c == 'D' || *c == 'L') s.netState = *c;     // down / no link
   }
   s.cpu = sysNum(f[1], 100);
   s.temp = sysNum(f[2], 199);
@@ -1882,10 +2210,13 @@ void parseSys(char* line) {
 
 void commitFrame() {
   // settings field by field (the struct may contain padding bytes)
-  const uint32_t hv[12] = { rxCount, rxHead.rows, rxHead.warn, rxHead.rot, rxHead.timer, rxHead.ringDir,
+  const uint32_t hv[14] = { (uint32_t)rxHead.headInv << 25 | (uint32_t)rxHead.stby << 24 | (uint32_t)rxHead.driveTemp << 16 | (uint32_t)rxHead.netBar << 8 | rxHead.netIcons, rxCount, rxHead.rows, rxHead.warn, rxHead.rot, rxHead.timer, rxHead.ringDir,
                             rxHead.icons, rxHead.pctBar, rxHead.fast, rxHead.page, (uint32_t)rxHead.uptime,
-                            rxHead.upMonths };
-  const uint32_t h = fnv1a(&rxSys, sizeof(rxSys), fnv1a(rxDisks, sizeof(Disk) * rxCount, fnv1a(hv, sizeof(hv))));
+                            rxHead.upMonths,
+                            (uint32_t)rxHead.diskPages << 24 | (uint32_t)rxHead.layout[0] << 16 |
+                            (uint32_t)rxHead.layout[1] << 8 | rxHead.layout[2] };
+  const uint32_t h = fnv1a(rxNets, sizeof(NetIf) * rxNetCount,
+                     fnv1a(&rxSys, sizeof(rxSys), fnv1a(rxDisks, sizeof(Disk) * rxCount, fnv1a(hv, sizeof(hv)))));
   const bool first = !dataReceived;
   const uint32_t fh = fnv1a(rxTime, strlen(rxTime), h);   // with the time: still the same frame?
   if (first || fh != freshHash) lastFreshMs = millis();
@@ -1894,6 +2225,8 @@ void commitFrame() {
   memcpy(disks, rxDisks, sizeof(Disk) * rxCount);
   diskCount = rxCount;
   sys       = rxSys;
+  memcpy(nets, rxNets, sizeof(NetIf) * rxNetCount);
+  netCount  = rxNetCount;
   head      = rxHead;
   epd->setRotation(currentRotation());  // before pageCount(): width/height depend on it
   copyStr(hostName, rxHost, sizeof(hostName));
@@ -1958,6 +2291,15 @@ void handleLine(char* line) {
     Serial.print(netState());
     const String ip = netIp();
     if (ip.length()) { Serial.print(F(" ip=")); Serial.print(ip); }
+    // the stored WiFi settings without the passwords (hex texts), for the USB setup page
+    if (!net.ssid.isEmpty()) { Serial.print(F(" ssid=")); Serial.print(toHex(net.ssid)); }
+    if (!net.host.isEmpty()) { Serial.print(F(" host=")); Serial.print(toHex(net.host)); }
+    if (!net.server.isEmpty()) { Serial.print(F(" server=")); Serial.print(toHex(net.server)); }
+    Serial.print(net.apOn ? F(" ap=1") : F(" ap=0"));
+    if (!net.apSsid.isEmpty()) { Serial.print(F(" apssid=")); Serial.print(toHex(net.apSsid)); }
+    Serial.print(F(" apdelay="));
+    Serial.print(net.apDelay);
+    Serial.print(net.pass.isEmpty() ? F(" pass=0") : F(" pass=1"));   // a WiFi password is stored (never the password)
 #endif
     Serial.println();
 #if HAS_WIFI
@@ -1969,6 +2311,7 @@ void handleLine(char* line) {
     rxCount  = 0;
     rxHead   = HEAD_DEFAULT;
     memset(&rxSys, 0, sizeof(rxSys));   // no system page unless an S line comes
+    rxNetCount = 0;                      // no network pages unless N lines come
     rxPinsGiven = false;
     rxRedraw = false;
     rxHost[0] = rxTime[0] = '\0';
@@ -1978,8 +2321,8 @@ void handleLine(char* line) {
     rxActive = false;
     commitFrame();
   } else if (line[0] == 'H' && line[1] == '|') {
-    char* f[16];
-    const uint8_t n = splitFields(line, f, 16);
+    char* f[23];
+    const uint8_t n = splitFields(line, f, 23);
     if (n >= 3) {
       copyStr(rxHost, f[1], sizeof(rxHost));
       copyStr(rxTime, f[2], sizeof(rxTime));
@@ -1997,11 +2340,24 @@ void handleLine(char* line) {
       rxHead.upMonths = n >= 14 ? (uint16_t)constrain(atol(f[13]), 0L, 9999L) : 0;
       // field 15: WiFi page (not drawn by the firmware yet); field 16: seconds until "NO DATA"
       rxHead.noData  = n >= 16 ? (uint32_t)constrain(atol(f[15]), 0L, 604800L) : 0;
+      // header layout; without it (earlier version) the uptime stands where the page number would
+      if (n >= 17 && layoutValid(f[16])) copyStr(rxHead.layout, f[16], sizeof(rxHead.layout));
+      else if (rxHead.uptime >= 0) copyStr(rxHead.layout, "TCU", sizeof(rxHead.layout));
+      rxHead.diskPages = n >= 18 && strcmp(f[17], "0") == 0 ? 0 : 1;
+      rxHead.netBar   = n >= 19 ? constrain(atoi(f[18]), 0, 2) : 0;    // network pages: details in the bar
+      rxHead.netIcons = n >= 20 && strcmp(f[19], "0") == 0 ? 0 : 1;   // network pages: symbols
+      rxHead.driveTemp = n >= 21 && strcmp(f[20], "1") == 0 ? 1 : 0;  // temperatures in the drive rows
+      rxHead.stby = n >= 22 && strcmp(f[21], "1") == 0 ? 1 : 0;       // asleep hard disks "STBY"
+      rxHead.headInv = n >= 23 && strcmp(f[22], "1") == 0 ? 1 : 0;    // header inverted
     }
   } else if (line[0] == 'D' && line[1] == '|') {
     parseDisk(line);
   } else if (line[0] == 'S' && line[1] == '|') {
     parseSys(line + 2);
+  } else if (line[0] == 'N' && line[1] == '|') {
+    parseNet(line + 2);
+  } else if (line[0] == 'T' && line[1] == '|') {
+    if (rxSys.on) rxSys.nHdd = sysTemps(line + 2, rxSys.hdd);   // HDD temperatures of the system page
   } else if (strcmp(line, "R") == 0) {
     rxRedraw = true;
   } else if (line[0] == 'P' && line[1] == '|') {

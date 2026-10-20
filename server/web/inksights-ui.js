@@ -59,10 +59,15 @@
 
   const TYPE_LABEL = { hdd: "HDD", ssd: "SSD", nvme: "NVMe" };
   // Components of the system page (rows, in this order); NVMe and SSD = temperatures of those drives
-  const SYS_PARTS = [["cpu", "CPU"], ["ram", "RAM"], ["net", "Network"], ["nvme", "NVMe"], ["ssd", "SSD"]];
+  const SYS_PARTS = [["cpu", "CPU"], ["ram", "RAM"], ["net", "Network"], ["nvme", "NVMe"], ["ssd", "SSD"], ["hdd", "HDD"]];
   const ALL_TYPES = Object.keys(TYPE_LABEL);
   const SORTS = [["pool", "Pool"], ["uid", "UID"], ["dev", "Device"], ["manual", "Custom"]];
   const NAME_RE = /^[A-Za-z0-9 ._+\/-]{0,12}$/;
+  // UTF-8 text from hex ("486f6d65" -> "Home", like the board's W line and ssid=); "" when it is not hex
+  function hexText(h) {
+    if (typeof h !== "string" || !/^([0-9a-fA-F]{2})+$/.test(h)) return "";
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(h.match(/../g).map(b => parseInt(b, 16)))); } catch (e) { return ""; }
+  }
   const HOST_RE = /^[A-Za-z0-9-]{1,32}$/;
   const SERVER_RE = /^https?:\/\/[^\s|]{1,120}$/;
   const DEFAULT_WARN = 85;
@@ -175,9 +180,19 @@
       if (!PANELS.some(p => p.id === s.panel)) s.panel = null;              // null = keep the panel type of the display
       if (typeof s.name !== "string") s.name = "";
       if (typeof s.dname !== "string") s.dname = "";
-      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 0], ["barCap", 0], ["zfs", 1], ["showSys", 1], ["showDisks", 1], ["sysIcons", 1], ["headerUp", 0], ["showWifi", 0], ["wifiIcons", 1]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      // header: left, middle, right (T title, P page number, U uptime, C time, - nothing); without
+      // one (earlier version) as before: title, time, then the page number or the uptime
+      if (!EPD.layoutOk(s.layout)) s.layout = s.headerUp === 1 ? "TCU" : EPD.DEFAULT_LAYOUT;
+      // a new display: header and system page (all components) on, disk and WiFi pages off
+      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 0], ["barCap", 0], ["zfs", 1], ["showSys", 1], ["showDisks", 0], ["sysIcons", 1], ["showWifi", 0], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 0], ["netIcons", 1], ["driveTemp", 0], ["stby", 0], ["headInv", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      if (![0, 1, 2].includes(s.pctDec)) s.pctDec = 0;   // decimals of the percentage in the drive bars
+      // network pages: details in the bar 0 none / 1 percentage / 2 link speed, order by name or custom, hidden interfaces
+      if (![0, 1, 2].includes(s.netBar)) s.netBar = 0;
+      if (s.netSort !== "manual") s.netSort = "name";
+      if (!Array.isArray(s.netOrder)) s.netOrder = [];
+      if (!Array.isArray(s.netHidden)) s.netHidden = [];
       // system page components; none = no system page (1 / 0 = on / off of an earlier version)
-      if (s.sys === 1) s.sys = SYS_PARTS.map(([p]) => p);
+      if (s.sys === 1 || s.sys === undefined) s.sys = SYS_PARTS.map(([p]) => p);
       if (!Array.isArray(s.sys)) s.sys = [];
       s.sys = SYS_PARTS.map(([p]) => p).filter(p => s.sys.includes(p));
       if (!FAST.some(([v]) => v === s.fast)) s.fast = 0;
@@ -210,8 +225,6 @@
       const out = [];
       for (const { id, live } of displayList()) {
         const s = settingsFor(id), who = s.dname.trim() || s.name || id, w = s.wifi;
-        if (!(s.showDisks && s.types.length) && !(s.showSys && s.sys.length) && !(boardOf(live).wifi && s.showWifi))
-          out.push(`${who}: nothing to show. Switch on the system page, the disk pages (with at least one component or disk type) or the WiFi page.`);
         if (!NAME_RE.test(s.name)) out.push(`${who}: title max. 12 characters, only letters, digits, spaces and . _ - + /`);
         if (s.dname.length > 32) out.push(`${who}: name max. 32 characters.`);
         if (!Number.isInteger(s.warn) || s.warn < 0 || s.warn > 100) out.push(`${who}: highlight threshold must be between 1 and 100 %.`);
@@ -259,7 +272,7 @@
       $(`frame-${id}`).textContent = text || "";
       const c = typeCounts();
       for (const t of ALL_TYPES) { const n = $(`count-${id}-${t}`); if (n) n.textContent = `(${c[t]})`; }
-      for (const t of ["nvme", "ssd"]) { const n = $(`scount-${id}-${t}`); if (n) n.textContent = `(${c[t]})`; }
+      for (const t of ["nvme", "ssd", "hdd"]) { const n = $(`scount-${id}-${t}`); if (n) n.textContent = `(${c[t]})`; }
       const model = EPD.parseFrame(text || "");
       const fb = new EPD.Fb(w, h);
       const msg = $(`msg-${id}`);
@@ -270,36 +283,52 @@
         paint(canvas, fb, w, h);
         return;
       }
-      const pc = EPD.pageCount(model.disks.length, h, model.rows, w, !!model.sys, !!model.wifiPage);
+      const pc = EPD.pageCount(model.disks.length, h, model.rows, w, !!model.sys, !!model.wifiPage, model.layout !== "---", model.nets.length);
       pages[id] = (((pages[id] || 0) % pc) + pc) % pc;
       model.page = pages[id];
       model.mono = panel.colors === 2;
       // WiFi page: the board shows its own WiFi; here what the NAS server last heard from it
-      model.wifi = { net: live ? (live.transport === "wifi" ? "sta" : live.net || "off") : "off", ssid: (live && live.ssid) || s.wifi.ssid,
+      model.wifi = { net: live ? (live.transport === "wifi" ? "sta" : live.net || "off") : "off", ssid: (live && (live.ssid || hexText(live.ssidHex))) || s.wifi.ssid,
         ip: live ? live.ip || "" : "", ap: s.wifi.apSsid || DEFAULT_AP_SSID,
         online: live && Number.isInteger(live.online) && live.online >= 0 ? Math.floor(live.online / 60) : -1 };   // black/white panel: highlighted used/total inverted instead of in colour
       model.noData = !!(live && live.noData);   // no fresh data for too long (simulator: "No data")
       if (override) { model.timer = s.timer; model.ringDir = s.ringDir; model.icons = s.icons; model.pctBar = s.pctBar ? (s.barCap ? 2 : 1) : 0; }
+      if (live && live.splash) {   // the board's start screen, before the first data (simulator: "Start screen")
+        const [sw, sh] = panelSize(panel, 0), sfb = new EPD.Fb(sw, sh), board = boardOf(live);
+        const pins = String(live.pins || "").split(",").map(Number);
+        const net = live.transport === "wifi" ? "sta" : live.net || "off";
+        EPD.drawSplash(sfb, { product: "InkSights", fw: live.fw || "1.0", id, board: board.name, panel: panel.name, color: panel.colors === 3,
+          pinTitle: board.samd ? "Pins D" : "GPIO", pins: pins.length === 4 ? pins : [-1, -1, -1, -1],
+          wifi: !board.wifi ? null : net === "sta" ? live.ip || "" : net === "ap" ? `AP ${s.wifi.apSsid || DEFAULT_AP_SSID} 192.168.4.1` : s.wifi.ssid ? "connecting ..." : "off",
+          key: board.wifi && net === "ap" ? live.apKey || "" : null });
+        paint(canvas, sfb, sw, sh);
+        $(`pg-${id}`).textContent = "Start screen";
+        msg.textContent = "";
+        msg.className = "note";
+        return;
+      }
       EPD.drawScreen(fb, model);
       paint(canvas, fb, w, h);
-      const what = [model.sys ? "system" : "", model.disks.length || (!model.sys && !model.wifiPage) ? `${model.disks.length} disks` : "",
-        model.wifiPage ? "WiFi" : ""].filter(Boolean).join(", ");
+      const what = [model.sys ? "system" : "", model.disks.length || (!model.sys && !model.wifiPage && !model.nets.length) ? `${model.disks.length} drives` : "",
+        model.nets.length ? `${model.nets.length} network` : "", model.wifiPage ? "WiFi" : ""].filter(Boolean).join(", ");
       $(`pg-${id}`).textContent = `Page ${model.page + 1}/${pc} · ${what}`;
       msg.textContent = "";
       msg.className = "note";
     }
 
     // Largest whole-number scale at which the panel fits in landscape; the same scale when it is
-    // turned, so an upright display looks exactly as big as the real one, only turned
+    // turned, so an upright display looks exactly as big as the real one, only turned. Only 1x would
+    // leave it much smaller than the room (2.13" in a narrow card on a screen at 100 %): fill the
+    // room instead, a few display pixels then come out one screen pixel smaller
     function paint(canvas, fb, w, h) {
       const dpr = window.devicePixelRatio || 1;
       const room = canvas.closest(".shot").clientWidth - 28;   // inside the black frame (padding 14 px)
-      const byWidth = EPD.fitScale(room, Math.max(w, h));
-      const byHeight = Math.max(1, Math.floor(520 * dpr / Math.max(w, h)));   // fits the fixed stage in every rotation
-      EPD.blit(canvas, fb, Math.min(byWidth, byHeight));
+      const fit = Math.min(room, 520) * dpr / Math.max(w, h);   // 520: fits the fixed stage in every rotation
+      const whole = Math.max(1, Math.floor(fit));
+      EPD.blit(canvas, fb, whole === 1 && fit >= 1.25 ? fit : whole);
     }
 
-    function drawAll() { displayList().forEach(e => { drawPreview(e); renderOrder(e); }); }
+    function drawAll() { displayList().forEach(e => { drawPreview(e); renderOrder(e); renderNetOrder(e); }); }
 
     // Disks of the display's types in its order (hidden ones included, so they can be ticked again)
     const orderedFor = s => EPD.orderDisks(state.disks || [], s);
@@ -331,11 +360,43 @@
       (same && !same.disabled ? same : $(`mv-${entry.id}-${t}-${dir < 0 ? "dn" : "up"}`))?.focus();
     }
 
+    // Network interfaces of the network pages in their order (hidden ones included), like the disks
+    const netsFor = s => EPD.orderNets((state.system && state.system.ifaces) || [], s);
+
+    function renderNetOrder(entry) {
+      const id = entry.id, box = $(`nord-${id}`);
+      if (!box) return;
+      const s = settingsFor(id), list = netsFor(s), manual = s.netSort === "manual", hidden = new Set(s.netHidden);
+      const state_ = i => (i.state === "D" ? "down" : i.state === "L" ? "no link" : "");
+      box.replaceChildren(...list.map((i, j) => el("li", { class: hidden.has(i.name) ? "off" : "" },
+        el("span", { class: "pos" }, String(j + 1)),
+        el("input", { type: "checkbox", checked: !hidden.has(i.name), "aria-label": `Show ${i.name}`, onchange: e => {
+          s.netHidden = e.target.checked ? s.netHidden.filter(n => n !== i.name) : [...new Set([...s.netHidden, i.name])];
+          changed(); drawPreview(entry); renderNetOrder(entry);
+        } }),
+        el("div", {}, el("span", { class: "dev" }, i.name), " ",
+          el("span", { class: "sub" }, [i.wireless ? "wireless" : "wired", state_(i)].filter(Boolean).join(" · "))),
+        manual ? el("div", { class: "mv" },
+          el("button", { class: "btn", type: "button", id: `nmv-${id}-${j}-up`, "aria-label": `Move ${i.name} up`, disabled: j === 0, onclick: () => moveNet(entry, j, -1) }, "▲"),
+          el("button", { class: "btn", type: "button", id: `nmv-${id}-${j}-dn`, "aria-label": `Move ${i.name} down`, disabled: j === list.length - 1, onclick: () => moveNet(entry, j, 1) }, "▼"))
+          : el("span"))));
+    }
+
+    function moveNet(entry, j, dir) {
+      const s = settingsFor(entry.id), names = netsFor(s).map(i => i.name), t = j + dir;
+      if (t < 0 || t >= names.length) return;
+      [names[j], names[t]] = [names[t], names[j]];
+      s.netOrder = names;
+      changed(); drawPreview(entry); renderNetOrder(entry);
+      const same = $(`nmv-${entry.id}-${t}-${dir < 0 ? "up" : "dn"}`);
+      (same && !same.disabled ? same : $(`nmv-${entry.id}-${t}-${dir < 0 ? "dn" : "up"}`))?.focus();
+    }
+
     // ---------------------------------------------------------- cards
     function card(entry) {
       const { id, live } = entry;
       const s = settingsFor(id), board = boardOf(live), w = s.wifi;
-      const redraw = () => { changed(); drawPreview(entry); renderOrder(entry); };
+      const redraw = () => { changed(); drawPreview(entry); renderOrder(entry); renderNetOrder(entry); };
       const radios = (name, options, current, onPick) => el("div", { class: "choices" }, ...options.map(([value, label]) =>
         el("label", { class: "check" },
           el("input", { type: "radio", name: `${name}-${id}`, value: String(value), checked: value === current, onchange: () => { onPick(value); redraw(); } }),
@@ -399,16 +460,26 @@
         radios("zfs", [[1, "On"], [0, "Off"]], s.zfs, v => { s.zfs = v; }));
       const setDisabled = (box, off) => box.querySelectorAll("input").forEach(i => { i.disabled = off; });
       setDisabled(zfsBox, !s.sys.includes("ram"));
+      // Asleep hard disks: "--" or "STBY" in the drive rows and the HDD row, one setting offered in
+      // the Drives and the System card, so picking it in one card ticks it in the other
+      const pickStby = v => {
+        s.stby = v;
+        document.querySelectorAll(`input[name="stbyd-${id}"], input[name="stbys-${id}"]`).forEach(i => { i.checked = Number(i.value) === v; });
+      };
+      const stbySys = el("div", { class: "choices" }, el("span", { class: "check" }, "HDD asleep"),
+        radios("stbys", [[0, "--"], [1, "STBY"]], s.stby, pickStby));
+      setDisabled(stbySys, !s.sys.includes("hdd"));
       // components as checkboxes, like the disk types; the drive counts in brackets
       const sysChecks = SYS_PARTS.map(([p, label]) => el("label", { class: "check" },
         el("input", { type: "checkbox", checked: s.sys.includes(p), onchange: e => {
           s.sys = SYS_PARTS.map(([q]) => q).filter(q => (q === p ? e.target.checked : s.sys.includes(q)));
           netSel.disabled = !s.sys.includes("net");
           setDisabled(zfsBox, !s.sys.includes("ram"));
+          setDisabled(stbySys, !s.sys.includes("hdd"));
           pages[id] = 0;
           redraw();
         } }),
-        label, ...(p === "nvme" || p === "ssd" ? [el("span", { class: "count", id: `scount-${id}-${p}` }, `(${counts[p]})`)] : [])));
+        label, ...(p === "nvme" || p === "ssd" || p === "hdd" ? [el("span", { class: "count", id: `scount-${id}-${p}` }, `(${counts[p]})`)] : [])));
 
       const pageTurn = el("input", { type: "text", inputmode: "numeric", maxlength: "8", value: fmtHms(Math.max(0, s.page)),
         placeholder: "00:10:00", autocomplete: "off", style: "max-width: 7em; font-family: var(--font-mono)",
@@ -474,22 +545,30 @@
           wifiInput("apPass", "Access point password", { type: "password", maxlength: "63", value: "", placeholder: w.apPassSet ? "unchanged" : DEFAULT_AP_PASS }))) : null;
 
       // details in the bar: percentage or used capacity (only while "Details in bar" is on)
-      const capBox = field("Details", radios("barcap", [[0, "Percentage"], [1, "Capacity"]], s.barCap, v => { s.barCap = v; }));
+      // decimals of the percentage (only while the percentage stands in the bar)
+      const decBox = field("Percentage", radios("pctdec", [[0, "35%"], [1, "35.4%"], [2, "35.47%"]], s.pctDec, v => { s.pctDec = v; }));
+      const capBox = field("Details", radios("barcap", [[0, "Percentage"], [1, "Capacity"]], s.barCap, v => { s.barCap = v; setDisabled(decBox, !s.pctBar || v); }));
       setDisabled(capBox, !s.pctBar);
+      setDisabled(decBox, !s.pctBar || s.barCap);
+      const stbyBox = field("Asleep", radios("stbyd", [[0, "--"], [1, "STBY"]], s.stby, pickStby));
+      setDisabled(stbyBox, !s.driveTemp);
       // Disks: disk types | spindown timer, color highlight, then the order and visibility of the disks
-      const disksCard = subCard("disksOpen", "Disks", true, "showDisks",
+      const disksCard = subCard("disksOpen", "Drives", true, "showDisks",
         el("div", { class: "pair" },
           el("div", { class: "col group-col" },
             el("fieldset", { class: `set-${id}` },
-              field("Disk types", el("div", { class: "choices" }, ...types))),
+              field("Drive types", el("div", { class: "choices" }, ...types))),
             field("Icons", radios("icons", [[1, "On"], [0, "Off"]], s.icons, v => { s.icons = v; })),
-            field("Details in bar", radios("pctbar", [[1, "On"], [0, "Off"]], s.pctBar, v => { s.pctBar = v; setDisabled(capBox, !v); })),
-            capBox),
+            field("Details in bar", radios("pctbar", [[1, "On"], [0, "Off"]], s.pctBar, v => { s.pctBar = v; setDisabled(capBox, !v); setDisabled(decBox, !v || s.barCap); })),
+            capBox,
+            decBox),
           el("div", { class: "col plain-col" },
             el("fieldset", { class: `set-${id}` },
               field("Spindown timer", radios("boxes", [[0, "Off"], [10, "On"]], s.boxes ? 10 : 0, v => { s.boxes = v; }))),
             field("Timer style", radios("timer", [[0, "Badge"], [1, "Ring"]], s.timer, v => { s.timer = v; })),
-            field("Ring direction", radios("ringdir", [[0, "Clockwise"], [1, "Counterclockwise"]], s.ringDir, v => { s.ringDir = v; })))),
+            field("Ring direction", radios("ringdir", [[0, "Clockwise"], [1, "Counterclockwise"]], s.ringDir, v => { s.ringDir = v; })),
+            field("Temperature", radios("drivetemp", [[1, "On"], [0, "Off"]], s.driveTemp, v => { s.driveTemp = v; setDisabled(stbyBox, !v); })),
+            stbyBox)),
         el("fieldset", { class: `set-${id}` },
           el("div", { class: "field boxed" },
             el("span", { class: "label" }, "Color highlight"),
@@ -504,18 +583,81 @@
               if (v === "manual" && !s.order.length) s.order = orderedFor(s).map(d => d.uid);
               s.sort = v;
             }),
-            el("ol", { class: "order", id: `ord-${id}`, "aria-label": `Disk order of display ${id}` }))));
+            el("ol", { class: "order", id: `ord-${id}`, "aria-label": `Drive order of display ${id}` }))));
+
+      // Network: pages with one row per interface (after the disk pages); symbols, details in the
+      // bar (percentage of the link or the link speed), then the order and visibility of the interfaces
+      let netKind = s.netBar || 1;
+      const netKindBox = field("Details", radios("netbarkind", [[1, "Percentage"], [2, "Link speed"]], netKind, v => {
+        netKind = v;
+        if (s.netBar) s.netBar = v;
+      }));
+      setDisabled(netKindBox, !s.netBar);
+      const netCard = subCard("netOpen", "Network", true, "showNet",
+        el("div", { class: "pair" },
+          field("Icons", radios("neticons", [[1, "On"], [0, "Off"]], s.netIcons, v => { s.netIcons = v; })),
+          el("div", { class: "col" },
+            field("Details in bar", radios("netbar", [[1, "On"], [0, "Off"]], s.netBar ? 1 : 0, v => { s.netBar = v ? netKind : 0; setDisabled(netKindBox, !v); })),
+            netKindBox)),
+        el("fieldset", { class: `set-${id}` },
+          el("details", { class: "fold boxed field", open: pref(id, "netOrderOpen", true), ontoggle: e => setPref(id, "netOrderOpen", e.target.open) },
+            el("summary", {}, "Order and visibility by"),
+            radios("netsort", [["name", "Name"], ["manual", "Custom"]], s.netSort, v => {
+              // start the custom order from the order shown right now
+              if (v === "manual" && !s.netOrder.length) s.netOrder = netsFor({ ...s, netSort: "name" }).map(i => i.name);
+              s.netSort = v;
+            }),
+            el("ol", { class: "order", id: `nord-${id}`, "aria-label": `Network interface order of display ${id}` }))));
 
       // System page: components, network interface, ZFS cache
-      const sysCard = subCard("sysOpen", "System page", true, "showSys",
+      const sysCard = subCard("sysOpen", "System", true, "showSys",
         el("fieldset", { class: `set-${id}` },
           el("div", { class: "field" },
             el("span", { class: "label" }, "Components"),
             el("div", { class: "choices" }, ...sysChecks),
             el("div", { class: "choices" },
               el("label", { class: "check" }, "Network ", netSel),
-              zfsBox)),
+              zfsBox,
+              stbySys)),
           field("Icons", radios("sysicons", [[1, "On"], [0, "Off"]], s.sysIcons, v => { s.sysIcons = v; }))));
+
+      // Header: what stands left, in the middle and right (s.layout, a lower-case letter = that place
+      // highlighted). Picking what already stands in another place swaps the two, so nothing can
+      // appear twice; None leaves the place empty. Highlight belongs to the place.
+      const places = ["Left", "Middle", "Right"];
+      const layoutSel = places.map((place, i) => el("select", { "aria-label": `Header ${place.toLowerCase()}`, onchange: e => {
+        const v = e.target.value, a = [...s.layout.toUpperCase()], lit = [...s.layout].map(c => c !== c.toUpperCase()), j = a.indexOf(v);
+        if (v !== "-" && j >= 0 && j !== i) a[j] = a[i];
+        a[i] = v;
+        s.layout = a.map((c, k) => (lit[k] ? c.toLowerCase() : c)).join("");
+        syncLayout();
+        redraw();
+      } }, ...[["T", "Title"], ["P", "Pages"], ["U", "Uptime"], ["C", "Time"], ["-", "None"]].map(([v, l]) => el("option", { value: v }, l))));
+      const litBox = places.map((place, i) => el("input", { type: "checkbox", "aria-label": `Highlight the header ${place.toLowerCase()}`, onchange: e => {
+        const a = [...s.layout];
+        a[i] = e.target.checked ? a[i].toLowerCase() : a[i].toUpperCase();
+        s.layout = a.join("");
+        redraw();
+      } }));
+      const syncLayout = () => places.forEach((_, i) => {
+        const c = s.layout[i];
+        layoutSel[i].value = c.toUpperCase();
+        litBox[i].checked = c !== "-" && c !== c.toUpperCase();
+        litBox[i].disabled = c === "-";
+      });
+      syncLayout();
+      const headerCard = subCard("headerOpen", "Header", true, "showHeader",
+        el("fieldset", { class: `set-${id}` },
+          el("div", { class: "form" },
+            el("label", { class: "field wide" },
+              el("span", { class: "label" }, "Title"),
+              el("input", { type: "text", maxlength: "12", value: s.name, placeholder: state.host || "SYSTEM", autocomplete: "off", style: "max-width: 10em",
+                oninput: e => { s.name = e.target.value; setHeading(); redraw(); } })),
+            field("Invert colors", radios("headinv", [[1, "On"], [0, "Off"]], s.headInv, v => { s.headInv = v; })),
+            el("div", { class: "field wide" },
+              el("div", { class: "choices header-places" }, ...places.map((place, i) => el("div", { class: "field" },
+                el("span", { class: "label" }, place), layoutSel[i],
+                el("label", { class: "check" }, litBox[i], "Highlight"))))))));
 
       const setHeading = () => { heading.textContent = nameOf(id, s); titles.forEach(t => { t.textContent = heading.textContent; }); };
       const main = el("article", { class: "card", "aria-labelledby": `h-${id}` },
@@ -549,16 +691,11 @@
               el("div", { class: "choices panel-pick" }, panelSel, el("span", { class: "ro" }, live ? board.name : "not connected"))),
             field("Rotation", radios("rot", [[0, "0°"], [90, "90°"], [180, "180°"], [270, "270°"]], s.rot, v => { s.rot = v; })),
             el("fieldset", { class: `set-${id}` },
-              el("label", { class: "field" },
-                el("span", { class: "label" }, "Title (top left)"),
-                el("input", { type: "text", maxlength: "12", value: s.name, placeholder: state.host || "SYSTEM", autocomplete: "off", style: "max-width: 10em",
-                  oninput: e => { s.name = e.target.value; setHeading(); redraw(); } })),
               el("div", { class: "field" }, el("span", { class: "label" }, "Rows per page"),
                 el("div", { class: "oneline" }, radios("rows", rowOptions, s.rows, v => { s.rows = v; pages[id] = 0; }))),
               // the only hint text on the page
               field("Auto page turn (HH:MM:SS)", el("div", { class: "choices", style: "flex-wrap: nowrap; gap: 8px" }, pageTurn,
                 el("span", { class: "count", style: "white-space: nowrap" }, "00:00:00 = off"))),
-              field("Header", radios("headerup", [[0, "Pages"], [1, "Uptime"]], s.headerUp, v => { s.headerUp = v; })),
               ...(fastCap ? [field("Fast refresh", fastSel)] : []))),
           el("div", { class: "field wide boxed" },
             el("span", { class: "label" }, "Display pins"),
@@ -568,7 +705,7 @@
           el("summary", {}, `Frame (data received via ${via})`),
           el("pre", { id: `frame-${id}` })));
       if (wifiCard) wifiCard.classList.add("keep-on");   // its settings are not dimmed when the page is off
-      return { main, subs: [displayCard, sysCard, disksCard, ...(wifiCard ? [wifiCard] : [])] };
+      return { main, subs: [displayCard, headerCard, sysCard, disksCard, netCard, ...(wifiCard ? [wifiCard] : [])] };
     }
 
     function render(force) {
@@ -694,8 +831,11 @@
     load(true);
     if (backend.pollMs) setInterval(() => load(false), backend.pollMs);
 
-    return { reload: force => load(force), redrawPreviews: drawAll };
+    // frames: what every display would get right now (simulator: "Send to display" over USB)
+    return { reload: force => load(force), redrawPreviews: drawAll,
+      frames: () => displayList().map(e => ({ id: e.id, label: nameOf(e.id, settingsFor(e.id)), text: frameText(e).text || "" })) };
   }
 
-  window.InkSightsUI = { start, BOARDS, DEFAULT_BOARD, PANELS, panelLabel, pinLabel };
+  window.InkSightsUI = { start, BOARDS, DEFAULT_BOARD, PANELS, panelLabel, pinLabel, PIN_NONE, PIN_NAMES, HOST_RE, SERVER_RE,
+    DEFAULT_AP_SSID, DEFAULT_AP_PASS, DEFAULT_AP_DELAY, MAX_AP_DELAY, hexText };
 })();

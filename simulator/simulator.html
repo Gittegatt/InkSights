@@ -25,7 +25,9 @@ document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}"
   <div id="app" style="display: contents"></div>
 
   <section class="card" aria-labelledby="simHead">
-    <div class="card-head"><h2 id="simHead">Simulation</h2></div>
+    <details class="sim-fold" id="simFold" open>
+    <summary><h2 id="simHead">Simulation</h2></summary>
+    <div class="sub-body">
     <div class="form">
       <div class="field"><span class="label">Data from</span><span class="choices" id="source"></span></div>
       <label class="field"><span class="label">Time of the data</span><input type="text" id="time" maxlength="5" autocomplete="off" style="width: 4.5em; font-family: var(--font-mono)"></label>
@@ -48,7 +50,7 @@ document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}"
         <table>
           <thead><tr>
             <th>Device</th><th>Serial (UID)</th><th>Type</th><th>Storage</th><th>Pool / mount point</th><th>Used</th><th>Size</th>
-            <th>Spindown</th><th>Idle</th><th>Timeout min</th><th>Poll s</th><th></th>
+            <th>Temp °C</th><th>Spindown</th><th>Idle</th><th>Timeout min</th><th>Poll s</th><th></th>
           </tr></thead>
           <tbody id="disks"></tbody>
         </table>
@@ -60,11 +62,17 @@ document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}"
       <span class="label">Pasted frame</span>
       <textarea id="paste" rows="14" spellcheck="false" placeholder="#BEGIN&#10;H|TRUENAS|14:30|0|85|0|600&#10;D|sda|data|3.18T|8.95T|35|3|10|A&#10;#END"></textarea>
     </label>
+    </div>
+    </details>
   </section>
+
+  <!-- a real board on USB: set it up, or send it the frame of a simulated display -->
+  <div id="usbBox" style="display: contents"></div>
 </main>
 
 <script>
-document.write(`<script src="../server/web/inksights-render.js${BUST}"><\/script><script src="../server/web/inksights-ui.js${BUST}"><\/script>`);
+document.write(`<script src="../server/web/inksights-render.js${BUST}"><\/script><script src="../server/web/inksights-ui.js${BUST}"><\/script>` +
+  `<script src="../server/web/inksights-usb.js${BUST}"><\/script>`);
 </script>
 <script>
 "use strict";
@@ -81,26 +89,26 @@ const OLD_PANELS = { "212x104x3": 1, "250x122x3": 3, "250x122x2": 4, "400x300x2"
 
 // One disk as edited here; turned into a state.json entry (what inksights.sh writes)
 const EXAMPLE = [
-  { dev: "nvme0n1", uid: "SERIAL-01", type: "nvme", pool: "boot-pool", used: "9.44G", total: "464G" },
-  { dev: "sdh", uid: "SERIAL-02", type: "ssd", pool: "apps", used: "93.0G", total: "213G" },
-  { dev: "sdc", uid: "SERIAL-03", type: "ssd", pool: "vms", used: "1.97G", total: "360G" },
-  { dev: "sda", uid: "SERIAL-04", type: "hdd", pool: "data", used: "3.18T", total: "8.95T", spin: "A", idle: 40 },
-  { dev: "sdf", uid: "SERIAL-05", type: "hdd", pool: "data", used: "3.18T", total: "8.95T", spin: "A", idle: 40 },
-  { dev: "sdb", uid: "SERIAL-06", type: "hdd", pool: "media", used: "1.68T", total: "7.14T", spin: "S", idle: 0 },
-  { dev: "sde", uid: "SERIAL-07", type: "ssd", pool: "photos", used: "74.3G", total: "114G" },
-  { dev: "sdg", uid: "SERIAL-08", type: "hdd", pool: "archive", used: "2.05T", total: "2.63T", spin: "A", idle: 90 },
-  { dev: "sdd", uid: "SERIAL-09", type: "hdd", pool: "archive_2", used: "684G", total: "1.76T", spin: "A?", idle: 0 },
+  { dev: "nvme0n1", uid: "SERIAL-01", type: "nvme", pool: "boot-pool", used: "9.44G", total: "464G", temp: 41 },
+  { dev: "sdh", uid: "SERIAL-02", type: "ssd", pool: "apps", used: "93.0G", total: "213G", temp: 36 },
+  { dev: "sdc", uid: "SERIAL-03", type: "ssd", pool: "vms", used: "1.97G", total: "360G", temp: 34 },
+  { dev: "sda", uid: "SERIAL-04", type: "hdd", pool: "data", used: "3.18T", total: "8.95T", spin: "A", idle: 40, temp: 38 },
+  { dev: "sdf", uid: "SERIAL-05", type: "hdd", pool: "data", used: "3.18T", total: "8.95T", spin: "A", idle: 40, temp: 37 },
+  { dev: "sdb", uid: "SERIAL-06", type: "hdd", pool: "media", used: "1.68T", total: "7.14T", spin: "S", idle: 0, temp: 31 },
+  { dev: "sde", uid: "SERIAL-07", type: "ssd", pool: "photos", used: "74.3G", total: "114G", temp: 33 },
+  { dev: "sdg", uid: "SERIAL-08", type: "hdd", pool: "archive", used: "2.05T", total: "2.63T", spin: "A", idle: 90, temp: 40 },
+  { dev: "sdd", uid: "SERIAL-09", type: "hdd", pool: "archive_2", used: "684G", total: "1.76T", spin: "A?", idle: 0, temp: 39 },
 ].map(d => Object.assign({ spin: "A", idle: 0, timeout: 30, poll: 60, fs: "zfs" }, d));
 // A Linux server without ZFS: filesystems named after their mount point, one RAID (md) of two disks,
 // btrfs over two disks, a disk with nothing mounted
 const EXAMPLE_LINUX = [
-  { dev: "nvme0n1", uid: "SERIAL-11", type: "nvme", fs: "ext4", pool: "/", used: "38.2G", total: "468G" },
-  { dev: "sda", uid: "SERIAL-12", type: "hdd", fs: "xfs", pool: "/srv/media", used: "5.12T", total: "7.27T", spin: "A", idle: 30 },
-  { dev: "sdb", uid: "SERIAL-13", type: "hdd", fs: "xfs", pool: "/srv/media", used: "5.12T", total: "7.27T", spin: "A", idle: 30 },
-  { dev: "sdc", uid: "SERIAL-14", type: "hdd", fs: "btrfs", pool: "/mnt/backup", used: "1.10T", total: "3.64T", spin: "S", idle: 0 },
-  { dev: "sdd", uid: "SERIAL-15", type: "hdd", fs: "btrfs", pool: "/mnt/backup", used: "1.10T", total: "3.64T", spin: "S", idle: 0 },
-  { dev: "sde", uid: "SERIAL-16", type: "ssd", fs: "ext4", pool: "/var/lib/docker", used: "61.0G", total: "234G" },
-  { dev: "sdf", uid: "SERIAL-17", type: "hdd", fs: "none", pool: "", used: "", total: "4.00T", spin: "S", idle: 0 },
+  { dev: "nvme0n1", uid: "SERIAL-11", type: "nvme", fs: "ext4", pool: "/", used: "38.2G", total: "468G", temp: 44 },
+  { dev: "sda", uid: "SERIAL-12", type: "hdd", fs: "xfs", pool: "/srv/media", used: "5.12T", total: "7.27T", spin: "A", idle: 30, temp: 36 },
+  { dev: "sdb", uid: "SERIAL-13", type: "hdd", fs: "xfs", pool: "/srv/media", used: "5.12T", total: "7.27T", spin: "A", idle: 30, temp: 37 },
+  { dev: "sdc", uid: "SERIAL-14", type: "hdd", fs: "btrfs", pool: "/mnt/backup", used: "1.10T", total: "3.64T", spin: "S", idle: 0, temp: 30 },
+  { dev: "sdd", uid: "SERIAL-15", type: "hdd", fs: "btrfs", pool: "/mnt/backup", used: "1.10T", total: "3.64T", spin: "S", idle: 0, temp: 30 },
+  { dev: "sde", uid: "SERIAL-16", type: "ssd", fs: "ext4", pool: "/var/lib/docker", used: "61.0G", total: "234G", temp: 35 },
+  { dev: "sdf", uid: "SERIAL-17", type: "hdd", fs: "none", pool: "", used: "", total: "4.00T", spin: "S", idle: 0, temp: 29 },
 ].map(d => Object.assign({ spin: "A", idle: 0, timeout: 30, poll: 60 }, d));
 const STORAGE = [["zfs", "ZFS pool"], ["ext4", "ext4"], ["xfs", "XFS"], ["btrfs", "btrfs"], ["none", "Not mounted"]];
 // Name as inksights.sh shows it: a ZFS pool by its name, a filesystem by the last part of its
@@ -128,7 +136,7 @@ const hwDefaults = (board, panel) => ({ board, panel, connected: true, transport
 const SYS_FIELDS = [
   ["cpu", "CPU load %", 0, 100], ["temp", "CPU °C", 0, 199], ["power", "CPU W", 0, 9999],
   ["ramUsed", "RAM used GiB", 0, 9999], ["ramArc", "ZFS RAM cache GiB", 0, 9999], ["ramTotal", "RAM total GiB", 0, 9999],
-  ["rx", "Down MiB/s", 0, 99999], ["tx", "Up MiB/s", 0, 99999], ["link", "Link Mb/s", 0, 1000000], ["nvmeTemp", "NVMe °C", 0, 199], ["ssdTemp", "SSD °C", 0, 199],
+  ["rx", "Down MiB/s", 0, 99999], ["tx", "Up MiB/s", 0, 99999], ["link", "Link Mb/s", 0, 1000000],
 ];
 // Example start of the NAS server: 2 months, 9 days and 5 hours before now (local time, as the
 // datetime-local field shows it)
@@ -145,7 +153,7 @@ function simNow() {
   now.setHours(hh, mm, 0, 0);
   return now.getTime();
 }
-const SYS_EXAMPLE = { cpu: 37, temp: 52, power: 18, ramUsed: 12.3, ramArc: 40.1, ramTotal: 62.8, rx: 12.3, tx: 1.2, link: 1000, nvmeTemp: 41, ssdTemp: 36, boot: bootExample() };
+const SYS_EXAMPLE = { cpu: 37, temp: 52, power: 18, ramUsed: 12.3, ramArc: 40.1, ramTotal: 62.8, rx: 12.3, tx: 1.2, link: 1000, boot: bootExample() };
 const DEFAULTS = {
   source: "list", time: "14:30", host: "TRUENAS", disks: EXAMPLE, paste: "", sys: SYS_EXAMPLE,
   pagename: "", interval: 10, oldFw: false, config: {},
@@ -199,6 +207,8 @@ function toState(d) {
     used: pool ? used : 0, total: pool ? total : 0, size: pool ? 0 : Math.max(0, total),
     // spin: A / S = timer running; "A?" / "S?" = timer not running, last known state; "?" = unknown
     state: d.type !== "hdd" ? "N" : d.spin[0], stale: d.spin.length > 1, idle: Math.round(d.idle / 100 * timeout), timeout, poll,
+    // °C like inksights.sh: empty = unknown; a sleeping hard disk -2 ("--" or "STBY")
+    temp: d.type === "hdd" && d.spin[0] === "S" ? -2 : Number.isInteger(d.temp) ? d.temp : null,
   };
 }
 
@@ -217,7 +227,9 @@ function stateNow() {
       colors: panel.colors, panel: panel.id, pins: pins.join(","), board: h.board, wifi: board.wifi ? 1 : 0, fw: "1.0", net,
       ssid: net === "sta" ? h.ssid || "" : "", online: net === "sta" ? onlineSecs(h.since) : -1,   // seconds connected
       ip: net === "sta" ? IPS[i] : net === "ap" ? "192.168.4.1" : "", fast: panel.fast ? 1 : 0, answer: "OK",
-      noData: !!h.noData });   // the board got no fresh frame for too long: "NO DATA" / "Check connection"
+      noData: !!h.noData,   // the board got no fresh frame for too long: "NO DATA" / "Check connection"
+      // its start screen, before the first data; with the setup access point open it shows the password
+      splash: !!h.splash, apKey: (sim.config[IDS[i]] && sim.config[IDS[i]].wifi && sim.config[IDS[i]].wifi.apPass) || "ink!1234" });
   });
   if (sim.oldFw) displays.push({ port: "/dev/ttyACM2", id: "", error: "No answer with chip ID (old firmware?)" });
   const disks = sim.disks.map(toState);
@@ -234,7 +246,8 @@ function onlineSecs(since) {
 // state.system like inksights.sh writes it: RAM in MiB, network in KiB/s, -1 = unknown
 function systemNow(disks) {
   const y = sim.sys, num = (k, f = 1) => (typeof y[k] === "number" && y[k] >= 0 ? Math.round(y[k] * f) : -1);
-  const eno1 = { name: "eno1", rx: num("rx", 1024), tx: num("tx", 1024), speed: num("link") };
+  // interfaces like inksights.sh reports them; state U up / L no link / D down, wireless for WiFi
+  const eno1 = { name: "eno1", rx: num("rx", 1024), tx: num("tx", 1024), speed: num("link"), wireless: 0, state: "U" };
   // uptime from the start of the server ("Booted") to the time of the data (today), in full calendar
   // months and the minutes after them like inksights.sh; empty or in the future = unknown
   const now = new Date(simNow());
@@ -244,10 +257,15 @@ function systemNow(disks) {
     uptime: up ? Math.floor((now.getTime() - boot) / 1000) : -1, upMonths: up ? up.months : 0, upRest: up ? up.min : -1,
     cpu: num("cpu"), temp: num("temp"), power: num("power"),
     ramUsed: num("ramUsed", 1024), ramArc: num("ramArc", 1024), ramTotal: num("ramTotal", 1024),
-    ifaces: [eno1, { name: "eno2", rx: 0, tx: 0, speed: 1000 }, { name: "br0", rx: eno1.rx, tx: eno1.tx, speed: -1 }],
+    ifaces: [eno1, { name: "eno2", rx: 0, tx: 0, speed: -1, wireless: 0, state: "L" }, { name: "eno3", rx: -1, tx: -1, speed: -1, wireless: 0, state: "D" },
+      { name: "br0", rx: eno1.rx, tx: eno1.tx, speed: -1, wireless: 0, state: "U" }, { name: "wlan0", rx: 220, tx: 35, speed: 300, wireless: 1, state: "U" }],
     defaultIface: "eno1",
-    nvme: disks.filter(d => d.type === "nvme").map(d => ({ dev: d.dev, temp: num("nvmeTemp") })),
-    ssd: disks.filter(d => d.type === "ssd").map(d => ({ dev: d.dev, temp: num("ssdTemp") })),
+    // temperatures per drive (disk list, column "Temp °C"); HDDs only when one of them has a value
+    // (as if drive-temp-export ran), a sleeping one -2
+    nvme: disks.filter(d => d.type === "nvme").map(d => ({ dev: d.dev, temp: d.temp == null ? -1 : d.temp })),
+    ssd: disks.filter(d => d.type === "ssd").map(d => ({ dev: d.dev, temp: d.temp == null ? -1 : d.temp })),
+    hdd: sim.disks.some(d => d.type === "hdd" && Number.isInteger(d.temp))
+      ? disks.filter(d => d.type === "hdd").map(d => ({ dev: d.dev, temp: d.temp == null ? -1 : d.temp })) : [],
   };
 }
 
@@ -272,6 +290,7 @@ function publicConfig() {
   return out;
 }
 
+let usb = null;   // the USB card, mounted below
 const ui = InkSightsUI.start({
   root: $("app"),
   load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights" }),
@@ -301,6 +320,7 @@ function update(structure) {
   $("pasteBox").hidden = sim.source !== "paste";
   save();
   ui.reload(!!structure);
+  if (usb) usb.refreshFrames();
 }
 
 // ------------------------------------------------------------ Simulation card
@@ -341,7 +361,8 @@ function buildHw() {
       f("Connected since", el("input", { type: "datetime-local", value: h.since || "", disabled: !board.wifi,
         "aria-label": `Connected since, display ${IDS[i]}`, oninput: e => { h.since = e.target.value; update(); } })),
       el("label", { class: "check" }, el("input", { type: "checkbox", checked: h.connected, onchange: e => { h.connected = e.target.checked; update(true); } }), "Connected"),
-      el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!h.noData, onchange: e => { h.noData = e.target.checked; update(); } }), "No data"));
+      el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!h.noData, onchange: e => { h.noData = e.target.checked; update(); } }), "No data"),
+      el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!h.splash, onchange: e => { h.splash = e.target.checked; update(); } }), "Start screen"));
   });
   $("hw").replaceChildren(...blocks);
 }
@@ -362,6 +383,8 @@ function buildDisks() {
         placeholder: (d.fs || "zfs") === "zfs" ? "no pool" : d.fs === "none" ? "" : "/srv/data", "aria-label": "Pool or mount point", oninput: set("pool") })),
       el("td", {}, el("input", { type: "text", class: "short", value: d.used, maxlength: "7", "aria-label": "Used", oninput: set("used") })),
       el("td", {}, el("input", { type: "text", class: "short", value: d.total, maxlength: "7", "aria-label": "Size", oninput: set("total") })),
+      el("td", {}, el("input", { type: "number", min: "0", max: "99", step: "1", value: Number.isInteger(d.temp) ? String(d.temp) : "", "aria-label": "Temperature in degrees Celsius",
+        oninput: e => { const v = e.target.value.trim(); d.temp = /^\d{1,2}$/.test(v) ? Number(v) : null; update(); } })),
       el("td", {}, el("select", { "aria-label": "Spindown state", disabled: !hdd, onchange: set("spin") },
         ...[["A", "Spinning"], ["S", "Asleep"], ["A?", "Spinning, timer off"], ["S?", "Asleep, timer off"], ["?", "Unknown"]].map(([v, l]) => el("option", { value: v, selected: v === d.spin }, l)))),
       el("td", {}, el("input", { type: "range", min: "0", max: "100", step: "1", value: String(d.idle), disabled: !hdd, "aria-label": "Idle in percent of the timeout",
@@ -392,6 +415,11 @@ $("clear").addEventListener("click", () => { sim.disks = []; buildDisks(); updat
 
 buildHw();
 buildSys();
+// USB: set up a real board, or send it what a simulated display gets ("Send to display")
+usb = InkSightsUSB.mount($("usbBox"), { frames: () => ui.frames() });
+// the Simulation card folds; remembered like the rest of the simulation
+$("simFold").open = sim.simOpen !== false;
+$("simFold").addEventListener("toggle", () => { sim.simOpen = $("simFold").open; save(); });
 buildDisks();
 update(true);
 </script>

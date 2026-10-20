@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InkSights · USB setup</title>
+<!--
+  InkSights USB setup: panel type, pins and (boards with WiFi) the WiFi settings of a board,
+  straight over its USB port (Web Serial: Chrome or Edge). Open this file from disk, or over
+  https (e.g. GitHub Pages). Nothing is sent anywhere but to the board.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<script>
+// Load the shared page files fresh every time (opened from disk, browsers may keep an old copy)
+const BUST = "?" + Date.now();
+document.write(`<link rel="stylesheet" href="server/web/inksights.css${BUST}">`);
+</script>
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <div>
+      <span class="eyebrow">YOUR SYSTEM METRICS AT A GLANCE</span>
+      <h1>InkSights</h1>
+      <span class="status">USB setup</span>
+    </div>
+  </header>
+  <div id="usb"></div>
+</main>
+<script>
+document.write(`<script src="server/web/inksights-ui.js${BUST}"><\/script><script src="server/web/inksights-usb.js${BUST}"><\/script>`);
+</script>
+<script>
+InkSightsUSB.mount(document.getElementById("usb"));
+</script>
+</body>
+</html>

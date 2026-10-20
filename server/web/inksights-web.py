@@ -61,10 +61,29 @@ WIFI_KEYS = ("ssid", "pass", "host", "server", "apOn", "apSsid", "apPass", "apDe
 DEFAULT_AP_DELAY, MAX_AP_DELAY = 30, 3600   # seconds without WiFi before the board opens its access point
 FAST = (0, 2, 5, 10, 30)              # seconds between fast refreshes (panels that report fast=1); 0 = off
 IFACE_RE = re.compile(r"^[A-Za-z0-9._-]{1,15}$")             # network interface for the system page
-SYS_PARTS = ("cpu", "ram", "net", "nvme", "ssd")              # system page components (rows); none = no system page
-CONF_COLS = 31
+MAX_NETS = 32                          # interfaces in the order and hidden lists of the network pages
+NET_SORTS = ("name", "manual")
+NET_BARS = (0, 1, 2)                   # details in the bar of the network pages: none, percentage of the link, link speed
+SYS_PARTS = ("cpu", "ram", "net", "nvme", "ssd", "hdd")       # system page components (rows); none = no system page
+CONF_COLS = 41
 PANELS = (1, 2, 3, 4, 5)              # panel types (GDEW0213Z16, GDEH0213Z19, GDEY0213Z98, GDEY0213B74, GDEY042T81)
-PAGES = ("system", "disks")           # pages switched on (system page, disk pages)
+# Header layout: what stands left, in the middle and right; T title, P page number, U uptime,
+# C time, - nothing; lower case = that place highlighted; each of T, P, U, C at most once
+# (like layout_valid in inksights.sh)
+DEFAULT_LAYOUT = "TCP"
+LAYOUT_RE = re.compile(r"^[TPUCtpuc-]{3}$")
+
+
+def layout_ok(v):
+    return isinstance(v, str) and bool(LAYOUT_RE.match(v)) and all(v.upper().count(c) <= 1 for c in "TPUC")
+
+
+def iface_list(text):
+    """Interface names from a conf column ("-" = none), each once, at most MAX_NETS"""
+    return list(dict.fromkeys(n for n in text.split(",") if n != "-" and IFACE_RE.match(n)))[:MAX_NETS]
+
+
+PAGES = ("system", "disks", "network", "wifi")   # pages switched on
 
 
 def pins_ok(p):
@@ -139,8 +158,9 @@ def read_conf(path):
                 order = [u for u in parts[5].split(",") if u != "-" and UID_RE.match(u)][:MAX_ORDER]
                 hidden = [u for u in parts[12].split(",") if u != "-" and UID_RE.match(u)][:MAX_ORDER]
                 style = parts[11].split(",")
-                style = [int(x) for x in style] if len(style) in (4, 5) and all(x in ("0", "1") for x in style) else [0, 0, 1, 0]
-                style += [0] * (5 - len(style))   # bar details: 0 percentage, 1 used capacity
+                style = ([int(x) for x in style] if len(style) in (4, 5, 6) and all(x in ("0", "1") for x in style[:5])
+                         and style[5:] in ([], ["0"], ["1"], ["2"]) else [0, 0, 1, 0])
+                style += [0] * (6 - len(style))   # bar details: 0 percentage, 1 used capacity; decimals of the percentage
                 title = "" if parts[10] == "-" else parts[10]
                 dname = "" if parts[13] == "-" else parts[13]
                 wifi = wifi_defaults()
@@ -154,8 +174,7 @@ def read_conf(path):
                 # components; "1" = all (system page on, earlier version)
                 sysp = list(SYS_PARTS) if parts[23] == "1" else [p for p in SYS_PARTS if p in parts[23].split(",")]
                 types = [t for t in TYPES if t in parts[1].split(",")]
-                # no disk types: only with the system page or the WiFi page
-                if not types and not (parts[1] == "-" and (sysp or "wifi" in parts[26].split(","))):
+                if not types and parts[1] != "-":   # "-" = no disk types (the display may show nothing: "Nothing to ink")
                     types = list(TYPES)
                 conf[parts[0]] = {
                     "types": types,
@@ -168,7 +187,7 @@ def read_conf(path):
                     "page": page if 0 <= page <= MAX_PAGE else DEFAULT_PAGE,
                     "pins": pins if pins_ok(pins) else None,
                     "name": title if NAME_RE.match(title) else "",
-                    "timer": style[0], "ringDir": style[1], "icons": style[2], "pctBar": style[3], "barCap": style[4],
+                    "timer": style[0], "ringDir": style[1], "icons": style[2], "pctBar": style[3], "barCap": style[4], "pctDec": style[5],
                     "hidden": hidden,
                     "dname": dname if DNAME_RE.match(dname) else "",
                     "wifi": wifi,
@@ -180,9 +199,20 @@ def read_conf(path):
                     "showDisks": 0 if parts[26] not in ("-", "") and "disks" not in parts[26].split(",") else 1,
                     "showWifi": 1 if "wifi" in parts[26].split(",") else 0,
                     "sysIcons": 0 if parts[27] == "0" else 1,
-                    "headerUp": 1 if parts[28] == "1" else 0,
+                    "showHeader": 0 if parts[32] == "0" else 1,
+                    "showNet": 1 if "network" in parts[26].split(",") else 0,
+                    "netSort": parts[33] if parts[33] in NET_SORTS else "name",
+                    "netOrder": iface_list(parts[34]),
+                    "netHidden": iface_list(parts[35]),
+                    "netIcons": 0 if parts[36] == "0" else 1,
+                    "netBar": int(parts[37]) if parts[37] in ("0", "1", "2") else 0,
+                    "driveTemp": 1 if parts[38] == "1" else 0,
+                    "stby": 1 if parts[39] == "1" else 0,
+                    "headInv": 1 if parts[40] == "1" else 0,
                     "panel": int(parts[29]) if parts[29] in ("1", "2", "3", "4", "5") else None,
                     "wifiIcons": 0 if parts[30] == "0" else 1,
+                    # missing (earlier version): title, time, then the page number or the uptime
+                    "layout": parts[31] if layout_ok(parts[31]) else "TCU" if parts[28] == "1" else DEFAULT_LAYOUT,
                 }
     except FileNotFoundError:
         pass
@@ -246,14 +276,12 @@ def validate(displays, old_conf=None):
             raise SettingsError(f"Display {did}: invalid system page components.")
         sysp = [p for p in SYS_PARTS if p in sysp]
         show = {}
-        for key, default in (("showSys", 1), ("showDisks", 1), ("showWifi", 0), ("wifiIcons", 1), ("sysIcons", 1), ("headerUp", 0)):
+        for key, default in (("showSys", 1), ("showDisks", 1), ("showWifi", 0), ("wifiIcons", 1), ("sysIcons", 1), ("showHeader", 1),
+                             ("showNet", 0), ("netIcons", 1), ("driveTemp", 0), ("stby", 0), ("headInv", 0)):
             v = s.get(key, default)
             if v not in (0, 1) or isinstance(v, bool):
                 raise SettingsError(f"Display {did}: invalid {key}.")
             show[key] = v
-        if not (show["showDisks"] and types) and not (show["showSys"] and sysp) and not show["showWifi"]:
-            raise SettingsError(f"Display {did}: nothing to show. Switch on the system page, the disk pages "
-                                "(with at least one component or disk type) or the WiFi page.")
         fast = s.get("fast", 0)
         if not is_int(fast) or fast not in FAST:
             raise SettingsError(f"Display {did}: fast refresh must be off, 2, 5, 10 or 30 seconds.")
@@ -301,6 +329,10 @@ def validate(displays, old_conf=None):
             if v not in (0, 1) or isinstance(v, bool):
                 raise SettingsError(f"Display {did}: invalid {key}.")
             style.append(v)
+        pct_dec = s.get("pctDec", 0)   # decimals of the percentage in the bar: 0, 1 or 2
+        if pct_dec not in (0, 1, 2) or isinstance(pct_dec, bool):
+            raise SettingsError(f"Display {did}: invalid pctDec.")
+        style.append(pct_dec)
         hidden = s.get("hidden", [])
         if not isinstance(hidden, list) or len(hidden) > MAX_ORDER or not all(isinstance(u, str) and UID_RE.match(u) for u in hidden):
             raise SettingsError(f"Display {did}: invalid list of hidden disks.")
@@ -308,10 +340,21 @@ def validate(displays, old_conf=None):
         dname = dname.strip() if isinstance(dname, str) else ""
         if not DNAME_RE.match(dname) or dname == "-":
             raise SettingsError(f"Display {did}: name max. 32 characters.")
+        layout = s.get("layout", DEFAULT_LAYOUT)
+        if not layout_ok(layout):
+            raise SettingsError(f"Display {did}: invalid header layout.")
+        netp = {"netSort": s.get("netSort", "name"), "netBar": s.get("netBar", 0)}
+        if netp["netSort"] not in NET_SORTS or not is_int(netp["netBar"]) or netp["netBar"] not in NET_BARS:
+            raise SettingsError(f"Display {did}: invalid network page settings.")
+        for key in ("netOrder", "netHidden"):
+            v = s.get(key, [])
+            if not isinstance(v, list) or len(v) > MAX_NETS or not all(isinstance(n, str) and IFACE_RE.match(n) for n in v):
+                raise SettingsError(f"Display {did}: invalid list of network interfaces.")
+            netp[key] = list(dict.fromkeys(v))
         wifi = validate_wifi(did, s.get("wifi"), old_conf.get(did, {}).get("wifi", wifi_defaults()))
-        clean[did] = {"types": types, "boxes": boxes, "rows": rows, "sort": sort,
+        clean[did] = {"layout": layout, **netp, "types": types, "boxes": boxes, "rows": rows, "sort": sort,
                       "order": list(dict.fromkeys(order)), "warn": warn, "rot": rot, "page": page, "pins": pins, "name": name,
-                      "timer": style[0], "ringDir": style[1], "icons": style[2], "pctBar": style[3], "barCap": style[4],
+                      "timer": style[0], "ringDir": style[1], "icons": style[2], "pctBar": style[3], "barCap": style[4], "pctDec": style[5],
                       "hidden": list(dict.fromkeys(hidden)), "dname": dname, "wifi": wifi,
                       "fast": fast, "sys": sysp, "net": net, "zfs": zfs, "panel": panel, **show}
     return clean
@@ -338,27 +381,34 @@ def write_conf(path, conf, interval, page_name=""):
         f"pagename\t{page_name}",
         "# id<TAB>types<TAB>boxes<TAB>rows<TAB>sort<TAB>order<TAB>warn<TAB>rot<TAB>page<TAB>pins<TAB>title"
         "<TAB>style<TAB>hidden<TAB>name<TAB>ssid<TAB>password<TAB>host<TAB>server<TAB>ap<TAB>ap ssid<TAB>ap password<TAB>ap delay"
-        "<TAB>fast<TAB>system<TAB>network<TAB>zfs<TAB>pages<TAB>system icons<TAB>header<TAB>panel<TAB>wifi icons",
+        "<TAB>fast<TAB>system<TAB>network<TAB>zfs<TAB>pages<TAB>system icons<TAB>header<TAB>panel<TAB>wifi icons<TAB>layout<TAB>header on"
+        "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted",
         "#   '-' = empty. boxes 0 = timer off, rows 0 = auto, warn = highlight from % used (0 = never),",
         "#   rot = degrees clockwise (0, 90, 180, 270), page = seconds between page turns (0 = off),",
         "#   pins = cs,dc,rst,busy (rst/busy -1 = none, '-' = keep the pins of the display),",
-        "#   style = timer,ring direction,symbols,details in the bar,capacity instead of percentage,",
+        "#   style = timer,ring direction,symbols,details in the bar,capacity instead of percentage,decimals of the percentage (0-2),",
         "#   hidden = uids not shown, name = name on this page,",
         "#   ssid ... ap password = WiFi settings (hex encoded UTF-8), sent to the display over USB;",
         "#   ap delay = seconds without WiFi before the display opens its setup access point (0-3600),",
-        "#   fast = seconds between fast refreshes (0 = off), system = system page components cpu,ram,net,nvme,ssd",
+        "#   fast = seconds between fast refreshes (0 = off), system = system page components cpu,ram,net,nvme,ssd,hdd",
         "#   ('-' = no system page; types '-' = only the system page),",
         "#   network = interface for the system page ('-' = the one with the default route),",
         "#   zfs = ZFS cache on the system page 1 = shown / 0 = hidden,",
         "#   pages = pages switched on: system,disks,wifi (the settings below a page stay when it is off),",
-        "#   system icons = symbols on the system page 1 = on / 0 = off, header = 1 uptime / 0 page number,",
+        "#   system icons = symbols on the system page 1 = on / 0 = off, header = 1 the layout shows the uptime,",
         "#   panel = panel type 1-5 (1 GDEW0213Z16, 2 GDEH0213Z19, 3 GDEY0213Z98, 4 GDEY0213B74, 5 GDEY042T81;",
-        "#   '-' = keep the panel type of the display), wifi icons = symbols on the WiFi page 1 = on / 0 = off",
+        "#   '-' = keep the panel type of the display), wifi icons = symbols on the WiFi page 1 = on / 0 = off,",
+        "#   layout = header left, middle, right: T title, P page number, U uptime, C time, - nothing",
+        "#   (lower case = highlighted; default TCP), header on = header line 1 = shown / 0 = off",
+        "#   net sort = network pages by name or manual (net order first), net hidden = interfaces not shown,",
+        "#   net icons = symbols 1 = on / 0 = off, net bar = details in the bar 0 none / 1 percentage / 2 link speed,",
+        "#   drive temps = temperatures on the drive pages 1 = on / 0 = off, stby = asleep hard disks 1 = STBY / 0 = --,",
+        "#   header inverted = 1 white header with black text / 0 black with white text",
     ]
     for did, s in sorted(conf.items()):
         order = ",".join(s["order"]) or "-"
         pins = ",".join(str(p) for p in s["pins"]) if s["pins"] else "-"
-        style = f"{s.get('timer', 0)},{s.get('ringDir', 0)},{s.get('icons', 1)},{s.get('pctBar', 0)},{s.get('barCap', 0)}"
+        style = f"{s.get('timer', 0)},{s.get('ringDir', 0)},{s.get('icons', 1)},{s.get('pctBar', 0)},{s.get('barCap', 0)},{s.get('pctDec', 0)}"
         hidden = ",".join(s.get("hidden") or []) or "-"
         w = s.get("wifi") or wifi_defaults()
         wifi = [to_hex(w["ssid"]), to_hex(w["pass"]), to_hex(w["host"]), to_hex(w["server"]),
@@ -368,10 +418,15 @@ def write_conf(path, conf, interval, page_name=""):
                                 str(s["warn"]), str(s["rot"]), str(s["page"]), pins, s["name"] or "-",
                                 style, hidden, s.get("dname") or "-", *wifi,
                                 str(s.get("fast", 0)), ",".join(s.get("sys") or []) or "-", s.get("net") or "-", str(s.get("zfs", 1)),
-                                ",".join(p for p, k, d in (("system", "showSys", 1), ("disks", "showDisks", 1), ("wifi", "showWifi", 0))
+                                ",".join(p for p, k, d in (("system", "showSys", 1), ("disks", "showDisks", 1), ("network", "showNet", 0), ("wifi", "showWifi", 0))
                                          if s.get(k, d)) or "-",
-                                str(s.get("sysIcons", 1)), str(s.get("headerUp", 0)),
-                                str(s["panel"]) if s.get("panel") in PANELS else "-", str(s.get("wifiIcons", 1))]))
+                                str(s.get("sysIcons", 1)),
+                                "1" if layout_ok(s.get("layout")) and "U" in s["layout"].upper() else "0",
+                                str(s["panel"]) if s.get("panel") in PANELS else "-", str(s.get("wifiIcons", 1)),
+                                s.get("layout") if layout_ok(s.get("layout")) else DEFAULT_LAYOUT,
+                                str(s.get("showHeader", 1)), s.get("netSort", "name"),
+                                ",".join(s.get("netOrder") or []) or "-", ",".join(s.get("netHidden") or []) or "-",
+                                str(s.get("netIcons", 1)), str(s.get("netBar", 0)), str(s.get("driveTemp", 0)), str(s.get("stby", 0)), str(s.get("headInv", 0))]))
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".conf.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
@@ -407,6 +462,7 @@ FRAME_ARGS = {   # what a WiFi display reports when it fetches its frame
     "fw": re.compile(r"^[0-9.]{1,10}$"),
     "ip": re.compile(r"^[0-9.]{7,15}$"),
     "fast": re.compile(r"^[01]$"),
+    "ssid": re.compile(r"^([0-9a-f]{2}){1,32}$"),   # the stored WiFi network, UTF-8 hex encoded
 }
 SEEN_EVERY = 10   # seconds; fast displays fetch every few seconds, the data folder is only written this often
 WIFI_LOCK = threading.Lock()

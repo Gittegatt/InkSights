@@ -90,16 +90,18 @@ input:disabled, select:disabled { opacity: 0.45; }
 .sub-card.off .sub-body { opacity: 0.5; }
 .sub-card.off.keep-on .sub-body { opacity: 1; }
 fieldset { border: 0; padding: 0; margin: 0; display: contents; }
-.field { display: grid; gap: 6px; align-content: start; }
+.field { display: grid; gap: 6px; align-content: start; min-width: 0; }
+/* text fields never wider than their box (narrow cards); their max-width stays as set */
+.field > input[type="text"], .field > input[type="password"] { width: 100%; min-width: 0; }
 .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500; }
 .choices { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
-.oneline .choices { flex-wrap: nowrap; gap: 6px 10px; }
+/* tight rows (rows per page): closer together, wrap when the card is narrow */
+.oneline .choices { gap: 6px 10px; }
 .oneline .check { gap: 4px; }
-/* display pins always in one row: the selects shrink instead of wrapping */
-.choices.pins { flex-wrap: nowrap; gap: 6px 12px; }
-.pins .check { gap: 5px; flex: 0 1 auto; min-width: 0; }
-.pins select { min-width: 0; max-width: 100%; padding-left: 6px; padding-right: 2px; }
-@media (max-width: 1300px) { .pins .check { flex: 1 1 0; } .pins select { width: 100%; } }   /* narrow: share the row evenly */
+/* display pins: each pin with its name stays whole; they wrap when the card is narrow */
+.choices.pins { gap: 8px 14px; }
+.pins .check { gap: 5px; }
+.pins select { padding-left: 6px; padding-right: 2px; }
 .check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
 .check input[type="checkbox"], .check input[type="radio"] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
 .check:has(input:disabled) { opacity: 0.45; cursor: default; }
@@ -137,6 +139,10 @@ input[type="password"] { font: inherit; color: var(--fg); background: var(--bg);
 .panel-pick { flex-wrap: wrap; gap: 6px 12px; }
 .panel-pick select { min-width: 0; max-width: 100%; }
 /* simulator: settings of the simulated hardware */
+/* Simulation card: folds like the cards of a display, its heading stays the card heading */
+.sim-fold > summary { list-style-position: outside; margin-left: 1em; text-transform: none; letter-spacing: 0; color: var(--fg); }
+.sim-fold > summary h2 { display: inline; }
+.sim-fold[open] > summary { margin-bottom: 14px; }
 /* Simulation card, displays: one block per display, its fields wrap when the card gets narrow */
 .sim-grid { display: flex; flex-direction: column; gap: 10px; }
 .sim-hw { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; }

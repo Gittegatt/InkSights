@@ -41,13 +41,16 @@ Per drive one row:
 - **Symbol:** chip = SSD/NVMe, grey disc = hard disk spinning, light disc = hard disk asleep (can be switched off)
 - **Device name** (e.g. `sda`), **pool** and **used/total**, e.g. `3.18T/8.95T`
 - **Usage bar** (free = grey raster), highlighted from 85 % (third colour, inverted on black/white panels),
-  optionally with the percentage or the used capacity inside the bar
+  optionally with the percentage (whole or with decimals) or the used capacity inside the bar
+- **Temperature** of each drive (optional), `--` or `STBY` for a hard disk that is asleep
 - **Spindown timer** for hard disks at the right end of the bar: a **badge** with the time left (MM:SS, "SLEEP" when
   asleep) or a **ring** that shrinks until spindown (dotted when asleep)
 
-The top line shows the title (default: name of the NAS server), the page number or the uptime, and the time.
+The top line shows the title (default: name of the NAS server), the time and the page number; the uptime instead or
+as well, any order, highlighted or not, white on black or inverted, or no top line at all (see [Header card](#header-card)).
 If not all drives fit on one page, the display turns pages by itself. An optional **system page** comes first
-(see [System page](#system-page)).
+(see [System page](#system-page)); optional **network pages** with one row per interface come after the drives
+(see [Network card](#network-card)).
 
 Works on any Linux NAS server with bash and lsblk (e.g. TrueNAS SCALE, Debian, Proxmox, Unraid), with ZFS pools
 and with any other Linux filesystem (ext4, XFS, btrfs, also on RAID or LVM).
@@ -108,9 +111,10 @@ Script on the NAS server (loop or cron) ──USB──> board 1 ──> e-paper
 | `platformio.ini` | PlatformIO environments, one per board |
 | `scripts/` | builds the ready-made firmware files of a release (`build_release.py`) |
 | `server/inksights.sh` | collects the data and sends every display its frame |
-| `server/web/` | settings page (`inksights-web.py`, `index.html`, `inksights-ui.js`, `inksights-render.js`, `inksights.css`) |
+| `server/web/` | settings page (`inksights-web.py`, `index.html`, `inksights-ui.js`, `inksights-render.js`, `inksights.css`; `inksights-usb.js` for the USB setup) |
 | `server/docker/docker-compose.yaml` | Docker stack that runs the settings page |
 | `simulator/simulator.html` | the settings page with simulated displays and data, opens in a browser straight from the folder |
+| `usb-setup.html` | sets up a board over USB from a PC: panel type, pins, WiFi ([USB setup](#usb-setup); code in `server/web/inksights-usb.js`) |
 
 ## 1. Wiring
 
@@ -195,10 +199,12 @@ If the port is not found: SAMD21 press RESET twice quickly, ESP32 hold BOOT whil
 2. *Library manager*: install **GxEPD2** and **Adafruit GFX Library**, for the SAMD21 also **FlashStorage** (by cmaglie).
 3. Open `firmware/InkSights/InkSights.ino` and upload it.
 
-**Start screen.** After power-up every display shows a start screen until the first data arrives:
+**Start screen.** After power-up every display shows a start screen until the first data arrives (below the top
+line the name InkSights in big letters):
 
 ```
 InkSights                    v1.0
+           InkSights
 ID     1A2B3C4D
 Board  ESP32-C3 Super Mini
 Panel  GDEW0213Z16 b/w/color
@@ -378,7 +384,8 @@ Boards with WiFi work over USB without any WiFi setup. To run a display over WiF
      (password **ink!1234**, also on the start screen). Connect your phone to it; the setup page opens by itself.
      That can take a moment: a few seconds on most phones, up to about a minute right after the board started while
      it is still drawing its start screen. If nothing opens, open **http://192.168.4.1** yourself.
-     Pick your network from the list (**Search** looks again) and enter the same values there.
+     Pick your network from the list (**Search** looks again) and enter the same values there; or
+   - **over USB from any PC** with the [USB setup](#usb-setup) page, together with the panel type and the pins.
 2. The board connects, shows its address on the start screen and fetches its data from the settings page about
    every 30 seconds (with fast refresh as often as set). Unplug it from the NAS server and give it power anywhere in
    reach of the WiFi.
@@ -390,10 +397,34 @@ If the WiFi is lost for 30 seconds (**Access point after (s)**, 0 = at once), th
 WiFi passwords are stored in the settings file of the data folder (readable only for the app and root) and never
 shown on the settings page again. They are sent to a board only over USB, never over WiFi.
 
+### USB setup
+
+`usb-setup.html` (in the project folder) sets up a board straight over its USB port from any PC, without the NAS
+server: the **panel type**, the **display pins** and, on boards with WiFi, all **WiFi settings**. It needs Chrome or
+Edge (Firefox and Safari cannot use USB from a web page) and works when the file is opened from disk (double-click
+it) or over https, e.g. `https://gittegatt.github.io/InkSights/usb-setup.html`. Not from the settings page of the
+NAS server (http): browsers allow USB only on such "secure" pages.
+
+1. Plug the board into the PC (the InkSights firmware must be on it, see [2.](#2-upload-the-firmware)).
+2. Open the page, click **Connect** and choose the board's port.
+3. The page shows what the board reports (ID, board, firmware, panel, pins, WiFi state and network) and fills in its
+   settings. Change what you need, **Save**.
+4. WiFi settings are taken at once. New pins or a new panel type make the board restart; the page connects again by
+   itself. Afterwards it shows what the board stored.
+
+Empty password fields keep the stored passwords (the board never reports them). The page sends nothing anywhere
+but to the board. If the board later goes back to the NAS server and its WiFi card on the settings page holds WiFi
+settings, those are sent to it again with the next update.
+
+GitHub Pages: in the repository *Settings → Pages*, *Deploy from a branch*, branch `main`, folder `/ (root)`. The
+page and the simulator are then online at `https://<user>.github.io/<repository>/usb-setup.html` and
+`…/simulator/simulator.html`.
+
 ## 5. The settings page
 
 Open **http://&lt;server&gt;:8099**. Every display appears with a live preview of what it will show, and below it its own
-foldable cards **Display**, **System page**, **Disks** and (boards with WiFi) **WiFi**. Change settings, *Save*, and
+foldable cards **Display**, **Header**, **System**, **Drives**, **Network** and (boards with WiFi) **WiFi**. A new display starts
+with the header and the system page; switch the drive pages on in its Drives card. Change settings, *Save*, and
 the NAS server applies them within a minute. The page itself shows no explanations, to keep it tidy; they are here.
 Which cards are folded is remembered per browser.
 
@@ -414,43 +445,80 @@ display's last answer.
 | **Instance name** | up to 32 characters | One setting for the whole page, shown in every card: name in the page header and browser tab (empty = InkSights). The name on the display's start screen is `PRODUCT_NAME` at the top of the `.ino`. |
 | **Panel** | the panel types ([Panels](#panels)) | By the name on the flat cable; next to it the board. The board saves it and restarts with it (over USB with the next update, over WiFi with its next fetch). Preview, rows and fast refresh follow it. |
 | **Rotation** | 0°, 90°, 180°, 270° | Clockwise. 90° and 270° stand the display upright: device and used/total in the first line, the pool in its own line. |
-| **Title (top left)** | up to 12 characters | Empty = name of the NAS server (e.g. TRUENAS). |
 | **Rows per page** | Auto, 2–5 (6 on the 4.2″) | More rows fit more disks per page. Fewer rows: bigger bar, symbols and timer (readable from further away). |
 | **Auto page turn** | HH:MM:SS | 00:00:00 = always page 1. The display redraws at most every 3 minutes, so shorter times act like 00:03:00 (not with fast refresh). |
-| **Header** | Pages, Uptime | Top line: the page number (e.g. 1/3) or how long the NAS server has been running, see below. |
 | **Fast refresh** | Off, 2, 5, 10, 30 s | Only black/white panels. The display gets a new frame this often and redraws the changed parts; a full refresh on page turns and every 10 minutes against ghosting. Needs the loop (`-l`). |
 | **Display pins** | CS, D/C, Reset, Busy | Only the pins the board allows; Reset and Busy can be None. The board stores new pins and restarts once. |
 | **Frame** | – | What the display receives (over USB or WiFi). |
 | **Remove settings** | – | Only for displays that are not connected: forget their settings. |
 
-**Uptime** is shown in the three biggest units, e.g. `1W 5d 4h`, `2M 1W 3d` or `1Y 2M 3W`; where room is short the
-smallest unit on the right goes first (`2M 1W`, `2M`). Y = year, M = calendar month (counted by the date: from
-15 March to 15 April is one month), W = week, d = day, h = hour, m = minute.
+### Header card
 
-### System page card
+The top line of the display.
+
+| Setting | Options | Notes |
+|---|---|---|
+| **Ink** | tick | Shows the top line or not; its settings stay. Without it the rows get its room. "NO DATA" still shows it. |
+| **Title** | up to 12 characters | Empty = name of the NAS server (e.g. TRUENAS). |
+| **Invert colors** | On, Off | On: white top line with black text and a thin black line below it; highlighted places then black with white text. |
+| **Left**, **Middle**, **Right** | Title, Pages, Uptime, Time, None | What stands where. Choosing what already stands in another place swaps the two. None = nothing there. Default: Title, Time, Pages. |
+| **Highlight** | tick, for each place | The place in the opposite colours: black text on a white box (with **Invert colors**: white on black). |
+
+- **Pages** is the page number (e.g. 1/3), only with more than one page. **Uptime** is how long the NAS server has
+  been running. **Time** is when the data were sent.
+- Left and right stand at the edges, the middle one in the middle as long as there is room. Only the title is cut
+  where room is short; the others leave at least 5 of its characters where they can.
+- **Uptime** is shown in the three biggest units, e.g. `1W 5d 4h`, `2M 1W 3d` or `1Y 2M 3W`; where room is short the
+  smallest unit on the right goes first (`2M 1W`, `2M`). Y = year, M = calendar month (counted by the date: from
+  15 March to 15 April is one month), W = week, d = day, h = hour, m = minute.
+- **NO DATA** (see [Good to know](#good-to-know)) stands in the place of Pages, else of Uptime, else in a free place.
+
+### System card
 
 | Setting | Options | Notes |
 |---|---|---|
 | **Ink** | tick | Shows the system page on the display or not; its settings stay. |
-| **Components** | CPU, RAM, Network, NVMe, SSD, any combination | The ticked rows form an extra first page; none = no system page. The number of drives of each type is shown in brackets. |
+| **Components** | CPU, RAM, Network, NVMe, SSD, HDD, any combination | The ticked rows form an extra first page; none = no system page. The number of drives of each type is shown in brackets. HDD needs [drive-temp-export](#hdd-temperatures). |
 | **Network** | Default, the interfaces found | The interface shown; Default = the one with the default route. |
 | **ZFS RAM cache** | On, Off | Off: no grey part in the RAM bar, the cache counts as free. |
+| **HDD asleep** | --, STBY | What the HDD row shows for a hard disk that is asleep. The same setting as **Asleep** in the Drives card. |
 | **Icons** | On, Off | Symbol at the left of each row. |
 
-### Disks card
+### Drives card
 
 | Setting | Options | Notes |
 |---|---|---|
-| **Ink** | tick | Shows the disk pages on the display or not; their settings stay. |
-| **Disk types** | HDD, SSD, NVMe, any combination | The number of disks of each type is shown in brackets. None = only the system page. |
+| **Ink** | tick | Shows the drive pages on the display or not; their settings stay. |
+| **Drive types** | HDD, SSD, NVMe, any combination | The number of drives of each type is shown in brackets. None = no drive pages. With every page off the display shows "Nothing to ink". |
 | **Icons** | On, Off | Symbol left of each bar. |
 | **Details in bar** | On, Off | Text inside the bar, only where the bar is high and wide enough. |
 | **Details** | Percentage, Capacity | Percentage used (e.g. 35%) or the used capacity (e.g. 3.18T). With the capacity in the bar, the top right shows only the total. |
+| **Percentage** | 35%, 35.4%, 35.47% | Decimals of the percentage in the bar (cut, not rounded, so 99.99% is never shown as 100%). Where the bar is too short, fewer decimals are shown. More decimals change more often, so the display redraws more often (at most every 3 minutes). |
 | **Spindown timer** | On, Off | Hard disks only. Off = no timer, full-width bar. |
 | **Timer style** | Badge, Ring | Badge: time left as MM:SS. Ring: shrinks until spindown. |
 | **Ring direction** | Clockwise, Counterclockwise | For the ring. |
+| **Temperature** | On, Off | The temperature of each drive at the right of its first text line, above the timer (upright in the pool line); `--` = unknown. Without the timer, used/total moves left to make room. Hard disks need [drive-temp-export](#hdd-temperatures). |
+| **Asleep** | --, STBY | What a hard disk that is asleep shows instead of its temperature. The same setting as **HDD asleep** in the System card. |
 | **Color highlight** | on/off, from … % used | Bar and used/total are highlighted once a pool is this full: in the third colour on colour panels, inverted on black/white panels. |
 | **Order and visibility by** | Pool, UID, Device, Custom (▲▼) | The tick next to each disk shows or hides it on this display. Names like sda can change after a reboot, so Pool, UID and Custom use the serial number (UID); Device orders by name. |
+
+### Network card
+
+Pages with one row per network interface, after the drive pages, as many rows per page as the drive pages.
+
+| Setting | Options | Notes |
+|---|---|---|
+| **Ink** | tick | Shows the network pages or not; their settings stay. |
+| **Icons** | On, Off | Symbol left of each row: linked boxes for a wired interface, the WiFi symbol for a wireless one. |
+| **Details in bar** | On, Off | Text inside the bar, only where the bar is high and wide enough. |
+| **Details** | Percentage, Link speed | How busy the link is (e.g. 10%) or its speed (e.g. 1G). |
+| **Order and visibility by** | Name, Custom (▲▼) | The tick next to each interface shows or hides it. At most 8 interfaces are shown. |
+
+Each row shows the interface, ↓ download and ↑ upload per second and a bar with the busier direction of the link
+speed (none without a link speed, e.g. bridges or WiFi: the values stand below the name). An interface that is
+switched off shows **down**, one without a connection (no cable, or WiFi not connected to a network) **no link**,
+in the place of the bar. The same goes for the network row of the system page. Virtual interfaces (Docker, VMs)
+are left out.
 
 ### WiFi card
 
@@ -459,7 +527,7 @@ access point name and password. See [4. WiFi](#4-wifi-optional).
 
 | Setting | Options | Notes |
 |---|---|---|
-| **Ink** | tick | An extra page after the disk pages with the rows **WiFi** (network, or the setup access point), **IP** (address) and **Connected** (how long the board has been connected without a break). The WiFi settings apply either way. |
+| **Ink** | tick | An extra page after the drive pages with the rows **WiFi** (network, or the setup access point), **IP** (address) and **Connected** (how long the board has been connected without a break). The WiFi settings apply either way. |
 | **Icons** | On, Off | Symbol at the left of each row. |
 
 The WiFi page is shown in the preview so far; the firmware does not draw it yet.
@@ -468,9 +536,13 @@ The WiFi page is shown in the preview so far; the firmware does not draw it yet.
 
 `simulator/simulator.html` opens in any browser straight from the folder. It is the same settings page with simulated
 data. Below the displays, the **Simulation** section sets the simulated boards, panels and connections, the system
-values (incl. when the server started), the disks (with or without ZFS), or a frame pasted from a dry run.
-**No data** at a display shows what it draws when it gets no fresh data any more.
-Nothing is sent anywhere.
+values (incl. when the server started), the drives (with or without ZFS, each with a temperature, column **Temp °C**), or a frame pasted from a dry run.
+**No data** at a display shows what it draws when it gets no fresh data any more, **Start screen** what it shows
+after power-up until the first data arrive. The simulated interfaces cover every case: wired, no cable, switched
+off, a bridge and WiFi. The Simulation card folds (the triangle next to its heading).
+Nothing is sent anywhere, except to a board on USB: the **USB** card at the bottom is the [USB setup](#usb-setup),
+plus **Send to display**: it sends what a simulated display gets to the real board, so the display shows it right
+away (without "NO DATA" later, as the simulated time does not move). Chrome or Edge only.
 
 ## Update
 
@@ -489,21 +561,23 @@ Then reload the settings page in the browser (Ctrl+F5). New firmware: upload it 
 
 ## System page
 
-One extra first page with the ticked rows; sizes like a disk page with as many rows:
+One extra first page with the ticked rows; sizes like a drive page with as many rows:
 
 | Row | Left | Middle | Right | Bar |
 |---|---|---|---|---|
 | CPU | `CPU` | temperature, power | load | load |
 | RAM | `RAM` | ZFS RAM cache (shown as `ZFS`) | used by programs / total | black = programs, grey = ZFS RAM cache, light = free |
-| Network | interface | ↓ download per second | ↑ upload per second | the busier direction of the link speed (none without a link speed, e.g. bridges) |
+| Network | interface | ↓ download per second | ↑ upload per second | the busier direction of the link speed (none without a link speed, e.g. bridges); "down" / "no link" instead when the interface is off or has no connection |
 | NVMe | `NVMe` | temperature of each NVMe drive | – | – |
 | SSD | `SSD` | temperature of each SATA / SAS SSD | – | – |
+| HDD | `HDD` | temperature of each hard disk, `--` or `STBY` when asleep | – | – |
 
 - With **Icons** on, each row gets a symbol: a processor for CPU, a memory module for RAM, linked boxes for the
-  network and the chip for NVMe and SSD.
+  network, the chip for NVMe and SSD and the disc for HDD.
 - Temperatures stand after the name (upright: below it), at most six per row. A temperature row without such drives
   is left out, and the other rows get bigger.
-- The network row without a link speed shows its values below the name instead of a bar.
+- The network row without a link speed shows its values below the name instead of a bar. A wireless interface gets
+  the WiFi symbol instead of the linked boxes.
 
 All values come from `/proc` and `/sys`, never from the hard disks:
 
@@ -516,14 +590,30 @@ All values come from `/proc` and `/sys`, never from the hard disks:
 - **SSD temperature:** only when a display shows the SSD row, at most every 30 seconds, with `smartctl` (TrueNAS has
   it; without it the row stays empty). Only drives the system reports as SSD are asked, with `-n standby` (a drive
   that says it is asleep is not asked). Hard disks are never asked.
+- **HDD temperature:** see below.
 - Load, power and network are averages since the previous reading: over seconds with fast refresh, otherwise since
   the last update. Unknown values show `--` or are left out.
 - The preview on the settings page shows the values of the last full update.
 
+### HDD temperatures
+
+InkSights never asks a hard disk anything itself, so it does not wake one. It takes hard disk temperatures from
+**drive-temp-export**, a separate tool that asks only spinning hard disks (`smartctl -n standby`: a sleeping disk is
+not asked) and writes a status file. When that tool runs on the NAS server, InkSights reads its status file
+`/run/system-metrics/output/disk-temp/status` (another place: set `DRIVE_TEMP_STATUS` for the script):
+
+- a disk the tool reports as active shows its temperature, one that is asleep (for the tool or for the spindown
+  timer) shows `--`, or `STBY` with **Asleep** / **HDD asleep** set to STBY;
+- a status file older than 5 minutes counts as missing: then the HDD row of the system page is left out and the drive
+  pages show `--` for hard disks.
+
+SSD and NVMe temperatures do not need it.
+
 ## Good to know
 
 - **Does not wake disks.** The script only reads ZFS data from memory, `/proc`, `/sys`, filesystem usage (`df`) and the
-  status file of the spindown timer. It never queries the hard disks itself; SSDs only for their temperature.
+  status file of the spindown timer. It never queries the hard disks itself; SSDs only for their temperature. Hard
+  disk temperatures come from the status file of drive-temp-export (see [HDD temperatures](#hdd-temperatures)).
 - **Usage = pool usage.** ZFS spreads data over all disks of a pool, so all disks of a pool show the same bar; the
   same goes for one RAID or one btrfs filesystem over several disks.
 - **Disks outside ZFS** show the biggest filesystem mounted on them (or on their partitions, RAID or LVM), named after
@@ -571,13 +661,17 @@ D|sda|data|3.18T|8.95T|35|3|10|A
 ```
 
 **PONG:** `colors=3` colour panel, `colors=2` black/white; `panel=` the panel type 1–5 (order of the [Panels](#panels)
-table). A WiFi board also reports `net=sta|ap|off` and `ip=…`; a panel with fast refresh adds `fast=1`.
+table). A WiFi board also reports `net=sta|ap|off`, `ip=…` and its stored WiFi settings without the passwords
+(`ssid=`, `host=`, `server=`, `apssid=` hex encoded and only when set, `ap=1|0`, `apdelay=`, `pass=1|0` = a password is
+stored); a panel with fast refresh adds `fast=1`.
 
 | Line | Fields | Notes |
 |---|---|---|
-| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, timer, ring direction, symbols, details in the bar, fast refresh, uptime, uptime months, WiFi page, no data after] | The last nine are optional: timer 0 badge / 1 ring; ring direction 0 clockwise / 1 counterclockwise; symbols 1 on / 0 off; details in the bar 0 none / 1 percentage / 2 used capacity; fast refresh in seconds, 0 = off; uptime in minutes after the full calendar months, -1 = page number; full calendar months; WiFi page 0 off / 1 with symbols / 2 without; seconds without fresh data before "NO DATA", 0 = never. |
-| `D` | device, pool, used, total, percent, filled boxes, total boxes, state, seconds until spindown, timeout seconds | The boxes are no longer drawn. Seconds until spindown -1 = timer not running. State: `A` spinning, `S` asleep, `N` SSD/NVMe, `?` unknown, `-` timer off (HDDs only). Percent -1 = no pool and nothing mounted (total = the size of the disk, or `-`). |
-| `S` | rows, CPU %, CPU °C, CPU W, RAM used MiB, ZFS cache MiB, RAM total MiB, interface, down KiB/s, up KiB/s, link Mb/s, NVMe °C,…, SSD °C,… | Only with the system page. Rows: `C` CPU, `R` RAM, `N` network, `V` NVMe, `S` SSD, `I` = symbols on. -1 = unknown, `-` = none; at most six temperatures each. |
+| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, timer, ring direction, symbols, details in the bar, fast refresh, uptime, uptime months, WiFi page, no data after, header layout, drive pages, network details, network symbols, drive temperatures, asleep, header inverted] | The last sixteen are optional: timer 0 badge / 1 ring; ring direction 0 clockwise / 1 counterclockwise; symbols 1 on / 0 off; details in the bar 0 none / 1 percentage / 2 used capacity; fast refresh in seconds, 0 = off; uptime in minutes after the full calendar months, -1 = none; full calendar months; WiFi page 0 off / 1 with symbols / 2 without; seconds without fresh data before "NO DATA", 0 = never; header left, middle, right as three letters: `T` title, `P` page number, `U` uptime, `C` time, `-` nothing, lower case = highlighted (default `TCP`, `---` = no top line); drive pages 1 on / 0 off (with no system or network page either: "Nothing to ink"); network pages: details in the bar 0 none / 1 percentage / 2 link speed, symbols 1 on / 0 off; drive temperatures 1 on / 0 off (the D lines then carry them); asleep hard disks 1 `STBY` / 0 `--`; top line 1 inverted (white) / 0 black. |
+| `D` | device, pool, used, total, percent, filled boxes, total boxes, state, seconds until spindown, timeout seconds [, °C] | °C only with drive temperatures on, -1 = unknown, -2 = asleep (older firmware shows `--`). The boxes are no longer drawn. Seconds until spindown -1 = timer not running. State: `A` spinning, `S` asleep, `N` SSD/NVMe, `?` unknown, `-` timer off (HDDs only). Percent may have one or two decimals (cut) for the text in the bar; -1 = no pool and nothing mounted (total = the size of the disk, or `-`). |
+| `S` | rows, CPU %, CPU °C, CPU W, RAM used MiB, ZFS cache MiB, RAM total MiB, interface, down KiB/s, up KiB/s, link Mb/s, NVMe °C,…, SSD °C,… | Only with the system page. Rows: `C` CPU, `R` RAM, `N` network, `V` NVMe, `S` SSD, `H` HDD (temperatures in the `T` line), `I` = symbols on, `W` = the interface is wireless, `D` / `L` = it is down / has no link. -1 = unknown, `-` = none; at most six temperatures each. |
+| `T` | HDD °C,… | After the `S` line, only with the HDD row and drive-temp-export running; -1 = unknown, -2 = asleep, at most six. |
+| `N` | interface, down KiB/s, up KiB/s, link Mb/s, wireless 1/0, state | Only with the network pages, one per interface, at most 8. State: `U` up, `L` no link, `D` down. |
 | `P` | CS, D/C, Reset, Busy [, panel] | Only when pins or the panel type are set on the settings page. Pin numbers of the board (D numbers on the SAMD21, GPIO numbers on the ESP32 boards). New values → store and restart. |
 | `W` | network, password, host, settings page, access point 1/0, access point name, access point password, access point after (s) | USB only, boards with WiFi; texts hex encoded. |
 | `R` | – | Only after "Redraw now": redraw right away, even without changes and before the 3 minutes are up. |

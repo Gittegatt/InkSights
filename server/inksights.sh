@@ -36,9 +36,10 @@
 #
 # Frame format (one line per record, fields separated by '|'):
 #   #BEGIN
-#   H|<title>|<HH:MM>|<rows per page, 0 = auto>|<highlight from % used, 0 = never>|<quarter turns 0-3>|<page turn s, 0 = off>[|<timer 0 badge / 1 ring>|<ring direction 0 cw / 1 ccw>|<symbols 1 on / 0 off>|<details in the bar 0 none / 1 percentage / 2 used capacity>|<fast refresh s, 0 = off>|<uptime: minutes after the full months, -1 = page number>|<uptime: full calendar months>|<WiFi page 0 off / 1 symbols / 2 without>|<s without a fresh frame before "NO DATA", 0 = never>]
-#   D|<disk>|<pool>|<used>|<total>|<pct>|<idle boxes>|<boxes>|<state A/S/N/?/- (timer off, flash drives keep N)>|<s until spindown, -1 = unknown>|<timeout s>
-#   S|<components>|<cpu %>|<cpu °C>|<cpu W>|<RAM used MiB>|<ZFS cache MiB>|<RAM total MiB>|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<NVMe °C,...>|<SSD °C,...>
+#   H|<title>|<HH:MM>|<rows per page, 0 = auto>|<highlight from % used, 0 = never>|<quarter turns 0-3>|<page turn s, 0 = off>[|<timer 0 badge / 1 ring>|<ring direction 0 cw / 1 ccw>|<symbols 1 on / 0 off>|<details in the bar 0 none / 1 percentage / 2 used capacity>|<fast refresh s, 0 = off>|<uptime: minutes after the full months, -1 = page number>|<uptime: full calendar months>|<WiFi page 0 off / 1 symbols / 2 without>|<s without a fresh frame before "NO DATA", 0 = never>|<header left, middle, right: T title, P page, U uptime, C time, - nothing; lower case = highlighted; --- = no header>|<disk pages 1 on / 0 off>|<network details in the bar 0 none / 1 percentage / 2 link speed>|<network symbols 1 / 0>|<drive temperatures 1 on / 0 off>|<asleep hard disks 1 "STBY" / 0 "--">|<header inverted 1 / 0>]
+#   D|<disk>|<pool>|<used>|<total>|<pct, with 1 or 2 decimals (cut) when set>|<idle boxes>|<boxes>|<state A/S/N/?/- (timer off, flash drives keep N)>|<s until spindown, -1 = unknown>|<timeout s>[|<°C, -1 = unknown, -2 = asleep: only with drive temperatures on>]
+#   S|<components>|<cpu %>|<cpu °C>|<cpu W>|<RAM used MiB>|<ZFS cache MiB>|<RAM total MiB>|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<NVMe °C,...>|<SSD °C,...>  (components may add H: HDD temperatures in a T line after it)
+#   T|<HDD °C,...>              (only with the HDD component and drive-temp-export running; -2 = asleep, -1 = unknown)
 #                              (only with the system page; components: C cpu, R ram, N network, V NVMe,
 #                              S SSD, I = symbols; -1 = unknown, "-" = none; at most 6 temperatures each)
 #   P|<cs>|<dc>|<rst>|<busy>[|<panel>]
@@ -97,7 +98,12 @@ DEFAULT_WARN=85          # bar is highlighted from this % used
 DEFAULT_PAGE=600         # seconds between automatic page turns on the display, 0 = off
 WIFI_STALE=300           # a WiFi display that has not fetched its frame for this long is left out
 TEMPS_EVERY=30           # seconds between NVMe / SSD temperature readings
-SYS_PARTS_RE='^(cpu|ram|net|nvme|ssd)(,(cpu|ram|net|nvme|ssd))*$'
+SYS_PARTS_RE='^(cpu|ram|net|nvme|ssd|hdd)(,(cpu|ram|net|nvme|ssd|hdd))*$'
+# HDD temperatures come from the status file of drive-temp-export (a separate tool; it asks only
+# spinning disks, with smartctl -n standby), never from the hard disks themselves. Older than
+# HDD_TEMPS_STALE seconds = the tool does not run: no HDD temperatures.
+DRIVE_TEMP_STATUS="${DRIVE_TEMP_STATUS:-/run/system-metrics/output/disk-temp/status}"
+HDD_TEMPS_STALE=300
 PORTS=()
 EXCLUDE=()
 
@@ -319,26 +325,40 @@ fi
 # Line format (TAB separated, "-" = empty):
 #   <id> <types> <boxes> <rows> <sort> <order> <warn> <rot> <page> <pins> <title>
 #   <style> <hidden> <name> <ssid> <password> <host> <server> <ap> <ap ssid> <ap password> <ap delay>
-#   <fast> <system> <network> <zfs> <pages> <system icons> <header> <panel> <wifi icons>
-#   types : hdd,ssd,nvme; - = none (only with the system page or the WiFi page)
+#   <fast> <system> <network> <zfs> <pages> <system icons> <header> <panel> <wifi icons> <layout> <header on>
+#   <net sort> <net order> <net hidden> <net icons> <net bar> <drive temps> <stby> <header inverted>
+#   types : hdd,ssd,nvme; - = none
 #   boxes : 0 = timer off, else on | rows : 0 = auto, 2 to 6 | sort : pool, uid, dev or manual
 #   order : uid,uid,... | warn : highlight from % used, 0 = never | rot : 0, 90, 180 or 270
 #   page  : seconds between automatic page turns, 0 = off
 #   pins  : cs,dc,rst,busy (pin numbers of the board, rst/busy -1 = none) or - = keep the pins of the display
-#   style : timer,ring direction,symbols,details in the bar[,capacity instead of percentage] (e.g. 1,0,1,1,0)
+#   style : timer,ring direction,symbols,details in the bar[,capacity instead of percentage[,decimals
+#           of the percentage 0-2]] (e.g. 1,0,1,1,0,1)
 #   hidden : uid,uid,... not shown
 #   name  : display name on the web page (not used here)
 #   ssid ... ap delay : WiFi settings for boards with WiFi, texts hex encoded (sent over USB only)
 #   fast  : seconds between fast refreshes (0, 2, 5, 10, 30)
-#   system: system page components cpu,ram,net,nvme,ssd; - = no system page (1 = all, earlier version)
+#   system: system page components cpu,ram,net,nvme,ssd,hdd; - = no system page (1 = all of an earlier version, without hdd)
 #   network : interface for the system page, - = the one with the default route
 #   zfs   : ZFS cache on the system page 1 = shown / 0 = hidden (counted as free)
-#   pages : pages switched on: system,disks,wifi (the settings of a page stay when it is off)
-#   system icons : symbols on the system page 1 = on / 0 = off | header : 1 = uptime, 0 = page number
+#   pages : pages switched on: system,disks,network,wifi (the settings of a page stay when it is off)
+#   system icons : symbols on the system page 1 = on / 0 = off
+#   header : 1 = the layout shows the uptime (written by the web page; earlier version: 1 = uptime
+#            instead of the page number, used when the layout is missing)
 #   panel : panel type 1-5 (1 GDEW0213Z16, 2 GDEH0213Z19, 3 GDEY0213Z98, 4 GDEY0213B74, 5 GDEY042T81)
 #           or - = keep the panel type of the display
+#   layout: header left, middle, right: T title, P page number, U uptime, C time, - nothing (default TCP);
+#           lower case = that place highlighted; each of T, P, U, C at most once
+#   header on : 1 = header line shown (default), 0 = off (the layout stays)
+#   net sort : order of the network pages, name (default) or manual | net order : name,name,... first
+#   net hidden : name,name,... not shown | net icons : 1 = symbols (default) / 0 = off
+#   net bar : details in the bar 0 = none (default) / 1 = percentage of the link / 2 = link speed
+#   drive temps : 1 = temperatures on the drive pages, 0 = off (default)
+#   stby : asleep hard disks show 1 = "STBY" / 0 = "--" (default)
+#   header inverted : 1 = white header with black text, 0 = black with white text (default)
 # -----------------------
-declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL
+declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV
+IFLIST_RE='^[A-Za-z0-9._-]{1,15}(,[A-Za-z0-9._-]{1,15}){0,31}$'
 NAME_RE='^[A-Za-z0-9 ._+/-]{0,12}$'
 ORDER_RE='^[A-Za-z0-9._-]{1,40}(,[A-Za-z0-9._-]{1,40}){0,31}$'
 HEX_RE='^(-|([0-9a-f]{2}){1,128})$'
@@ -359,16 +379,31 @@ pins_valid() {
     return 0
 }
 
+# Header layout: three of T (title), P (page number), U (uptime), C (time), - (nothing); lower case =
+# that place highlighted; T, P, U, C each at most once
+layout_valid() {
+    local s="${1^^}" c rest
+    [[ "$1" =~ ^[TPUCtpuc-]{3}$ ]] || return 1
+    for c in T P U C; do
+        rest="${s/$c/}"
+        [[ "$rest" == *"$c"* ]] && return 1
+    done
+    return 0
+}
+
 if [[ -r "$CONF_FILE" ]]; then
-    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc; do
+    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc; do
         name="${name%$'\r'}"; wappass="${wappass%$'\r'}"; wapdelay="${wapdelay%$'\r'}"
         fastc="${fastc%$'\r'}"; sysc="${sysc%$'\r'}"; netc="${netc%$'\r'}"; zfsc="${zfsc%$'\r'}"; pagesc="${pagesc%$'\r'}"; sysiconc="${sysiconc%$'\r'}"; headerc="${headerc%$'\r'}"; panelc="${panelc%$'\r'}"
+        layoutc="${layoutc%$'\r'}"; headonc="${headonc%$'\r'}"
+        nsortc="${nsortc%$'\r'}"; norderc="${norderc%$'\r'}"; nhidec="${nhidec%$'\r'}"; niconc="${niconc%$'\r'}"
+        nbarc="${nbarc%$'\r'}"; dtempc="${dtempc%$'\r'}"; stbyc="${stbyc%$'\r'}"; headinvc="${headinvc%%[$'\t\r']*}"   # last column: also cut anything after it
         [[ "$id" =~ ^[0-9A-F]{8}$ ]] || continue
         [[ "$name" == "-" ]] && name=""
         [[ "$sysc" == "1" ]] && sysc="cpu,ram,net,nvme,ssd"
         [[ "$sysc" =~ $SYS_PARTS_RE ]] || sysc=""
-        if [[ "$types" == "-" && ( -n "$sysc" || ",$pagesc," == *",wifi,"* ) ]]; then
-            types=""   # system page or WiFi page only
+        if [[ "$types" == "-" ]]; then
+            types=""   # no disk types (with nothing else switched on the display shows "Nothing to ink")
         else
             [[ "$types" =~ ^(hdd|ssd|nvme)(,(hdd|ssd|nvme))*$ ]] || types=$ALL_TYPES
         fi
@@ -381,14 +416,28 @@ if [[ -r "$CONF_FILE" ]]; then
         [[ "$pagesec" =~ ^[0-9]{1,5}$ ]] && (( 10#$pagesec <= 86400 )) || pagesec=$DEFAULT_PAGE
         pins_valid "$pins" || pins=""
         [[ "$name" =~ $NAME_RE ]] || name=""
-        [[ "$style" =~ ^[01],[01],[01],[01](,[01])?$ ]] || style="0,0,1,0"
+        [[ "$style" =~ ^[01],[01],[01],[01](,[01](,[012])?)?$ ]] || style="0,0,1,0"
         [[ "$hidden" =~ $ORDER_RE && "$hidden" != "-" ]] || hidden=""
         [[ "$fastc" =~ ^(0|2|5|10|30)$ ]] || fastc=0
         [[ "$zfsc" == "0" ]] || zfsc=1
         [[ "$sysiconc" == "0" ]] || sysiconc=1
         [[ "$headerc" == "1" ]] || headerc=0
         [[ "$panelc" =~ ^[1-5]$ ]] || panelc=""   # - = keep the panel type of the display
-        [[ "$pagesc" =~ ^(system|disks|wifi)(,(system|disks|wifi)){0,2}$ ]] || pagesc="system,disks"   # missing = both
+        # header: missing layout (earlier version) = title, time, then the page number or the uptime;
+        # switched off = no header line ("---"); the uptime is sent when the layout shows it
+        if ! layout_valid "$layoutc"; then [[ "$headerc" == 1 ]] && layoutc=TCU || layoutc=TCP; fi
+        [[ "$headonc" == "0" ]] && layoutc="---"
+        [[ "${layoutc^^}" == *U* ]] && headerc=1 || headerc=0
+        [[ "$pagesc" =~ ^(system|disks|network|wifi)(,(system|disks|network|wifi)){0,3}$ ]] || pagesc="system,disks"   # missing = both
+        # network pages: sort, order, hidden interfaces, symbols, details in the bar
+        [[ "$nsortc" == manual ]] || nsortc=name
+        [[ "$norderc" =~ $IFLIST_RE ]] || norderc=""
+        [[ "$nhidec" =~ $IFLIST_RE ]] || nhidec=""
+        [[ "$niconc" == 0 ]] || niconc=1
+        [[ "$nbarc" =~ ^[012]$ ]] || nbarc=0
+        [[ "$dtempc" == 1 ]] || dtempc=0   # temperatures on the drive pages
+        [[ "$stbyc" == 1 ]] || stbyc=0     # asleep hard disks: 1 "STBY", 0 "--"
+        [[ "$headinvc" == 1 ]] || headinvc=0   # header inverted: white with black text
         [[ "$netc" =~ $IFACE_RE && "$netc" != "-" ]] || netc=""
         # WiFi: all hex (or "-"), ap 0/1, ap delay 0-3600 s; only kept when complete and a network is set
         [[ -z "$wapdelay" ]] && wapdelay=30   # lines written before this column existed
@@ -418,6 +467,11 @@ if [[ -r "$CONF_FILE" ]]; then
         CFG_SYSICONS[$id]=$sysiconc
         CFG_HEADER[$id]=$headerc
         CFG_PANEL[$id]=$panelc
+        CFG_LAYOUT[$id]=$layoutc
+        CFG_NETP[$id]="$nsortc;$norderc;$nhidec;$niconc;$nbarc"
+        CFG_DRIVETEMP[$id]=$dtempc
+        CFG_STBY[$id]=$stbyc
+        CFG_HEADINV[$id]=$headinvc
     done < "$CONF_FILE"
 fi
 
@@ -616,7 +670,7 @@ for d in "${POOL_ORDER[@]}"; do spin_raw "$d"; done
 # -----------------------
 SYS_CPU=-1; SYS_TEMP=-1; SYS_POWER=-1; SYS_RAMU=-1; SYS_ARC=-1; SYS_RAMT=-1; DEF_IF=""
 IF_NAMES=()
-declare -A IF_RX IF_TX IF_SPEED D_TEMP
+declare -A IF_RX IF_TX IF_SPEED IF_WIFI IF_STATE D_TEMP
 
 num_ok() { [[ "$1" =~ ^[0-9]{1,19}$ ]]; }
 
@@ -672,9 +726,11 @@ ssd_temp() {
 }
 
 # NVMe and SSD temperatures -> D_TEMP (-1 = unknown); SSDs only when a display shows them
+# (its system page SSD row, or temperatures on its drive pages)
 drive_temps() {
     local ts=0 d t f line want_ssd=""
     for d in "${CFG_SYS[@]}"; do [[ ",$d," == *",ssd,"* ]] && want_ssd=1; done
+    for d in "${CFG_DRIVETEMP[@]}"; do [[ "$d" == 1 ]] && want_ssd=1; done
     if [[ -r "$TEMPS_FILE" ]]; then
         { read -r ts; while read -r d t; do [[ "$d" =~ ^(nvme[0-9a-z]+|sd[a-z]+)$ && "$t" =~ ^-?[0-9]{1,3}$ ]] && D_TEMP[$d]=$t; done; } < "$TEMPS_FILE"
     fi
@@ -699,6 +755,31 @@ drive_temps() {
         line+="$d ${D_TEMP[$d]}"$'\n'
     done
     [ "$DRY_RUN" = false ] && printf '%s' "$line" > "$TEMPS_FILE.$$" && mv -f "$TEMPS_FILE.$$" "$TEMPS_FILE"
+}
+
+# HDD temperatures -> D_TEMP from the status file of drive-temp-export (see DRIVE_TEMP_STATUS),
+# lines like "ACTIVE    HDD   8TB  SERIAL  38.0 C  /dev/sda  MODEL": asleep (STANDBY, or asleep
+# for the spindown timer) = -2 ("--" or "STBY"), not listed = -1 ("--"). HDD_TEMPS_OK=1: the
+# file is there and fresh.
+HDD_TEMPS_OK=0
+hdd_temps() {
+    local mt line d
+    [[ -r "$DRIVE_TEMP_STATUS" ]] || return 0
+    mt=$(stat -c %Y "$DRIVE_TEMP_STATUS" 2>/dev/null) || return 0
+    [[ "$mt" =~ ^[0-9]+$ ]] && (( NOW - mt <= HDD_TEMPS_STALE )) || return 0
+    HDD_TEMPS_OK=1
+    for d in "${DISKS[@]}"; do [[ "${D_TYPE[$d]}" == hdd ]] && D_TEMP[$d]=-1; done
+    while read -r line; do
+        if [[ "$line" =~ ^ACTIVE\ .*\ ([0-9]{1,3})(\.[0-9]+)?\ C\ +/dev/(sd[a-z]{1,3})(\ |$) ]]; then
+            d=${BASH_REMATCH[3]}
+            [[ "${D_TYPE[$d]:-}" == hdd ]] && D_TEMP[$d]=$((10#${BASH_REMATCH[1]}))
+        elif [[ "$line" =~ ^STANDBY\ .*\ /dev/(sd[a-z]{1,3})(\ |$) ]]; then
+            d=${BASH_REMATCH[1]}
+            [[ "${D_TYPE[$d]:-}" == hdd ]] && D_TEMP[$d]=-2
+        fi
+    done < <(head -n 64 "$DRIVE_TEMP_STATUS" 2>/dev/null)
+    for d in "${DISKS[@]}"; do [[ "${D_TYPE[$d]}" == hdd && "${D_ST[$d]:-}" == S ]] && D_TEMP[$d]=-2; done   # asleep for the spindown timer
+    return 0
 }
 
 read_system() {
@@ -776,6 +857,16 @@ read_system() {
         { read -r sp < "$p/speed"; } 2>/dev/null
         [[ "$sp" =~ ^[0-9]{1,7}$ ]] && (( sp > 0 )) || sp=-1
         IF_NAMES+=("$n"); IF_SPEED[$n]=$sp; IF_RX[$n]=-1; IF_TX[$n]=-1
+        IF_WIFI[$n]=0   # wireless: the kernel gives it a wireless folder / phy80211 link
+        [[ -d "$p/wireless" || -e "$p/phy80211" ]] && IF_WIFI[$n]=1
+        # state: U up, L no link (no cable / not connected to a WiFi network), D down (switched off)
+        local fl="" op="" ca=""
+        { read -r fl < "$p/flags"; read -r op < "$p/operstate"; } 2>/dev/null
+        { read -r ca < "$p/carrier"; } 2>/dev/null   # not readable while down
+        if [[ "$fl" =~ ^0x[0-9a-fA-F]+$ ]] && (( (fl & 1) == 0 )); then IF_STATE[$n]=D
+        elif [[ "$ca" == 0 || "$op" =~ ^(down|dormant|lowerlayerdown|notpresent)$ ]]; then IF_STATE[$n]=L
+        else IF_STATE[$n]=U
+        fi
         pr="${prev_rx[$n]:-}"; pt="${prev_tx[$n]:-}"
         if (( dt > 0 )) && [[ -n "$pr" && -n "$pt" ]] && (( rxb >= pr && txb >= pt )); then
             IF_RX[$n]=$(( (rxb - pr) * 1000000 / dt / 1024 ))
@@ -791,6 +882,7 @@ read_system() {
     [[ -n "$DEF_IF" && -n "${IF_SPEED[$DEF_IF]+x}" ]] || DEF_IF="${IF_NAMES[0]:-}"
 
     drive_temps
+    hdd_temps
 
     if [ "$DRY_RUN" = false ]; then
         printf '%s' "$new" > "$COUNTERS_FILE.$$" && mv -f "$COUNTERS_FILE.$$" "$COUNTERS_FILE"
@@ -845,12 +937,13 @@ system_json() {
     local n sep="" out
     out="{\"uptime\": $(( ${UPTIME_MIN:-0} * 60 )), \"upMonths\": $UP_MONTHS, \"upRest\": ${UP_REST:--1}, \"cpu\": $SYS_CPU, \"temp\": $SYS_TEMP, \"power\": $SYS_POWER, \"ramUsed\": $SYS_RAMU, \"ramArc\": $SYS_ARC, \"ramTotal\": $SYS_RAMT, \"defaultIface\": $(json_str "$DEF_IF"), \"ifaces\": ["
     for n in "${IF_NAMES[@]}"; do
-        out+="$sep{\"name\": $(json_str "$n"), \"rx\": ${IF_RX[$n]}, \"tx\": ${IF_TX[$n]}, \"speed\": ${IF_SPEED[$n]}}"
+        out+="$sep{\"name\": $(json_str "$n"), \"rx\": ${IF_RX[$n]}, \"tx\": ${IF_TX[$n]}, \"speed\": ${IF_SPEED[$n]}, \"wireless\": ${IF_WIFI[$n]:-0}, \"state\": \"${IF_STATE[$n]:-U}\"}"
         sep=", "
     done
     out+="]"
     local kind
-    for kind in nvme ssd; do
+    for kind in nvme ssd hdd; do
+        [[ "$kind" == hdd && "$HDD_TEMPS_OK" != 1 ]] && { out+=", \"hdd\": []"; continue; }   # without drive-temp-export: none
         out+=", \"$kind\": ["
         sep=""
         for n in "${DISKS[@]}"; do
@@ -887,14 +980,45 @@ system_line() {
     [[ "$parts" == *,net,* ]] && letters+=N
     [[ "$parts" == *,nvme,* ]] && letters+=V
     [[ "$parts" == *,ssd,* ]] && letters+=S
+    [[ "$parts" == *,hdd,* ]] && letters+=H   # HDD temperatures: in the T line after it
     [[ "${4:-1}" == 0 ]] || letters+=I   # symbols left of the rows
     [[ "${3:-1}" == 0 ]] && arc=-1   # hidden: the display shows no cache, it counts as free
     [[ -n "$n" && -n "${IF_SPEED[$n]+x}" ]] || n="$DEF_IF"
+    [[ -n "$n" && "${IF_WIFI[$n]:-0}" == 1 ]] && letters+=W   # wireless: WiFi symbol instead of the network one
+    [[ -n "$n" && "${IF_STATE[$n]:-U}" != U ]] && letters+=${IF_STATE[$n]}   # D down / L no link: shown instead of the bar
     if [[ -n "$n" ]]; then
         SYS_LINE="S|$letters|$SYS_CPU|$SYS_TEMP|$SYS_POWER|$SYS_RAMU|$arc|$SYS_RAMT|$n|${IF_RX[$n]}|${IF_TX[$n]}|${IF_SPEED[$n]}|$(temps_of nvme)|$(temps_of ssd)"
     else
         SYS_LINE="S|$letters|$SYS_CPU|$SYS_TEMP|$SYS_POWER|$SYS_RAMU|$arc|$SYS_RAMT|-|-1|-1|-1|$(temps_of nvme)|$(temps_of ssd)"
     fi
+    # T line: HDD temperatures of the system page (own line, the S line must stay below 128 bytes);
+    # only when drive-temp-export runs, -1 = asleep
+    SYS_TLINE=""
+    [[ "$parts" == *,hdd,* ]] && (( HDD_TEMPS_OK )) && SYS_TLINE="T|$(temps_of hdd)"
+    return 0
+}
+
+# N lines of the network pages for one display, at most 8 (one per interface):
+# net_lines <name|manual> <order name,name,...> <hidden name,name,...> -> NET_LINES
+#   N|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<wireless 1/0>|<state U up / L no link / D down>
+# name: by name; manual: the listed interfaces first, in that order, then the others by name
+NET_MAX=8
+net_lines() {
+    local sort="$1" hidden=",$3," n k=0
+    local -a names list=()
+    mapfile -t names < <(printf '%s\n' "${IF_NAMES[@]}" | LC_ALL=C sort)
+    if [[ "$sort" == manual ]]; then
+        local -a want
+        IFS=, read -ra want <<< "$2"
+        for n in "${want[@]}"; do [[ -n "${IF_SPEED[$n]+x}" && " ${list[*]} " != *" $n "* ]] && list+=("$n"); done
+    fi
+    for n in "${names[@]}"; do [[ -n "$n" && " ${list[*]} " != *" $n "* ]] && list+=("$n"); done
+    NET_LINES=()
+    for n in "${list[@]}"; do
+        [[ "$hidden" == *",$n,"* ]] && continue
+        (( k++ < NET_MAX )) || break
+        NET_LINES+=("N|$n|${IF_RX[$n]}|${IF_TX[$n]}|${IF_SPEED[$n]}|${IF_WIFI[$n]:-0}|${IF_STATE[$n]:-U}")
+    done
 }
 
 # -----------------------
@@ -936,28 +1060,36 @@ order_disks() {
 # Frame for one display:
 # build_frame <title> <types> <max boxes> <rows> <sort> <order> <warn> <rotation°> <page s> <pins[,panel]> <style> <hidden>
 #             <fast s> <system page components, "" = none> <interface> <ZFS cache 1/0> <system symbols 1/0>
-#             <header 1 uptime / 0 page number> -> FRAME
+#             <header 1 uptime / 0 page number> <header layout, default TCP, --- = no header>
+#             <network pages "sort;order;hidden;icons;bar", "" = off> -> FRAME
 # style: timer,ring direction,symbols,percentage; sent with the fast refresh as H fields 8-12, only
 # as far as they differ from the defaults (0,0,1,0,0). hidden: UIDs not shown on this display.
 # -----------------------
 build_frame() {
     local title="$1" types=",$2," maxb="$3" rows="$4" warn="$7" turns=$(( ${8:-0} / 90 )) pagesec="${9:-$DEFAULT_PAGE}"
-    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}"
-    local d steps idle tmo poll st remain tsec head i
-    local -a sv defs=(0 0 1 0 0 -1 0 0 0)
+    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}"
+    local d steps idle tmo poll st remain tsec head i dt pct pdec u t
+    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0)
     order_disks "$5" "$6"
     local hm
     printf -v hm '%(%H:%M)T' -1
     head="H|$title|$hm|$rows|$warn|$turns|$pagesec"
     IFS=, read -ra sv <<< "$style"
     # field 11: details in the bar 0 none / 1 percentage / 2 used capacity (style: details on, capacity)
+    # percentage with decimals (style value 6, 0-2), only while the percentage stands in the bar
+    pdec=0; (( sv[3] == 1 && ${sv[4]:-0} == 0 )) && pdec=${sv[5]:-0}
     (( sv[3] == 1 && ${sv[4]:-0} == 1 )) && sv[3]=2
     # field 15: WiFi page (not sent yet, 0 = off); field 16: seconds without a fresh frame before
-    # the display shows "NO DATA"
-    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$NODATA_SECS")
+    # the display shows "NO DATA"; field 17: header layout (left, middle, right); field 18: disk
+    # pages 1 on / 0 off (no disk types: with nothing else the display shows "Nothing to ink")
+    # fields 19 and 20: network pages, details in the bar 0 none / 1 percentage of the link / 2 link
+    # speed, and symbols 1 on / 0 off; netp = "sort;order;hidden;icons;bar", "" = network pages off
+    local -a np
+    IFS=';' read -ra np <<< "$netp"
+    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$NODATA_SECS" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv")   # field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0
     # header: uptime instead of the page number (minutes after the full months, months)
     [[ "$header" == 1 && "$UP_REST" =~ ^[0-9]+$ ]] && sv[5]=$UP_REST sv[6]=$UP_MONTHS
-    local n=9
+    local n=16
     while (( n > 0 )) && [[ "${sv[n-1]}" == "${defs[n-1]}" ]]; do n=$((n - 1)); done
     for (( i = 0; i < n; i++ )); do head+="|${sv[i]}"; done
     FRAME=("#BEGIN" "$head")
@@ -980,11 +1112,28 @@ build_frame() {
             (( remain < 0 )) && remain=0
             (( ${D_STALE[$d]} )) && remain=-1   # timer not running: last known state, no time left
         fi
-        FRAME+=("D|$d|${D_POOL[$d]}|${D_USEDH[$d]}|${D_TOTALH[$d]}|${D_PCT[$d]}|$idle|$steps|$st|$remain|$tsec")
+        dt=""
+        if [[ "$dtemp" == 1 ]]; then   # with temperatures: °C, -1 = unknown, -2 = asleep (also without drive-temp-export)
+            dt="|${D_TEMP[$d]:--1}"
+            [[ "${D_TYPE[$d]}" == hdd && "${D_ST[$d]:-}" == S ]] && dt="|-2"
+        fi
+        pct=${D_PCT[$d]}
+        if (( pdec > 0 && pct >= 0 && ${D_TOTALB[$d]:-0} > 0 )); then   # cut, not rounded, like the whole percent
+            u=${D_USEDB[$d]}; t=${D_TOTALB[$d]}
+            while (( u > 900000000000000 )); do u=$(( u / 1000 )); t=$(( t / 1000 )); done   # u * 10000 stays in 64 bits
+            (( t > 0 )) && { u=$(( u * 10000 / t )); (( u > 10000 )) && u=10000
+                if (( pdec == 1 )); then pct="$(( u / 100 )).$(( u / 10 % 10 ))"; else printf -v pct '%d.%02d' $(( u / 100 )) $(( u % 100 )); fi; }
+        fi
+        FRAME+=("D|$d|${D_POOL[$d]}|${D_USEDH[$d]}|${D_TOTALH[$d]}|$pct|$idle|$steps|$st|$remain|$tsec$dt")
     done
     if [[ -n "$sysp" ]]; then
         system_line "$sysp" "$net" "$zfs" "$sysicons"
         FRAME+=("$SYS_LINE")
+        [[ -n "$SYS_TLINE" ]] && FRAME+=("$SYS_TLINE")
+    fi
+    if [[ -n "$netp" ]]; then   # network pages: one N line per interface shown
+        net_lines "${np[0]:-name}" "${np[1]:-}" "${np[2]:-}"
+        FRAME+=("${NET_LINES[@]}")
     fi
     # Pins (and panel type) only when set on the web page; new values make the board save them and restart
     [[ -n "$pins" ]] && FRAME+=("P|${pins//,/|}")
@@ -996,6 +1145,8 @@ build_frame() {
 frame_for() {
     local id="$1" fastcap="$2" devpins="${3:-}" title="${CFG_NAME[$1]:-}" fast=0 types="${CFG_TYPES[$1]-$ALL_TYPES}" sysp="${CFG_SYS[$1]:-}"
     local pages=",${CFG_PAGES[$1]:-system,disks},"
+    # a display without settings yet: header and the system page with all components
+    [[ -z "${CFG_PAGES[$1]+set}" ]] && sysp="cpu,ram,net,nvme,ssd,hdd" pages=",system,"
     local pins="${CFG_PINS[$1]:-}"
     (( fastcap )) && fast="${CFG_FAST[$id]:-0}"
     if [[ -n "${CFG_PANEL[$id]:-}" ]]; then   # panel type chosen: P line with it (pins kept if not set)
@@ -1004,10 +1155,13 @@ frame_for() {
     fi
     [[ "$pages" == *,disks,* ]] || types=""   # disk pages switched off
     [[ "$pages" == *,system,* ]] || sysp=""   # system page switched off
+    local netp=""
+    [[ "$pages" == *,network,* ]] && netp="${CFG_NETP[$id]:-name;;;1;0}"   # network pages switched on
     build_frame "${title:-$HOST}" "$types" "${CFG_BOXES[$id]:-$DEFAULT_BOXES}" "${CFG_ROWS[$id]:-0}" \
         "${CFG_SORT[$id]:-pool}" "${CFG_ORDER[$id]:-}" "${CFG_WARN[$id]:-$DEFAULT_WARN}" "${CFG_ROT[$id]:-0}" \
         "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-}" "${CFG_HIDDEN[$id]:-}" \
-        "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-1}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-0}"
+        "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-1}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-0}" \
+        "${CFG_LAYOUT[$id]:-TCP}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-0}" "${CFG_HEADINV[$id]:-0}"
 }
 
 # Display with fast refresh: remember it (port or wifi) for the fast runs in between
@@ -1025,7 +1179,7 @@ DISPLAYS_JSON=()
 declare -A USB_IDS
 
 update_display() {
-    local port="$1" line id="" size="" devpins="" colors="3" answer="" board="" wifi=0 fw="" netst="" ip="" fastcap=0 devpanel=0
+    local port="$1" line id="" size="" devpins="" colors="3" answer="" board="" wifi=0 fw="" netst="" ip="" fastcap=0 devpanel=0 ssidhex=""
     stty -F "$port" 115200 raw -echo -hupcl 2>/dev/null
     if ! exec 3<>"$port"; then
         log "$port: cannot open"
@@ -1050,6 +1204,7 @@ update_display() {
             [[ "$line" =~ \ net=(sta|ap|off) ]] && netst="${BASH_REMATCH[1]}"
             [[ "$line" =~ \ ip=([0-9.]{7,15}) ]] && ip="${BASH_REMATCH[1]}"
             [[ "$line" =~ \ fast=1 ]] && fastcap=1   # the panel can do fast refreshes
+            [[ "$line" =~ \ ssid=(([0-9a-f]{2}){1,32})(\ |$) ]] && ssidhex="${BASH_REMATCH[1]}"   # stored WiFi network, hex
             break
         fi
     done
@@ -1095,7 +1250,7 @@ update_display() {
     fi
     USB_IDS[$id]=1
     note_fast "$id" "$fastcap" "$port"
-    DISPLAYS_JSON+=("{\"port\": $(json_str "$port"), \"transport\": \"usb\", \"id\": \"$id\", \"size\": \"$size\", \"colors\": $colors, \"panel\": $devpanel, \"pins\": \"$devpins\", \"board\": \"$board\", \"wifi\": $wifi, \"fw\": \"$fw\", \"net\": \"$netst\", \"ip\": \"$ip\", \"fast\": $fastcap, \"answer\": $(json_str "$answer"), \"frame\": $(json_str "$(printf '%s\n' "${shown[@]}")")}")
+    DISPLAYS_JSON+=("{\"port\": $(json_str "$port"), \"transport\": \"usb\", \"id\": \"$id\", \"size\": \"$size\", \"colors\": $colors, \"panel\": $devpanel, \"pins\": \"$devpins\", \"board\": \"$board\", \"wifi\": $wifi, \"fw\": \"$fw\", \"net\": \"$netst\", \"ip\": \"$ip\", \"ssidHex\": \"$ssidhex\", \"fast\": $fastcap, \"answer\": $(json_str "$answer"), \"frame\": $(json_str "$(printf '%s\n' "${shown[@]}")")}")
 }
 
 # -----------------------
@@ -1104,7 +1259,7 @@ update_display() {
 # wifi/<id>.seen: line 1 epoch of the last fetch, line 2 the display's answer to the last frame
 # -----------------------
 update_wifi_display() {
-    local info="$1" id k v size="" colors=3 devpins="" board="" fw="" ip="" seen=0 answer="" tmp fastcap=0 devpanel=0
+    local info="$1" id k v size="" colors=3 devpins="" board="" fw="" ip="" seen=0 answer="" tmp fastcap=0 devpanel=0 ssidhex=""
     id="$(basename "$info" .info)"
     [[ "$id" =~ ^[0-9A-F]{8}$ ]] || return
     [[ -n "${USB_IDS[$id]:-}" ]] && return   # on USB as well: that one counts
@@ -1122,6 +1277,7 @@ update_wifi_display() {
             fw)     [[ "$v" =~ ^[0-9.]{1,10}$ ]] && fw=$v ;;
             ip)     [[ "$v" =~ ^[0-9.]{7,15}$ ]] && ip=$v ;;
             fast)   [[ "$v" == 1 ]] && fastcap=1 ;;
+            ssid)   [[ "$v" =~ ^([0-9a-f]{2}){1,32}$ ]] && ssidhex=$v ;;   # stored WiFi network, hex
         esac
     done < <(head -n 20 "$info")
     [[ -n "$size" ]] || return
@@ -1139,7 +1295,7 @@ update_wifi_display() {
     mv -f "$tmp" "$FRAMES_DIR/$id.txt"
     [ "$MODE" = full ] && log "WiFi $ip (ID $id): frame ready${answer:+, last answer: $answer}"
     note_fast "$id" "$fastcap" wifi
-    DISPLAYS_JSON+=("{\"port\": \"WiFi\", \"transport\": \"wifi\", \"id\": \"$id\", \"size\": \"$size\", \"colors\": $colors, \"panel\": $devpanel, \"pins\": \"$devpins\", \"board\": \"$board\", \"wifi\": 1, \"fw\": \"$fw\", \"net\": \"sta\", \"ip\": \"$ip\", \"fast\": $fastcap, \"seen\": $seen, \"answer\": $(json_str "$answer"), \"frame\": $(json_str "$(printf '%s\n' "${FRAME[@]}")")}")
+    DISPLAYS_JSON+=("{\"port\": \"WiFi\", \"transport\": \"wifi\", \"id\": \"$id\", \"size\": \"$size\", \"colors\": $colors, \"panel\": $devpanel, \"pins\": \"$devpins\", \"board\": \"$board\", \"wifi\": 1, \"fw\": \"$fw\", \"net\": \"sta\", \"ip\": \"$ip\", \"ssidHex\": \"$ssidhex\", \"fast\": $fastcap, \"seen\": $seen, \"answer\": $(json_str "$answer"), \"frame\": $(json_str "$(printf '%s\n' "${FRAME[@]}")")}")
 }
 
 # List of the displays with fast refresh for the next runs (only entries seen in this run when full)
@@ -1191,7 +1347,7 @@ if (( ${#PORTS[@]} == 0 )) && [[ -z "$(compgen -G "$WIFI_DIR/*.info")" ]]; then
     log "No display connected"
     if [ "$DRY_RUN" = true ]; then
         echo "===== no display connected - frame with all disks and the system page ====="
-        build_frame "$HOST" "$ALL_TYPES" "$DEFAULT_BOXES" 0 pool "" "$DEFAULT_WARN" 0 "$DEFAULT_PAGE" "" "" "" 0 "cpu,ram,net,nvme,ssd" ""
+        build_frame "$HOST" "$ALL_TYPES" "$DEFAULT_BOXES" 0 pool "" "$DEFAULT_WARN" 0 "$DEFAULT_PAGE" "" "" "" 0 "cpu,ram,net,nvme,ssd,hdd" ""
         printf '%s\n' "${FRAME[@]}"
     fi
 fi
@@ -1208,7 +1364,7 @@ write_state() {
         printf '{\n  "host": %s,\n  "updated": %s,\n  "disks": [' "$(json_str "$HOST")" "$NOW"
         for d in "${POOL_ORDER[@]}"; do
             pool="${D_POOL[$d]}"; [[ "$pool" == "-" ]] && pool=""
-            temp="${D_TEMP[$d]:-null}"; [[ "$temp" == -1 ]] && temp=null
+            temp="${D_TEMP[$d]:-null}"; [[ "$temp" == -1 ]] && temp=null   # -2 = asleep stays
             printf '%s\n    {"dev": %s, "uid": %s, "type": "%s", "pool": %s, "used": %s, "total": %s, "state": "%s", "stale": %s, "idle": %s, "timeout": %s, "poll": %s, "temp": %s, "size": %s}' \
                 "$sep" "$(json_str "$d")" "$(json_str "${D_UID[$d]}")" "${D_TYPE[$d]}" "$(json_str "$pool")" "${D_USEDB[$d]}" "${D_TOTALB[$d]}" \
                 "${D_ST[$d]}" "$( (( ${D_STALE[$d]:-0} )) && echo true || echo false )" "${D_IDLE[$d]}" "${D_TMO[$d]}" "${D_POLL[$d]}" "$temp" "${D_SIZE[$d]:-0}"
