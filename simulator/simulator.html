@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InkSights Simulator</title>
+<!--
+  Simulator: the settings page itself (../server/web/inksights-ui.js, the same code as the
+  real page) with simulated data instead of the NAS server: two displays, a disk list or a pasted
+  frame. The "Simulation" card below sets the simulated hardware. The drawing comes from
+  ../server/web/inksights-render.js, so the previews show exactly what the firmware draws.
+  Open this file directly in the browser; nothing is sent anywhere.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../server/web/inksights.css">
+</head>
+<body>
+<main class="wrap">
+  <div id="app" style="display: contents"></div>
+
+  <section class="card" aria-labelledby="simHead">
+    <div class="card-head"><h2 id="simHead">Simulation</h2></div>
+    <div class="form">
+      <div class="field"><span class="label">Data from</span><span class="choices" id="source"></span></div>
+      <label class="field"><span class="label">Time of the data</span><input type="text" id="time" maxlength="5" autocomplete="off" style="width: 4.5em; font-family: var(--font-mono)"></label>
+      <label class="field"><span class="label">Host name</span><input type="text" id="host" maxlength="16" autocomplete="off" style="max-width: 10em"></label>
+      <div class="field"><span class="label">Controller without answer</span><span class="choices" id="oldfw"></span></div>
+      <div class="field wide boxed"><span class="label">Displays</span><div class="sim-grid" id="hw"></div></div>
+      <div class="field wide boxed"><span class="label">System</span><div class="choices" id="sys"></div></div>
+    </div>
+
+    <div class="field boxed" id="disksBox">
+      <div class="card-head">
+        <span class="label">Disks</span>
+        <span class="choices" style="margin-left: auto">
+          <button class="btn" id="example" type="button">Load example</button>
+          <button class="btn" id="exampleLinux" type="button">Load example without ZFS</button>
+          <button class="btn" id="clear" type="button">Remove all disks</button>
+        </span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Device</th><th>Serial (UID)</th><th>Type</th><th>Storage</th><th>Pool / mount point</th><th>Used</th><th>Size</th>
+            <th>Spindown</th><th>Idle</th><th>Timeout min</th><th>Poll s</th><th></th>
+          </tr></thead>
+          <tbody id="disks"></tbody>
+        </table>
+      </div>
+      <div><button class="btn" id="add" type="button">Add disk</button></div>
+    </div>
+
+    <label class="field boxed" id="pasteBox" hidden>
+      <span class="label">Pasted frame</span>
+      <textarea id="paste" rows="14" spellcheck="false" placeholder="#BEGIN&#10;H|TRUENAS|14:30|0|85|0|600&#10;D|sda|data|3.18T|8.95T|35|3|10|A&#10;#END"></textarea>
+    </label>
+  </section>
+</main>
+
+<script src="../server/web/inksights-render.js"></script>
+<script src="../server/web/inksights-ui.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const STORE = "inksights-simulator-v1";
+const IDS = ["1A2B3C4D", "5E6F7A8B"];              // simulated chip IDs
+const PORTS = ["/dev/ttyACM0", "/dev/ttyACM1"];
+const IPS = ["192.168.1.51", "192.168.1.52"];
+
+// Panel types: the table of the settings page (InkSightsUI.PANELS); the board reports the one it runs
+const PANELS = InkSightsUI.PANELS;
+const panelById = id => PANELS.find(p => p.id === id) || PANELS[0];
+const OLD_PANELS = { "212x104x3": 1, "250x122x3": 3, "250x122x2": 4, "400x300x2": 5 };   // saved by earlier versions
+
+// One disk as edited here; turned into a state.json entry (what inksights.sh writes)
+const EXAMPLE = [
+  { dev: "nvme0n1", uid: "SERIAL-01", type: "nvme", pool: "boot-pool", used: "9.44G", total: "464G" },
+  { dev: "sdh", uid: "SERIAL-02", type: "ssd", pool: "apps", used: "93.0G", total: "213G" },
+  { dev: "sdc", uid: "SERIAL-03", type: "ssd", pool: "vms", used: "1.97G", total: "360G" },
+  { dev: "sda", uid: "SERIAL-04", type: "hdd", pool: "data", used: "3.18T", total: "8.95T", spin: "A", idle: 40 },
+  { dev: "sdf", uid: "SERIAL-05", type: "hdd", pool: "data", used: "3.18T", total: "8.95T", spin: "A", idle: 40 },
+  { dev: "sdb", uid: "SERIAL-06", type: "hdd", pool: "media", used: "1.68T", total: "7.14T", spin: "S", idle: 0 },
+  { dev: "sde", uid: "SERIAL-07", type: "ssd", pool: "photos", used: "74.3G", total: "114G" },
+  { dev: "sdg", uid: "SERIAL-08", type: "hdd", pool: "archive", used: "2.05T", total: "2.63T", spin: "A", idle: 90 },
+  { dev: "sdd", uid: "SERIAL-09", type: "hdd", pool: "archive_2", used: "684G", total: "1.76T", spin: "A?", idle: 0 },
+].map(d => Object.assign({ spin: "A", idle: 0, timeout: 30, poll: 60, fs: "zfs" }, d));
+// A Linux server without ZFS: filesystems named after their mount point, one RAID (md) of two disks,
+// btrfs over two disks, a disk with nothing mounted
+const EXAMPLE_LINUX = [
+  { dev: "nvme0n1", uid: "SERIAL-11", type: "nvme", fs: "ext4", pool: "/", used: "38.2G", total: "468G" },
+  { dev: "sda", uid: "SERIAL-12", type: "hdd", fs: "xfs", pool: "/srv/media", used: "5.12T", total: "7.27T", spin: "A", idle: 30 },
+  { dev: "sdb", uid: "SERIAL-13", type: "hdd", fs: "xfs", pool: "/srv/media", used: "5.12T", total: "7.27T", spin: "A", idle: 30 },
+  { dev: "sdc", uid: "SERIAL-14", type: "hdd", fs: "btrfs", pool: "/mnt/backup", used: "1.10T", total: "3.64T", spin: "S", idle: 0 },
+  { dev: "sdd", uid: "SERIAL-15", type: "hdd", fs: "btrfs", pool: "/mnt/backup", used: "1.10T", total: "3.64T", spin: "S", idle: 0 },
+  { dev: "sde", uid: "SERIAL-16", type: "ssd", fs: "ext4", pool: "/var/lib/docker", used: "61.0G", total: "234G" },
+  { dev: "sdf", uid: "SERIAL-17", type: "hdd", fs: "none", pool: "", used: "", total: "4.00T", spin: "S", idle: 0 },
+].map(d => Object.assign({ spin: "A", idle: 0, timeout: 30, poll: 60 }, d));
+const STORAGE = [["zfs", "ZFS pool"], ["ext4", "ext4"], ["xfs", "XFS"], ["btrfs", "btrfs"], ["none", "Not mounted"]];
+// Name as inksights.sh shows it: a ZFS pool by its name, a filesystem by the last part of its
+// mount point ("/" = root)
+function storageName(d) {
+  const p = (d.pool || "").trim();
+  if ((d.fs || "zfs") === "zfs" || !p.startsWith("/")) return p;
+  return p === "/" ? "root" : p.replace(/\/+$/, "").split("/").pop().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 15);
+}
+
+// Local date and time as the datetime-local field shows it
+const localStamp = d => {
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+// Example: connected to the WiFi 2 days, 5 hours and 13 minutes before now
+function wifiSinceExample() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - (2 * 1440 + 5 * 60 + 13));
+  return localStamp(d);
+}
+// Per display: board, panel, connection, and the WiFi it reports (network name, connected since)
+const hwDefaults = (board, panel) => ({ board, panel, connected: true, transport: "usb", net: "off", ssid: "HomeWiFi", since: wifiSinceExample() });
+// System values as inksights.sh reads them; empty = unknown
+const SYS_FIELDS = [
+  ["cpu", "CPU load %", 0, 100], ["temp", "CPU °C", 0, 199], ["power", "CPU W", 0, 9999],
+  ["ramUsed", "RAM used GiB", 0, 9999], ["ramArc", "ZFS RAM cache GiB", 0, 9999], ["ramTotal", "RAM total GiB", 0, 9999],
+  ["rx", "Down MiB/s", 0, 99999], ["tx", "Up MiB/s", 0, 99999], ["link", "Link Mb/s", 0, 1000000], ["nvmeTemp", "NVMe °C", 0, 199], ["ssdTemp", "SSD °C", 0, 199],
+];
+// Example start of the NAS server: 2 months, 9 days and 5 hours before now (local time, as the
+// datetime-local field shows it)
+function bootExample() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 2);
+  d.setDate(d.getDate() - 9);
+  d.setHours(d.getHours() - 5);
+  return localStamp(d);
+}
+// "Now" of the simulation: today at the time of the data (or the real time)
+function simNow() {
+  const now = new Date(), [hh, mm] = /^\d\d:\d\d$/.test(sim.time) ? sim.time.split(":").map(Number) : [now.getHours(), now.getMinutes()];
+  now.setHours(hh, mm, 0, 0);
+  return now.getTime();
+}
+const SYS_EXAMPLE = { cpu: 37, temp: 52, power: 18, ramUsed: 12.3, ramArc: 40.1, ramTotal: 62.8, rx: 12.3, tx: 1.2, link: 1000, nvmeTemp: 41, ssdTemp: 36, boot: bootExample() };
+const DEFAULTS = {
+  source: "list", time: "14:30", host: "TRUENAS", disks: EXAMPLE, paste: "", sys: SYS_EXAMPLE,
+  pagename: "", interval: 10, oldFw: false, config: {},
+  hw: [hwDefaults("xiao-samd21", 1), hwDefaults("esp32-c3-supermini", 5)],
+};
+let sim = load();
+
+function load() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE) || "null");
+    if (saved && typeof saved === "object" && Array.isArray(saved.hw) && saved.hw.length === 2) {
+      const merged = Object.assign(structuredClone(DEFAULTS), saved);
+      merged.sys = Object.assign(structuredClone(SYS_EXAMPLE), saved.sys || {});
+      merged.hw = saved.hw.map((h, i) => Object.assign(structuredClone(DEFAULTS.hw[i]), h));
+      for (const h of merged.hw) if (typeof h.panel === "string") h.panel = OLD_PANELS[h.panel] || 1;
+      return merged;
+    }
+  } catch (e) { /* private window or blocked storage: start with the defaults */ }
+  return structuredClone(DEFAULTS);
+}
+function save() {
+  try { localStorage.setItem(STORE, JSON.stringify(sim)); } catch (e) { /* not essential */ }
+}
+
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "value") e.value = v;
+    else if (k === "checked" || k === "disabled" || k === "selected") e[k] = !!v;
+    else e.setAttribute(k, v);
+  }
+  e.append(...kids);
+  return e;
+}
+
+// "3.18T" -> bytes (binary units, like hsize() in inksights.sh); -1 = not a size
+function parseBytes(s) {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*([KMGTP]?)i?B?\s*$/i.exec(s || "");
+  if (!m) return -1;
+  return Math.round(Number(m[1]) * 1024 ** " KMGTP".indexOf(m[2].toUpperCase() || " "));
+}
+
+function toState(d) {
+  const used = parseBytes(d.used), total = parseBytes(d.total);
+  const name = (d.fs || "zfs") === "none" ? "" : storageName(d);
+  const pool = name && used >= 0 && total > 0 ? name : "";
+  const timeout = Math.max(1, Math.round(d.timeout * 60)), poll = Math.max(1, Math.round(d.poll));
+  return {
+    dev: d.dev.trim() || "?", uid: d.uid.trim() || d.dev.trim(), type: d.type, pool,
+    used: pool ? used : 0, total: pool ? total : 0, size: pool ? 0 : Math.max(0, total),
+    // spin: A / S = timer running; "A?" / "S?" = timer not running, last known state; "?" = unknown
+    state: d.type !== "hdd" ? "N" : d.spin[0], stale: d.spin.length > 1, idle: Math.round(d.idle / 100 * timeout), timeout, poll,
+  };
+}
+
+// ------------------------------------------------------------ simulated NAS server
+function stateNow() {
+  const timeOk = /^\d\d:\d\d$/.test(sim.time);
+  const displays = [];
+  sim.hw.forEach((h, i) => {
+    if (!h.connected) return;
+    const board = InkSightsUI.BOARDS[h.board] || InkSightsUI.BOARDS[InkSightsUI.DEFAULT_BOARD];
+    const wifi = board.wifi && h.transport === "wifi";
+    const net = !board.wifi ? "" : wifi ? "sta" : h.net;
+    const panel = panelById(h.panel);
+    const pins = (sim.config[IDS[i]] && sim.config[IDS[i]].pins) || board.defaults;
+    displays.push({ id: IDS[i], port: wifi ? "WiFi" : PORTS[i], transport: wifi ? "wifi" : "usb", size: panel.size.join("x"),
+      colors: panel.colors, panel: panel.id, pins: pins.join(","), board: h.board, wifi: board.wifi ? 1 : 0, fw: "1.0", net,
+      ssid: net === "sta" ? h.ssid || "" : "", online: net === "sta" ? onlineSecs(h.since) : -1,   // seconds connected
+      ip: net === "sta" ? IPS[i] : net === "ap" ? "192.168.4.1" : "", fast: panel.fast ? 1 : 0, answer: "OK" });
+  });
+  if (sim.oldFw) displays.push({ port: "/dev/ttyACM2", id: "", error: "No answer with chip ID (old firmware?)" });
+  const disks = sim.disks.map(toState);
+  return { host: sim.host || "SYSTEM", updated: timeOk ? Math.floor(Date.now() / 1000) : 0, timeText: timeOk ? sim.time : "--:--",
+    disks, displays, system: systemNow(disks) };
+}
+
+// Seconds since the WiFi connected ("Connected since"); empty or in the future = unknown
+function onlineSecs(since) {
+  const t = typeof since === "string" ? new Date(since).getTime() : NaN, now = simNow();
+  return t <= now ? Math.floor((now - t) / 1000) : -1;
+}
+
+// state.system like inksights.sh writes it: RAM in MiB, network in KiB/s, -1 = unknown
+function systemNow(disks) {
+  const y = sim.sys, num = (k, f = 1) => (typeof y[k] === "number" && y[k] >= 0 ? Math.round(y[k] * f) : -1);
+  const eno1 = { name: "eno1", rx: num("rx", 1024), tx: num("tx", 1024), speed: num("link") };
+  // uptime from the start of the server ("Booted") to the time of the data (today), in full calendar
+  // months and the minutes after them like inksights.sh; empty or in the future = unknown
+  const now = new Date(simNow());
+  const boot = typeof y.boot === "string" ? new Date(y.boot).getTime() : NaN;
+  const up = boot <= now.getTime() ? EPD.uptimeSplit(boot, now.getTime()) : null;
+  return {
+    uptime: up ? Math.floor((now.getTime() - boot) / 1000) : -1, upMonths: up ? up.months : 0, upRest: up ? up.min : -1,
+    cpu: num("cpu"), temp: num("temp"), power: num("power"),
+    ramUsed: num("ramUsed", 1024), ramArc: num("ramArc", 1024), ramTotal: num("ramTotal", 1024),
+    ifaces: [eno1, { name: "eno2", rx: 0, tx: 0, speed: 1000 }, { name: "br0", rx: eno1.rx, tx: eno1.tx, speed: -1 }],
+    defaultIface: "eno1",
+    nvme: disks.filter(d => d.type === "nvme").map(d => ({ dev: d.dev, temp: num("nvmeTemp") })),
+    ssd: disks.filter(d => d.type === "ssd").map(d => ({ dev: d.dev, temp: num("ssdTemp") })),
+  };
+}
+
+function buildSys() {
+  $("sys").replaceChildren(...SYS_FIELDS.map(([k, label, lo, hi]) => el("label", { class: "check" }, `${label} `,
+    el("input", { type: "number", min: String(lo), max: String(hi), step: "any", value: sim.sys[k] >= 0 ? String(sim.sys[k]) : "",
+      style: "width: 5.5em", oninput: e => { const v = e.target.value.trim(); sim.sys[k] = v === "" ? -1 : Number(v); update(); } }))),
+    el("label", { class: "check" }, "Booted ",
+      el("input", { type: "datetime-local", value: typeof sim.sys.boot === "string" ? sim.sys.boot : "",
+        oninput: e => { sim.sys.boot = e.target.value; update(); } })));
+}
+
+// The browser gets WiFi passwords only as "set", like from the real app
+function publicConfig() {
+  const out = structuredClone(sim.config);
+  for (const s of Object.values(out)) {
+    const w = s.wifi || {};
+    w.passSet = !!w.pass; w.apPassSet = !!w.apPass;
+    delete w.pass; delete w.apPass;
+    s.wifi = w;
+  }
+  return out;
+}
+
+const ui = InkSightsUI.start({
+  root: $("app"),
+  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights" }),
+  save: async body => {
+    const next = {};
+    for (const [id, s] of Object.entries(body.displays)) {
+      const old = (sim.config[id] && sim.config[id].wifi) || {};
+      const w = s.wifi || {};
+      next[id] = { ...s, wifi: { ...w, pass: w.pass == null ? old.pass || "" : w.pass, apPass: w.apPass == null ? old.apPass || "" : w.apPass } };
+    }
+    sim.config = next; sim.interval = body.interval; sim.pagename = body.pagename;
+    // a panel type chosen on the page: the board saves it and restarts with it
+    IDS.forEach((id, i) => { if (next[id] && next[id].panel) sim.hw[i].panel = next[id].panel; });
+    buildHw();
+    save();
+  },
+  refresh: async () => {},
+  redraw: async () => {},
+  pollMs: 0,
+  frameOverride: () => (sim.source === "paste" ? sim.paste : null),
+  serverAddress: "http://hostname:8099",
+  titleSuffix: " · Simulator",
+});
+
+function update(structure) {
+  $("disksBox").hidden = sim.source === "paste";
+  $("pasteBox").hidden = sim.source !== "paste";
+  save();
+  ui.reload(!!structure);
+}
+
+// ------------------------------------------------------------ Simulation card
+function simRadios(name, options, current, onPick) {
+  return el("span", { class: "choices" }, ...options.map(([value, label]) => el("label", { class: "check" },
+    el("input", { type: "radio", name, value: String(value), checked: value === current, onchange: () => onPick(value) }), label)));
+}
+
+function buildHw() {
+  const head = ["", "Board", "Panel", "Connected", "Connection", "WiFi network", "Connected since"].map(t => el("span", { class: "label" }, t));
+  const rows = sim.hw.flatMap((h, i) => {
+    const board = InkSightsUI.BOARDS[h.board] || InkSightsUI.BOARDS[InkSightsUI.DEFAULT_BOARD];
+    const conn = !board.wifi ? el("span", { class: "count" }, "USB")
+      : el("select", { "aria-label": `Connection of display ${IDS[i]}`, onchange: e => {
+          const [t, n] = e.target.value.split(":"); h.transport = t; h.net = n; update(true);
+        } },
+        ...[["usb:off", "USB, WiFi off"], ["usb:ap", "USB, setup access point"], ["usb:sta", "USB, WiFi connected"], ["wifi:sta", "WiFi only"]]
+          .map(([v, l]) => el("option", { value: v, selected: v === `${h.transport}:${h.transport === "wifi" ? "sta" : h.net}` }, l)));
+    return [
+      el("span", { class: "ro" }, IDS[i]),
+      el("select", { "aria-label": `Board of display ${IDS[i]}`, onchange: e => {
+        h.board = e.target.value;
+        if (!InkSightsUI.BOARDS[h.board].wifi) { h.transport = "usb"; h.net = "off"; }
+        if (sim.config[IDS[i]]) sim.config[IDS[i]].pins = null;   // the new board starts with its own default pins
+        buildHw(); update(true);
+      } }, ...Object.entries(InkSightsUI.BOARDS).map(([id, b]) => el("option", { value: id, selected: id === h.board }, b.name))),
+      // the panel type the board runs (as after a fresh upload): a type chosen on the page is dropped
+      el("select", { "aria-label": `Panel of display ${IDS[i]}`, onchange: e => {
+        h.panel = Number(e.target.value);
+        if (sim.config[IDS[i]]) sim.config[IDS[i]].panel = null;
+        update(true);
+      } }, ...PANELS.map(p => el("option", { value: String(p.id), selected: p.id === h.panel }, InkSightsUI.panelLabel(p)))),
+      el("label", { class: "check" }, el("input", { type: "checkbox", checked: h.connected, onchange: e => { h.connected = e.target.checked; update(true); } }), "Connected"),
+      conn,
+      // what a board connected to a WiFi reports (WiFi page): network name and since when
+      el("input", { type: "text", maxlength: "32", value: h.ssid || "", disabled: !board.wifi, autocomplete: "off", style: "width: 9em",
+        "aria-label": `WiFi network of display ${IDS[i]}`, oninput: e => { h.ssid = e.target.value; update(); } }),
+      el("input", { type: "datetime-local", value: h.since || "", disabled: !board.wifi,
+        "aria-label": `Connected since, display ${IDS[i]}`, oninput: e => { h.since = e.target.value; update(); } }),
+    ];
+  });
+  $("hw").replaceChildren(...head, ...rows);
+}
+
+function buildDisks() {
+  $("disks").replaceChildren(...sim.disks.map((d, i) => {
+    const hdd = d.type === "hdd";
+    const set = (key, conv = v => v) => e => { d[key] = conv(e.target.value); update(); };
+    const pct = el("span", { class: "pct" }, `${d.idle} %`);
+    return el("tr", {},
+      el("td", {}, el("input", { type: "text", class: "short", value: d.dev, maxlength: "9", "aria-label": "Device", oninput: set("dev") })),
+      el("td", {}, el("input", { type: "text", value: d.uid, maxlength: "40", "aria-label": "Serial number", oninput: set("uid") })),
+      el("td", {}, el("select", { "aria-label": "Type", onchange: e => { d.type = e.target.value; buildDisks(); update(); } },
+        ...["hdd", "ssd", "nvme"].map(t => el("option", { value: t, selected: t === d.type }, t.toUpperCase())))),
+      el("td", {}, el("select", { "aria-label": "Storage", onchange: e => { d.fs = e.target.value; buildDisks(); update(); } },
+        ...STORAGE.map(([v, l]) => el("option", { value: v, selected: v === (d.fs || "zfs") }, l)))),
+      el("td", {}, el("input", { type: "text", value: d.pool, maxlength: "40", disabled: d.fs === "none",
+        placeholder: (d.fs || "zfs") === "zfs" ? "no pool" : d.fs === "none" ? "" : "/srv/data", "aria-label": "Pool or mount point", oninput: set("pool") })),
+      el("td", {}, el("input", { type: "text", class: "short", value: d.used, maxlength: "7", "aria-label": "Used", oninput: set("used") })),
+      el("td", {}, el("input", { type: "text", class: "short", value: d.total, maxlength: "7", "aria-label": "Size", oninput: set("total") })),
+      el("td", {}, el("select", { "aria-label": "Spindown state", disabled: !hdd, onchange: set("spin") },
+        ...[["A", "Spinning"], ["S", "Asleep"], ["A?", "Spinning, timer off"], ["S?", "Asleep, timer off"], ["?", "Unknown"]].map(([v, l]) => el("option", { value: v, selected: v === d.spin }, l)))),
+      el("td", {}, el("input", { type: "range", min: "0", max: "100", step: "1", value: String(d.idle), disabled: !hdd, "aria-label": "Idle in percent of the timeout",
+        oninput: e => { d.idle = Number(e.target.value); pct.textContent = `${d.idle} %`; update(); } }), pct),
+      el("td", {}, el("input", { type: "number", min: "1", max: "1440", value: String(d.timeout), disabled: !hdd, "aria-label": "Timeout in minutes", oninput: set("timeout", v => Math.max(1, Number(v) || 1)) })),
+      el("td", {}, el("input", { type: "number", min: "1", max: "3600", value: String(d.poll), disabled: !hdd, "aria-label": "Poll interval in seconds", oninput: set("poll", v => Math.max(1, Number(v) || 1)) })),
+      el("td", {}, el("button", { class: "btn link", type: "button", "aria-label": `Remove ${d.dev}`, onclick: () => { sim.disks.splice(i, 1); buildDisks(); update(); } }, "✕")));
+  }));
+}
+
+$("source").replaceChildren(...simRadios("sim-source", [["list", "Disk list"], ["paste", "Pasted frame"]], sim.source, v => { sim.source = v; update(true); }).children);
+$("time").value = sim.time;
+$("time").addEventListener("input", e => { sim.time = e.target.value; update(); });
+$("host").value = sim.host;
+$("host").addEventListener("input", e => { sim.host = e.target.value; update(); });
+$("oldfw").replaceChildren(el("label", { class: "check" },
+  el("input", { type: "checkbox", checked: sim.oldFw, onchange: e => { sim.oldFw = e.target.checked; update(); } }), "/dev/ttyACM2"));
+$("paste").value = sim.paste;
+$("paste").addEventListener("input", e => { sim.paste = e.target.value; update(); });
+$("add").addEventListener("click", () => {
+  const n = sim.disks.length;
+  sim.disks.push({ dev: `sd${String.fromCharCode(97 + (n % 26))}`, uid: `NEW-${n + 1}`, type: "hdd", fs: "zfs", pool: "tank", used: "1.00T", total: "4.00T", spin: "A", idle: 0, timeout: 30, poll: 60 });
+  buildDisks(); update();
+});
+$("example").addEventListener("click", () => { sim.disks = structuredClone(EXAMPLE); buildDisks(); update(); });
+$("exampleLinux").addEventListener("click", () => { sim.disks = structuredClone(EXAMPLE_LINUX); buildDisks(); update(); });
+$("clear").addEventListener("click", () => { sim.disks = []; buildDisks(); update(); });
+
+buildHw();
+buildSys();
+buildDisks();
+update(true);
+</script>
+</body>
+</html>

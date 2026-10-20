@@ -1,0 +1,32 @@
+# InkSights - settings page as a Docker app
+#
+# Settings (optional, in a .env file next to this file, or replace the values below):
+#   DATA_DIR  data folder shared with the cron job inksights.sh        (default: ./data)
+#   PORT      port of the settings page                                (default: 8099)
+#   PUID/PGID user the container runs as; needs write access to DATA_DIR (default: 568 = TrueNAS apps user)
+#   RUN_DIR   run folder of inksights.sh, in memory (frames of the WiFi displays) (default: /var/run/inksights)
+#
+# DATA_DIR must contain web/ with all files from server/web/ (inksights-web.py,
+# index.html, inksights-ui.js, inksights-render.js, inksights.css). The settings file and state are
+# created there at runtime. Keep it on an SSD, otherwise the app wakes your hard disks.
+#
+# The container gets no USB access and no rights on the host; it only shares DATA_DIR and reads
+# RUN_DIR (read-only).
+# Stack names must be lowercase, so the stack is "inksights".
+
+name: inksights
+
+services:
+  inksights:
+    container_name: inksights
+    image: python:3.12-alpine
+    user: "${PUID:-568}:${PGID:-568}"
+    command: ["python", "/data/web/inksights-web.py", "--data", "/data", "--run", "/run/inksights", "--port", "8099"]
+    environment:
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "${PORT:-8099}:8099"
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+      - ${RUN_DIR:-/var/run/inksights}:/run/inksights:ro
+    restart: unless-stopped

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InkSights</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="inksights.css">
+</head>
+<body>
+<!-- The page itself is built by inksights-ui.js (the same code as the simulator). -->
+<main class="wrap" id="app"></main>
+
+<script src="inksights-render.js"></script>
+<script src="inksights-ui.js"></script>
+<script>
+"use strict";
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const res = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(res.error || `Error ${r.status}`);
+  return res;
+}
+
+InkSightsUI.start({
+  root: document.getElementById("app"),
+  load: async () => {
+    const r = await fetch("api/state", { cache: "no-store" });
+    if (!r.ok) throw new Error(String(r.status));
+    return r.json();
+  },
+  save: body => post("api/config", body),
+  refresh: () => post("api/refresh", {}),
+  redraw: id => post("api/redraw", { id }),
+  pollMs: 10000,   // shows a display plugged in or out within seconds of the script noticing it
+  serverAddress: location.origin,
+  warnOnLeave: true,
+});
+</script>
+</body>
+</html>
