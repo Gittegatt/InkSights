@@ -723,3 +723,5 @@ If you enjoy the project and would like to support its development, a small cont
 [Star on GitHub](https://github.com/Gittegatt/InkSights)
 
 [Support on Ko-fi](https://ko-fi.com/gittegatt)
+
+[Support on PayPal](https://paypal.me/gittegatt)
