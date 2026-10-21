@@ -1,10 +1,14 @@
-# InkSights
+<h1><img src="examples/example_00_inksights.png" alt="InkSights" width="400"></h1>
 
 Repository: https://github.com/Gittegatt/InkSights
 
-Shows the drive status of a NAS server on small e-paper displays, and on request a system page with CPU, RAM,
-network and drive temperatures. Every display hangs on its own small board, plugged into the NAS server via USB
-or (boards with WiFi) running anywhere in reach of the WiFi. All settings are made on a small web page.
+Shows the drive status of a system on small e-paper displays, typically a server and often a NAS, and on request
+a system page with CPU, RAM, network and drive temperatures. Every display hangs on its own small board, plugged
+into the server via USB or (boards with WiFi) running anywhere in reach of the WiFi. All settings are made on a small web page.
+
+![System page on a 2.13″ display: CPU, RAM, network and drive temperatures](examples/example_02_2-13_system_page.png)
+
+More pictures: [examples](examples/)
 
 **Contents**
 
@@ -92,7 +96,7 @@ Untested on real hardware so far: the black/white panels and drawing on the ESP3
 ### Spindown timer (separate project)
 
 The spindown timer and the spinning/asleep symbols need
-[truenas-sata-sas-spindown-timer](https://github.com/Gittegatt/truenas-sata-sas-spindown-timer) **v1.1.0 or newer**.
+[sata-sas-spindown-timer](https://github.com/Gittegatt/sata-sas-spindown-timer) **v1.1.0 or newer**.
 It writes the status file this project reads. Without it the display shows `--:--` (or a circle with a dash).
 
 ## How it fits together
@@ -114,6 +118,7 @@ Script on the NAS server (loop or cron) ──USB──> board 1 ──> e-paper
 | `server/web/` | settings page (`inksights-web.py`, `index.html`, `inksights-ui.js`, `inksights-render.js`, `inksights.css`; `inksights-usb.js` for the USB setup) |
 | `server/docker/docker-compose.yaml` | Docker stack that runs the settings page |
 | `simulator/simulator.html` | the settings page with simulated displays and data, opens in a browser straight from the folder |
+| `examples/` | pictures of what the displays show |
 | `usb-setup.html` | sets up a board over USB from a PC: panel type, pins, WiFi ([USB setup](#usb-setup); code in `server/web/inksights-usb.js`) |
 
 ## 1. Wiring
@@ -598,7 +603,7 @@ All values come from `/proc` and `/sys`, never from the hard disks:
 ### HDD temperatures
 
 InkSights never asks a hard disk anything itself, so it does not wake one. It takes hard disk temperatures from
-**drive-temp-export**, a separate tool that asks only spinning hard disks (`smartctl -n standby`: a sleeping disk is
+[drive-temp-export](https://github.com/Gittegatt/drive-temp-export), a separate tool that asks only spinning hard disks (`smartctl -n standby`: a sleeping disk is
 not asked) and writes a status file. When that tool runs on the NAS server, InkSights reads its status file
 `/run/system-metrics/output/disk-temp/status` (another place: set `DRIVE_TEMP_STATUS` for the script):
 

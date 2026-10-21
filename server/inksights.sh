@@ -11,7 +11,7 @@
 # inksights.conf in the data folder, written by the settings web page
 # (web/inksights-web.py). Displays without settings show all disks.
 # Does NOT wake disks: only uses lsblk, sysfs, /proc, zpool/zfs metadata, statfs (df) and the status
-# file written by truenas-sata-sas-spindown-timer.sh. The one exception, only when a display
+# file written by sata-sas-spindown-timer.sh. The one exception, only when a display
 # shows SSD temperatures: smartctl -n standby for drives the kernel reports as non-rotational
 # (SSDs), never for hard disks.
 #
@@ -28,7 +28,7 @@
 #   -I MIN    : Minutes between regular updates (default: from the web page, else 10)
 #   -l        : Loop: run again and again (every 10 s; every second while a display uses fast refresh)
 #   -f        : Force a full update now
-#   -s FILE   : Spindown status file (default: /var/run/truenas-sata-sas-spindown-status)
+#   -s FILE   : Spindown status file (default: /var/run/sata-sas-spindown-status)
 #   -p PORT   : Only use this serial port (repeatable). Default: every connected board
 #   -x <disk> : Never show this disk (repeatable), e.g. -x sdz
 #   -n        : Dry run: print the frame for every display instead of sending it
@@ -79,7 +79,7 @@ INTERVAL_SET=false
 FORCE=false
 DRY_RUN=false
 LOOP=false
-STATUS_FILE="/var/run/truenas-sata-sas-spindown-status"
+STATUS_FILE="/var/run/sata-sas-spindown-status"
 RUN_DIR="/var/run/inksights"
 STAMP_FILE="$RUN_DIR/stamp"
 LOCK_FILE="$RUN_DIR/lock"
@@ -476,7 +476,7 @@ if [[ -r "$CONF_FILE" ]]; then
 fi
 
 # -----------------------
-# Spindown status (written by truenas-sata-sas-spindown-timer.sh)
+# Spindown status (written by sata-sas-spindown-timer.sh)
 # Line format: <disk> <ACTIVE|STANDBY> <idle_s> <timeout_s> <poll_s> <updated_epoch>
 # -----------------------
 declare -A SD_STATE SD_IDLE SD_TMO SD_POLL SD_TS
@@ -992,7 +992,7 @@ system_line() {
         SYS_LINE="S|$letters|$SYS_CPU|$SYS_TEMP|$SYS_POWER|$SYS_RAMU|$arc|$SYS_RAMT|-|-1|-1|-1|$(temps_of nvme)|$(temps_of ssd)"
     fi
     # T line: HDD temperatures of the system page (own line, the S line must stay below 128 bytes);
-    # only when drive-temp-export runs, -1 = asleep
+    # only when drive-temp-export runs, -2 = asleep, -1 = unknown
     SYS_TLINE=""
     [[ "$parts" == *,hdd,* ]] && (( HDD_TEMPS_OK )) && SYS_TLINE="T|$(temps_of hdd)"
     return 0

@@ -1801,7 +1801,10 @@ void drawRows(SysRow* rows, uint8_t count, uint8_t slots, int16_t HH, bool wide,
     // temperature rows have no bar: their text sits in the middle of the space a bar row takes,
     // so the gaps above and below them look even
     const int16_t shift = r.inl ? floorDiv(barDy + sc.bar - lineAsc - (stacked ? line2 : 0), 2) : 0;
-    const int16_t y = HH + 2 + i * rowH + rowDy + shift, base = y + lineAsc;
+    // 2.13" landscape with bar rows taller than the row (6 rows on 212x104): their text line 2 px
+    // lower, so it does not touch the bar of the row above (user)
+    const int16_t drop = !wide && !stacked && !r.inl && barDy + sc.bar > rowH ? 2 : 0;
+    const int16_t y = HH + 2 + i * rowH + rowDy + shift, base = y + lineAsc + drop;
     if (icon) {
       // centred on the bar (or the values in its place); temperature rows: on their text lines
       const int16_t top = r.inl ? base - fAsc(sc.dev) : y + barDy;
@@ -1969,10 +1972,12 @@ void drawHeader(int16_t W, bool wide) {
   auto wOf = [&](char k) -> int16_t { return fixed(k) ? textW(txt(k)) * hs : 0; };
   // highlighted: a box in the text colour 2 px (4 px on the 4.2") wider than the text on each
   // side, the text in the header colour; "NO DATA": white box, text in the third colour (inverted
-  // header: a box in the third colour, white text)
+  // header: a box in the third colour, white text; there the boxes reach up to the top edge, so no
+  // white line stays above them, user)
+  const int16_t boxY = inv ? 0 : hy - hs;
   auto put = [&](uint8_t i, int16_t px, const char* s) {
     const bool nd = item[i] == 'N';
-    if (lit[i] || nd) epd->fillRect(px - 2 * hs, hy - hs, textW(s) * hs + 4 * hs, 9 * hs, nd ? (inv ? RD : WH) : fg);
+    if (lit[i] || nd) epd->fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (inv ? RD : WH) : fg);
     printAt(px, hy, s, nd ? (inv ? WH : RD) : lit[i] ? bg : fg, hs);
   };
   int16_t x[3] = { 0, 0, 0 };

@@ -486,11 +486,12 @@
     const lay = [...given.toUpperCase()], hi = [...given].map(c => c >= "a" && c <= "z");
     // highlighted: a box in the text colour 2 px (4 px on the 4.2") wider than the text on each
     // side, the text in the header colour; "NO DATA": white box, text in the third colour (inverted
-    // header: a box in the third colour, white text)
-    const third = m.mono ? BK : RD;
+    // header: a box in the third colour, white text; there the boxes reach up to the top edge, so no
+    // white line stays above them, user)
+    const third = m.mono ? BK : RD, boxY = inv ? 0 : hy - hs;
     const put = (i, px, s) => {
       const nd = lay[i] === "N";
-      if (hi[i] || nd) fb.fillRect(px - 2 * hs, hy - hs, textW(s) * hs + 4 * hs, 9 * hs, nd ? (inv ? third : WH) : fg);
+      if (hi[i] || nd) fb.fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (inv ? third : WH) : fg);
       fb.text(px, hy, s, nd ? (inv ? WH : third) : hi[i] ? bg : fg, hs);
     };
     if (m.noData) {
@@ -820,7 +821,10 @@
       // temperature rows have no bar: their text sits in the middle of the space a bar row takes,
       // so the gaps above and below them look even
       const shift = r.inline ? Math.floor((barDy + sc.bar - lineAsc - (stacked ? line2 : 0)) / 2) : 0;
-      const y = HH + 2 + i * rowH + rowDy + shift, base = y + lineAsc;
+      // 2.13" landscape with bar rows taller than the row (6 rows on 212x104): their text line 2 px
+      // lower, so it does not touch the bar of the row above (user)
+      const drop = !wide && !stacked && !r.inline && barDy + sc.bar > rowH ? 2 : 0;
+      const y = HH + 2 + i * rowH + rowDy + shift, base = y + lineAsc + drop;
       if (icon) {
         // centred on the bar (or the values in its place); temperature rows: on their text lines
         const top = r.inline ? base - fAsc(sc.dev) : y + barDy, h = r.inline ? (stacked ? line2 : 0) + fAsc(sc.dev) : sc.bar;
