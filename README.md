@@ -1,4 +1,4 @@
-<h1><img src="examples/example_00_inksights.png" alt="InkSights" width="400"></h1>
+<h1><img src="examples/example_00_inksights.png" alt="InkSights" width="100%"></h1>
 
 Repository: https://github.com/Gittegatt/InkSights
 
@@ -26,6 +26,9 @@ More pictures: [examples](examples/)
 - [Good to know](#good-to-know)
 - [Troubleshooting](#troubleshooting)
 - [Protocol (for the curious)](#protocol-for-the-curious)
+- [License](#license)
+- [AI Notice](#ai-notice)
+- [Support the project](#support-the-project)
 
 ## Getting started
 
@@ -119,6 +122,7 @@ Script on the NAS server (loop or cron) ──USB──> board 1 ──> e-paper
 | `server/docker/docker-compose.yaml` | Docker stack that runs the settings page |
 | `simulator/simulator.html` | the settings page with simulated displays and data, opens in a browser straight from the folder |
 | `examples/` | pictures of what the displays show |
+| `LICENSE`, `licenses/` | the license, GPL-3.0, and the license of the Adafruit font ([License](#license)) |
 | `usb-setup.html` | sets up a board over USB from a PC: panel type, pins, WiFi ([USB setup](#usb-setup); code in `server/web/inksights-usb.js`) |
 
 ## 1. Wiring
@@ -683,3 +687,39 @@ stored); a panel with fast refresh adds `fast=1`.
 
 WiFi boards fetch the same frame with `GET /api/frame?id=…&size=…` from the settings page; their answer goes along
 with the next request.
+
+## License
+
+Copyright 2026 Gittegatt
+
+InkSights is free software: you can redistribute it and/or modify it under the terms of the
+[GNU General Public License version 3](https://www.gnu.org/licenses/gpl-3.0.html) (GPL-3.0) as published by
+the Free Software Foundation. The full text is in [LICENSE](LICENSE).
+
+InkSights is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+details.
+
+The firmware uses [GxEPD2](https://github.com/ZinggJM/GxEPD2) (GPL-3.0), the
+[Adafruit GFX Library](https://github.com/adafruit/Adafruit-GFX-Library) (BSD, including its 5x7 font, which the
+settings page uses as well), [Adafruit BusIO](https://github.com/adafruit/Adafruit_BusIO) (MIT) and, on the
+SAMD21, [FlashStorage](https://github.com/cmaglie/FlashStorage) (LGPL-2.1). They remain subject to their
+respective licenses. The license of the Adafruit font is in [licenses/adafruit-gfx-bsd.txt](licenses/adafruit-gfx-bsd.txt).
+
+## AI Notice
+
+AI-assisted coding tools were used during the development of this project.
+
+Use of this source code, including for AI or machine-learning training, fine-tuning, dataset creation, and model
+improvement, is subject to the terms of the GNU General Public License version 3.
+
+This notice does not impose any additional restrictions, does not apply to third-party material beyond its
+respective terms, and does not override applicable statutory rights or exceptions.
+
+## Support the project
+
+If you enjoy the project and would like to support its development, a small contribution is always appreciated.
+
+[Star on GitHub](https://github.com/Gittegatt/InkSights)
+
+[Support on Ko-fi](https://ko-fi.com/gittegatt)

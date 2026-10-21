@@ -368,7 +368,8 @@ const Scale SCALE_213[4] = {
 // 4.2" landscape: bar height by rows per page 2..6 (automatic: from the row height)
 const int16_t BAR_WIDE[5] = { 32, 26, 22, 20, 18 };
 
-// Characters of the 5x7 font for the details inside the bar (percentage or used capacity,
+// Characters of the 5x7 font (Adafruit GFX default font; Copyright (c) 2012 Adafruit Industries. All rights
+// reserved. BSD license: licenses/adafruit-gfx-bsd.txt) for the details inside the bar (percentage or used capacity,
 // e.g. "35%" or "3.18T"; column bytes, LSB = top)
 const char    BAR_CHARS[] = "0123456789%.BKMGTP";
 const uint8_t BAR_FONT[18][5] = {
