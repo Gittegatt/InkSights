@@ -596,6 +596,131 @@
   }
 
   // m = { host, time, rows, warn, timer, ringDir, icons, pctBar, uptime, layout, disks, page, mono (black/white panel) }
+  // Pictures of the "Nothing to ink" screen: three people sitting about, one hex string per row (MSB =
+  // left pixel), the same tables as in the firmware: NOTHING_ART 118 x 60, NOTHING_ART_S 96 x 49 for
+  // narrow panels (2.13" upright), both sampled from the same drawing. red = x0, y0, x1, y1 of the
+  // bottle's content, in the third colour on colour panels (user)
+  const NOTHING_ART = { w: 118, h: 60, red: [70, 23, 72, 27], rows: [
+    "0000f8000000001fc00000000c0000",
+    "0001fc000000003fa0000001fe0000",
+    "0003fe00000000ff90000003ff8000",
+    "0007cf00000000ff90000007ffc000",
+    "00078700000001fff0000007ffc000",
+    "00078700000001fff000000fcfe000",
+    "000703c0000003e0f800000f8fe000",
+    "0005fe80000003063000000f07c000",
+    "00047f2000000306600000063be000",
+    "000066d000000180e0000005b96000",
+    "00020548000007c040000007984000",
+    "00020d8800000461c000000381c000",
+    "0005104800001fd380000001210000",
+    "0004882e00001fd900000000030000",
+    "003a703600003ffe00000000058000",
+    "007f301700007ffe00000000418000",
+    "00ff9f1f8000ffff000000003a7800",
+    "01ffdf8f8000ffff80000000e7ff00",
+    "07ffdfcf8001ffff80000001cfff80",
+    "1fffe7f78001ffff81000003dfff80",
+    "78fff7ffc003ffffc1000007dffff0",
+    "ff8ff7ffc003ffffc100000fbffff0",
+    "ff87fbffc003fff7e180000fbffff8",
+    "ffc7fbffc003fff7f280007f3fc07c",
+    "ffe3fbbfc007fffff3c001ff7f8ffc",
+    "7c71fd878074fffcfdc7ffff7f1ffc",
+    "0335fd800046fffcfda7fff97e37fc",
+    "012dfd81fc468004fdb87ff9fe3678",
+    "013ffd83fc3e8004fff03f82fed400",
+    "01bffe8ffe427ffc78080002fe9400",
+    "019fff7ffe7f7ffcbff80005ffe400",
+    "019ffdffff3f7ffcffe0f80bffec00",
+    "00dff3ffcf034004e000ff9bffe800",
+    "00cfdfffbf834004f801ffe7ffe800",
+    "00cfbffffb817ffcfe01fff3ffc800",
+    "00c77ffffb813ffcfe01fffdffc800",
+    "00c7fffdfbc13ffcff03fffe7fd800",
+    "0067fffbfbc33ffcff07ffff9f9000",
+    "0060ffcffbe33ffcff0fe7ffe79000",
+    "007f0033fbe0bffcf71fdbfffb1000",
+    "007ffff1fbe0efef8e3fbcffff3000",
+    "007ffff0fbf0a004be7fbf00002000",
+    "00300320f9f0bffcfc7fbeffffe000",
+    "00300320f9f8bffcfc3fbcffffe000",
+    "00300320f9c8a3e4f83fbc4c006000",
+    "00300320789da3e4f81e3c4c006000",
+    "0030032078ffa3e6f81e3c4c006000",
+    "003fffe0787f23e6f07e3e4c006000",
+    "003003e0787f31e6f0fc3e6fffe000",
+    "00300320787f39eef1fc3e7c002000",
+    "00300320787379fee7fc3c4c002000",
+    "007fffe0782160e6cfec046c002000",
+    "00600320780160e6cfcc1c7ffff000",
+    "00600320780160e6cf8c1c4c003000",
+    "006003207c0161f6c0003e4c001000",
+    "006003207c0261f6e0007e4c001000",
+    "00c003007e0263fef000fe0c001800",
+    "00c003006f8243fef003f604001800",
+    "0000000067c2c1f26007e600000000",
+    "0000000000078003c0000000000000"] };
+  const NOTHING_ART_S = { w: 96, h: 49, red: [57, 18, 58, 22], rows: [
+    "000780000000fc0000006000",
+    "000fc0000001f8000007f000",
+    "001fe0000007fa00000ff800",
+    "003c6000000ff200001ffc00",
+    "00382000000f3f00003f7e00",
+    "002a7800000d2700003c3c00",
+    "0023e400000834000018de00",
+    "00237a00000c2c000015d600",
+    "00104900001e0000001ec400",
+    "0010510000312800000e0c00",
+    "002c8900007e900000059000",
+    "00d7868000ffe00000003800",
+    "01f902c001ffe00000000800",
+    "03fde3c001fff00000009fc0",
+    "0ffef9c003fff80000073fe0",
+    "1fff7de003fff82000067ff0",
+    "71ff7fe003fffc20000efffc",
+    "fe7f7ff007ff7c20001ffffe",
+    "fe3ffff007ffbc60007ffffe",
+    "ff9ff7f007ffbe7001fdf8ff",
+    "798ff1e071ffdfb1fffdf1ff",
+    "04aff00055ffcfabfff5e37f",
+    "00eff07e55000fac7fe7e35e",
+    "00ffd1ff44ffcf043f0be940",
+    "02ffefff7cffc7fc000fea40",
+    "02ffdfff3effcff8781ffec0",
+    "037f7ff706800e007f2ffe80",
+    "037fffef82ffcf80ffeffe80",
+    "033bffff82ffdfc0fff7fc80",
+    "013fffffc2ffdfc1fff9fd80",
+    "01bfffffc6ffdfc1fffef900",
+    "0187f9ffe2ffdf47e7ff3900",
+    "01fffe7de1fffccffffff300",
+    "01fffe7df18033dfbe000200",
+    "00c0247df1ffef9fbefffe00",
+    "00c0247cf1ffef8fbcfffe00",
+    "0080243cca8f2f07bc100600",
+    "0080243c7e8f2f073c100600",
+    "00fffc3c7e8f2e1f3c100600",
+    "0080343c7eef2e1e3c5ffe00",
+    "0080243c7eefee7e3c700200",
+    "01fffc3c62876cfa18100200",
+    "0180241c028729f61c7fff00",
+    "0180241c028728e61c100300",
+    "0180243e0087ac003c100100",
+    "0100243f048fac007c100100",
+    "0300203f848fae01f4100180",
+    "00000033c50f2c03e4000000",
+    "000000000700180000000000"] };
+  // draws picture a at x, y with every picture pixel s x s; third = colour of the bottle's content
+  function drawArt(fb, a, x, y, s, third) {
+    const [rx0, ry0, rx1, ry1] = a.red;
+    a.rows.forEach((hex, r) => {
+      for (let c = 0; c < a.w; c++)
+        if ((parseInt(hex.substr((c >> 3) * 2, 2), 16) >> (7 - (c & 7))) & 1)
+          fb.fillRect(x + c * s, y + r * s, s, s, c >= rx0 && c <= rx1 && r >= ry0 && r <= ry1 ? third : BK);
+    });
+  }
+
   function drawScreen(fb, m) {
     const W = fb.w, wanted = m.rows || 0, head = headerOn(m);
     const wide = isBig(W, fb.h), hs = wide ? 2 : 1, HH = headerH(W, fb.h, head), hx = wide ? 4 : 2;
@@ -605,13 +730,21 @@
     drawHeader(fb, m, pages, wide);
     // "Check connection" (the time stays: when the last data came), or "Nothing to ink" when every
     // page is switched off (no system page, no network or WiFi page, disk pages off), in the middle of the rest;
-    // triple size on the 4.2", double on the 2.13", smaller while wider than W - 8
+    // triple size on the 4.2", double on the 2.13", smaller while wider than W - 8. "Nothing to ink" gets
+    // its picture above it (user), as big as fits (whole multiples, at most as wide as the text unless 1x),
+    // the narrow picture where 1x does not fit (2.13" upright); picture and text centred together
     const nothing = !m.sys && !m.wifiPage && !nets.length && m.disks.length === 0 && m.diskPages === 0;
     if (m.noData || nothing) {
       const msg = m.noData ? "Check connection" : "Nothing to ink";
       let ms = wide ? 3 : 2;
       while (ms > 1 && textW(msg) * ms > W - 8) ms--;
-      fb.text(Math.trunc((W - textW(msg) * ms) / 2), HH + Math.trunc((fb.h - HH - 7 * ms) / 2), msg, BK, ms);
+      const A = NOTHING_ART.w <= W - 4 ? NOTHING_ART : NOTHING_ART_S;   // the narrow one where 1x does not fit
+      let as = 0;
+      if (!m.noData)
+        for (let s = 1; A.w * s <= W - 4 && A.h * s + 10 * ms <= fb.h - HH - 8 && (s === 1 || A.w * s <= textW(msg) * ms); s++) as = s;
+      const gh = as ? A.h * as + 3 * ms : 0, top = HH + Math.trunc((fb.h - HH - gh - 7 * ms) / 2);
+      if (as) drawArt(fb, A, Math.trunc((W - A.w * as) / 2), top, as, m.mono ? BK : RD);
+      fb.text(Math.trunc((W - textW(msg) * ms) / 2), top + gh, msg, BK, ms);
       return;
     }
     if (m.sys && m.page === 0) { m.sys.stby = m.stby === 1; drawSystem(fb, m.sys, HH, wide, stacked); return; }

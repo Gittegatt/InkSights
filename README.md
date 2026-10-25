@@ -498,7 +498,7 @@ The top line of the display.
 | Setting | Options | Notes |
 |---|---|---|
 | **Ink** | tick | Shows the drive pages on the display or not; their settings stay. |
-| **Drive types** | HDD, SSD, NVMe, any combination | The number of drives of each type is shown in brackets. None = no drive pages. With every page off the display shows "Nothing to ink". |
+| **Drive types** | HDD, SSD, NVMe, any combination | The number of drives of each type is shown in brackets. None = no drive pages. With every page off the display shows "Nothing to ink" with a small picture of three people sitting about (on colour panels the bottle on their table in the third colour). |
 | **Icons** | On, Off | Symbol left of each bar. |
 | **Details in bar** | On, Off | Text inside the bar, only where the bar is high and wide enough. |
 | **Details** | Percentage, Capacity | Percentage used (e.g. 35%) or the used capacity (e.g. 3.18T). With the capacity in the bar, the top right shows only the total. |
