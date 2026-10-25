@@ -393,6 +393,10 @@
     if (temp && !lay.stacked && !lay.g && !lay.capBelow) {   // no timer column: used/total gives way
       tp = { f: lay.pool, s: temp };
       capEnd = tEnd - fW(tp.f, tp.s) - lay.colGap;
+    } else if (temp && !lay.stacked && lay.g && !lay.capBelow && !tPick(tEnd - (lay.textEnd + 4))) {
+      // too wide for the room above the timer column (ring: "STBY", "31°C"): used/total gives way here too (user)
+      tp = { f: lay.pool, s: temp };
+      capEnd = tEnd - fW(tp.f, tp.s) - lay.colGap;
     }
     const cap = capText(d, lay, lay.pctBar);
     let capFont = lay.cap;

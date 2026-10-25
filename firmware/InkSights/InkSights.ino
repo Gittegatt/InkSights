@@ -1469,6 +1469,12 @@ void drawDisk(const Disk& d, int16_t y, const Lay& lay) {
     tFont = lay.sc.pool;
     tOn = true;
     capEnd = tEnd - fW(tFont, tStr) - lay.colGap;
+  } else if (temp[0] && !lay.stacked && lay.hasG && !lay.capBelow && !tPick(tEnd - (lay.textEnd + 4))) {
+    // too wide for the room above the timer column (ring: "STBY", "31°C"): used/total gives way here too (user)
+    copyStr(tStr, temp, sizeof(tStr));
+    tFont = lay.sc.pool;
+    tOn = true;
+    capEnd = tEnd - fW(tFont, tStr) - lay.colGap;
   }
   char cap[20];
   capText(d, lay, lay.pctBar, cap, sizeof(cap));
