@@ -540,6 +540,17 @@
   // WiFi, key), both together in the middle of the room above "Waiting for data ..." at the bottom.
   // Everything in u = 1 (2.13") or 2 (4.2", like its header and rows): the name as big as fits
   // (at most 3u x), the lines 11u px apart (down to 9 on the 2.13" when room is short).
+  // Logo bars in front of the product name on the start screen (as in examples/example_00_inksights.png):
+  // four bars in units of the name's pixel size z, 1.4 z wide and z apart, 1.5 / 3.2 / 5.3 / 2.5 z high,
+  // standing on the baseline of the name, then z of air before the name. Like drawLogo() in the firmware.
+  const LOGO_BARS = [15, 32, 53, 25];   // heights in tenths of z
+  const logoBarW = z => Math.trunc((14 * z + 5) / 10);
+  const logoW = z => 4 * logoBarW(z) + 4 * z;   // incl. the air before the name
+  function drawLogo(fb, x, base, z) {
+    const bw = logoBarW(z);
+    LOGO_BARS.forEach((t, i) => { const h = Math.trunc((t * z + 5) / 10); fb.fillRect(x + i * (bw + z), base - h, bw, h, BK); });
+  }
+
   function drawSplash(fb, s) {
     const W = fb.w, H = fb.h, u = isBig(W, H) ? 2 : 1, CW = L.CHAR_W * u, HH = headerH(W, H), hx = 2 * u, hy = u === 2 ? 3 : 2;
     // like printClipped(): at most maxChars characters (and at most 39, its buffer)
@@ -554,10 +565,12 @@
     while (pitch > 9 * u && 7 * 2 * u + 6 * u + (lines - 1) * pitch + lh > avail) pitch--;
     const blockH = (lines - 1) * pitch + lh;
     let z = 3 * u;
-    while (z > 1 && (7 * z + 6 * u + blockH > avail || textW(s.product) * z > W - 2 * hx)) z--;
+    while (z > 1 && (7 * z + 6 * u + blockH > avail || textW(s.product) * z + logoW(z) > W - 2 * hx)) z--;
     const gap = clamp(avail - 7 * z - blockH - 4 * u, 2 * u, 12 * u), group = 7 * z + gap + blockH;
     const ty = HH + Math.max(2 * u, Math.trunc((avail - group) / 2));
-    fb.text(Math.trunc((W - textW(s.product) * z) / 2), ty, s.product, BK, z);
+    const nx = Math.trunc((W - textW(s.product) * z - logoW(z)) / 2);   // logo bars + name, centred together
+    drawLogo(fb, nx, ty + 7 * z, z);
+    fb.text(nx + logoW(z), ty, s.product, BK, z);
     const x = hx + 7 * CW;   // value column
     let y = ty + 7 * z + gap;
     fb.text(hx, y, "ID", BK, u);

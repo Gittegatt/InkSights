@@ -1855,6 +1855,20 @@ void pinText(char* buf, size_t size, int8_t p) {
 // "Waiting for data ..." at the bottom. Everything in u = 1 (2.13") or 2 (4.2", like its header
 // and rows): the name as big as fits (at most 3u x), the lines 11u px apart (down to 9 on the
 // 2.13" when room is short). Like drawSplash() in inksights-render.js.
+// Logo bars in front of the product name on the start screen (as in examples/example_00_inksights.png):
+// four bars in units of the name's pixel size z, 1.4 z wide and z apart, 1.5 / 3.2 / 5.3 / 2.5 z high,
+// standing on the baseline of the name, then z of air before the name. Like drawLogo() in inksights-render.js.
+const uint8_t LOGO_BARS[4] = { 15, 32, 53, 25 };   // heights in tenths of z
+int16_t logoBarW(int16_t z) { return (14 * z + 5) / 10; }
+int16_t logoW(int16_t z) { return 4 * logoBarW(z) + 4 * z; }   // incl. the air before the name
+void drawLogo(int16_t x, int16_t base, int16_t z) {
+  const int16_t bw = logoBarW(z);
+  for (uint8_t i = 0; i < 4; i++) {
+    const int16_t h = (LOGO_BARS[i] * z + 5) / 10;
+    epd->fillRect(x + i * (bw + z), base - h, bw, h, BK);
+  }
+}
+
 void drawSplash() {
   const int16_t W = epd->width(), H = epd->height();
   const uint8_t u = isBig(W, H) ? 2 : 1;
@@ -1876,10 +1890,12 @@ void drawSplash() {
   while (pitch > 9 * u && 7 * 2 * u + 6 * u + (lines - 1) * pitch + lh > avail) pitch--;
   const int16_t blockH = (lines - 1) * pitch + lh;
   int16_t z = 3 * u;
-  while (z > 1 && (7 * z + 6 * u + blockH > avail || textW(PRODUCT_NAME) * z > W - 2 * hx)) z--;
+  while (z > 1 && (7 * z + 6 * u + blockH > avail || textW(PRODUCT_NAME) * z + logoW(z) > W - 2 * hx)) z--;
   const int16_t gap = iclamp(avail - 7 * z - blockH - 4 * u, 2 * u, 12 * u), group = 7 * z + gap + blockH;
   const int16_t ty = HH + imax(2 * u, (avail - group) / 2);
-  printAt((W - textW(PRODUCT_NAME) * z) / 2, ty, PRODUCT_NAME, BK, z);
+  const int16_t nx = (W - textW(PRODUCT_NAME) * z - logoW(z)) / 2;   // logo bars + name, centred together
+  drawLogo(nx, ty + 7 * z, z);
+  printAt(nx + logoW(z), ty, PRODUCT_NAME, BK, z);
 
   const int16_t x = hx + 7 * CW;  // value column
   int16_t y = ty + 7 * z + gap;
