@@ -1490,7 +1490,15 @@ void drawDisk(const Disk& d, int16_t y, const Lay& lay) {
     epd->fillRect(capX - 1, capTop - 1, capW + 2, fAsc(capFont) + 2, BK);
     fText(capFont, capX, capTop, cap, WH);
   } else {
-    fText(capFont, capX, capTop, cap, warn ? RD : BK);
+    // colour panels: only the used part (before the slash) in the third colour, "/" and the total black
+    // (user); the total alone (used capacity in the bar) stays black
+    fText(capFont, capX, capTop, cap, BK);
+    const char* slash = strchr(cap, '/');
+    if (warn && slash && slash > cap) {
+      char used[20];
+      copyStr(used, cap, imin((int)sizeof(used), (int)(slash - cap) + 1));
+      fText(capFont, capX, capTop, used, RD);   // the same glyphs again, in colour
+    }
   }
   const int16_t poolX = lay.stacked ? lay.devX : lay.devX + lay.devW + lay.colGap;
   const int16_t poolBase = lay.stacked ? base + lay.line2 : base;

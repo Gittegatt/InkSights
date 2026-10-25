@@ -651,6 +651,12 @@ spin_raw() {
     # Status file too old -> spindown script is not running; keep the last known state
     (( NOW - ts > 2 * poll + 120 )) && D_STALE[$d]=1
 
+    # Spinning and the status fresh: add the time since the spindown timer measured, so the time left
+    # counts down between its polls (fast refresh); its next poll corrects it (I/O resets the idle time)
+    if [[ "$st" != "STANDBY" ]] && (( ! D_STALE[$d] && NOW > ts )); then
+        idle=$(( idle + NOW - ts ))
+        (( idle > tmo )) && idle=$tmo
+    fi
     D_IDLE[$d]=$idle; D_TMO[$d]=$tmo; D_POLL[$d]=$poll
     [[ "$st" == "STANDBY" ]] && D_ST[$d]="S" || D_ST[$d]="A"
 }

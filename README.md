@@ -366,7 +366,8 @@ Other systems: the same line with `* * * * *` in root's crontab (`sudo crontab -
 
 **What the script does.** It almost always does nothing and exits right away. A full update only happens at the set
 interval, after saving on the settings page, when a display is plugged in or out, or on "Update now" / "Redraw now".
-In between, displays with fast refresh get a new frame with fresh system values and spindown timers; disk and pool
+In between, displays with fast refresh get a new frame with fresh system values and spindown timers (the time left
+counts down between the polls of the spindown timer, its next poll corrects it); disk and pool
 data then come from the last full update.
 
 **Log:** the script keeps its log in memory at `/var/run/inksights/inksights.log` (the last 2000 lines, gone after

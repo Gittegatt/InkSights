@@ -48,6 +48,9 @@
   // e-paper white, black, third colour (shown as red; yellow panels draw it in yellow)
   const PALETTE = [[0xe3, 0xe0, 0xd6], [0x1d, 0x1d, 0x1b], [0xad, 0x2a, 0x25]];
   const YELLOW = [0xdc, 0xae, 0x1d];   // the third colour of the yellow panels
+  // text on the third colour: white, black on the yellow panels (white on yellow is hard to read;
+  // user); set per screen from m.yellow in drawScreen()
+  let onThird = WH;
   const L = { HEADER_H: 11, ROW_H_AUTO: 22, ROW_H_MIN: 17, ROW_H_WIDE: 34, ROW_H_UPRIGHT: 32, ROW_H_BIG_UPRIGHT: 63, CHAR_W: 6, BAR_H: 8, BAR_H_MAX: 16, MAX_BOXES: 20, MAX_DISKS: 32, MAX_NETS: 8, WARN_PCT: 85 };
 
 
@@ -113,12 +116,13 @@
     const iw = w - 2, ih = h - 2;
     let uw = Math.trunc(iw * pct / 100);
     if (pct > 0 && uw === 0) uw = 1;
-    if (uw > 0) fb.fillRect(x + 1, y + 1, uw, ih, warn && !mono ? RD : BK);
+    const fill = warn && !mono ? RD : BK;
+    if (uw > 0) fb.fillRect(x + 1, y + 1, uw, ih, fill);
     fillRaster(fb, x + 1 + uw, y + 1, iw - uw, ih);
-    barText(fb, x, y, w, h, uw, text, pctSize);
+    barText(fb, x, y, w, h, uw, text, pctSize, fill === RD ? onThird : WH);
   }
   // Text centred in a bar of w x h with uw px used (see drawBar); also the network bars
-  function barText(fb, x, y, w, h, uw, text, pctSize) {
+  function barText(fb, x, y, w, h, uw, text, pctSize, onUsed = WH) {   // onUsed: text colour over the used part
     if (!text) return;
     const iw = w - 2, ih = h - 2, t = text;
     let z = pctSize;
@@ -142,7 +146,7 @@
     if (rx <= rx2) fb.fillRect(rx, ry, rx2 - rx + 1, ry2 - ry + 1, WH);
     for (let py = ty; py < ty + th; py++)
       for (let px = tx; px < tx + tw; px++)
-        if (on(px, py)) fb.pixel(px, py, px < usedEnd ? WH : BK);
+        if (on(px, py)) fb.pixel(px, py, px < usedEnd ? onUsed : BK);
   }
 
   // ------------------------------------------------------------ fonts
@@ -408,7 +412,13 @@
     // three lines (upright): used/total in its own last line, the pool keeps the whole second line
     const capBase = lay.capLine ? lastBase : capLow ? base + lay.line2 : base, capTop = capBase - fAsc(capFont);
     if (warn && mono && cap) { fb.fillRect(capX - 1, capTop - 1, capW + 2, fAsc(capFont) + 2, BK); fText(fb, capFont, capX, capTop, cap, WH); }
-    else fText(fb, capFont, capX, capTop, cap, warn ? RD : BK);
+    else {
+      // colour panels: only the used part (before the slash) in the third colour, "/" and the total black
+      // (user); the total alone (used capacity in the bar) stays black
+      fText(fb, capFont, capX, capTop, cap, BK);
+      const slash = cap.indexOf("/");
+      if (warn && slash > 0) fText(fb, capFont, capX, capTop, cap.slice(0, slash), RD);   // the same glyphs again, in colour
+    }
     const poolX = lay.stacked ? lay.devX : lay.devX + lay.devW + lay.colGap;
     const poolBase = lay.stacked ? base + lay.line2 : base;
     if (temp && !tp) {
@@ -498,7 +508,7 @@
     const put = (i, px, s) => {
       const nd = lay[i] === "N";
       if (hi[i] || nd) fb.fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (inv ? third : WH) : fg);
-      fb.text(px, hy, s, nd ? (inv ? WH : third) : hi[i] ? bg : fg, hs);
+      fb.text(px, hy, s, nd ? (inv ? (third === RD ? onThird : WH) : third) : hi[i] ? bg : fg, hs);
     };
     if (m.noData) {
       const at = [lay.indexOf("P"), lay.indexOf("U")].find(i => i >= 0) ?? [1, 2, 0].find(i => lay[i] === "-") ?? 1;
@@ -723,6 +733,7 @@
   }
 
   function drawScreen(fb, m) {
+    onThird = m.yellow ? BK : WH;
     const W = fb.w, wanted = m.rows || 0, head = headerOn(m);
     const wide = isBig(W, fb.h), hs = wide ? 2 : 1, HH = headerH(W, fb.h, head), hx = wide ? 4 : 2;
     const stacked = W < fb.h;   // upright: device | used/total, the pool in a second line

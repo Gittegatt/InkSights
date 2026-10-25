@@ -293,6 +293,7 @@
       pages[id] = (((pages[id] || 0) % pc) + pc) % pc;
       model.page = pages[id];
       model.mono = panel.colors === 2;
+      model.yellow = !!panel.yellow;   // yellow third colour: black text on it
       // WiFi page: the board shows its own WiFi; here what the NAS server last heard from it
       model.wifi = { net: live ? (live.transport === "wifi" ? "sta" : live.net || "off") : "off", ssid: (live && (live.ssid || hexText(live.ssidHex))) || s.wifi.ssid,
         ip: live ? live.ip || "" : "", ap: s.wifi.apSsid || DEFAULT_AP_SSID,
