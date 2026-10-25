@@ -47,6 +47,7 @@
   const WH = 0, BK = 1, RD = 2;
   // e-paper white, black, third colour (shown as red; yellow panels draw it in yellow)
   const PALETTE = [[0xe3, 0xe0, 0xd6], [0x1d, 0x1d, 0x1b], [0xad, 0x2a, 0x25]];
+  const YELLOW = [0xdc, 0xae, 0x1d];   // the third colour of the yellow panels
   const L = { HEADER_H: 11, ROW_H_AUTO: 22, ROW_H_MIN: 17, ROW_H_WIDE: 34, ROW_H_UPRIGHT: 32, ROW_H_BIG_UPRIGHT: 63, CHAR_W: 6, BAR_H: 8, BAR_H_MAX: 16, MAX_BOXES: 20, MAX_DISKS: 32, MAX_NETS: 8, WARN_PCT: 85 };
 
 
@@ -1279,14 +1280,14 @@
 
   // Paint a framebuffer. scale = screen device pixels per display pixel (a whole number keeps every
   // pixel equally big; otherwise some pixel columns come out one screen pixel narrower).
-  function blit(canvas, fb, scale) {
+  function blit(canvas, fb, scale, yellow = false) {   // yellow: third colour yellow instead of red
     const dpr = window.devicePixelRatio || 1;
     const off = document.createElement("canvas");
     off.width = fb.w; off.height = fb.h;
     const octx = off.getContext("2d");
     const img = octx.createImageData(fb.w, fb.h);
     for (let i = 0; i < fb.px.length; i++) {
-      const [r, g, b] = PALETTE[fb.px[i]];
+      const [r, g, b] = yellow && fb.px[i] === RD ? YELLOW : PALETTE[fb.px[i]];
       img.data[i * 4] = r; img.data[i * 4 + 1] = g; img.data[i * 4 + 2] = b; img.data[i * 4 + 3] = 255;
     }
     octx.putImageData(img, 0, 0);

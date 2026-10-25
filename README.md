@@ -548,7 +548,8 @@ data. Below the displays, the **Simulation** section sets the simulated boards, 
 values (incl. when the server started), the drives (with or without ZFS, each with a temperature, column **Temp °C**), or a frame pasted from a dry run.
 **No data** at a display shows what it draws when it gets no fresh data any more, **Start screen** what it shows
 after power-up until the first data arrive. The simulated interfaces cover every case: wired, no cable, switched
-off, a bridge and WiFi. The Simulation card folds (the triangle next to its heading).
+off, a bridge and WiFi. The Simulation card folds (the triangle next to its heading). The panel choices of the simulator also hold the
+colour panels with yellow instead of red (preview only so far).
 Nothing is sent anywhere, except to a board on USB: the **USB** card at the bottom is the [USB setup](#usb-setup),
 plus **Send to display**: it sends what a simulated display gets to the real board, so the display shows it right
 away (without "NO DATA" later, as the simulated time does not move). Chrome or Edge only.

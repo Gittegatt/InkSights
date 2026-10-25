@@ -11,6 +11,7 @@
  *   backend.frameOverride(id) -> frame text to show instead of the settings (simulator: pasted frame)
  *   backend.serverAddress -> address of this page as a display reaches it (WiFi settings)
  *   backend.titleSuffix   -> appended to the browser tab title
+ *   backend.yellowPanels  -> also offer the colour panels with yellow (simulator)
  *
  * Drawing: inksights-render.js. No description texts next to the controls (labels only).
  */
@@ -102,12 +103,16 @@
     { id: 4, name: "GDEY0213B74", size: [250, 122], colors: 2, fast: true },
     { id: 5, name: "GDEY042T81", size: [400, 300], colors: 2, fast: true },
   ];
+  // The colour panels with yellow as the third colour (simulator only so far: backend.yellowPanels);
+  // driven like their red twins, only the preview draws the third colour yellow
+  const YELLOW_PANELS = PANELS.filter(p => p.colors === 3).map(p => ({ ...p, id: p.id + 5, yellow: true }));
+  let panels = PANELS;   // the types offered: PANELS, in the simulator with the yellow ones
   const panelLabel = p => `${p.size[0] >= 360 ? "4.2″" : "2.13″"} ${p.size[0]} × ${p.size[1]} · ` +
-    `${p.colors === 2 ? "black/white" : "black/white/color"} · ${p.name}`;
+    `${p.colors === 2 ? "black/white" : p.yellow ? "black/white/yellow" : "black/white/red"} · ${p.name}`;
   // The panel of a display: chosen here, else what the board reports, else (older firmware without
   // panel=) the first type with its size and colours
   function panelOf(live, s) {
-    const byId = id => PANELS.find(p => p.id === id);
+    const byId = id => panels.find(p => p.id === id);
     if (s && byId(s.panel)) return byId(s.panel);
     if (live && byId(live.panel)) return byId(live.panel);
     const [a, b] = parseSize(live && live.size), mono = !!(live && live.colors === 2);
@@ -121,6 +126,7 @@
 
   function start(backend) {
     const root = backend.root;
+    panels = backend.yellowPanels ? PANELS.concat(YELLOW_PANELS) : PANELS;
     let state = { host: "", updated: 0, disks: [], displays: [] };
     let config = {};
     let interval = 10, pageName = "", defaultPageName = "InkSights";
@@ -177,7 +183,7 @@
       if (![0, 90, 180, 270].includes(s.rot)) s.rot = 0;
       if (typeof s.page !== "number") s.page = DEFAULT_PAGE;
       if (!Array.isArray(s.pins) || s.pins.length !== 4) s.pins = null;   // null = keep the pins of the display
-      if (!PANELS.some(p => p.id === s.panel)) s.panel = null;              // null = keep the panel type of the display
+      if (!panels.some(p => p.id === s.panel)) s.panel = null;              // null = keep the panel type of the display
       if (typeof s.name !== "string") s.name = "";
       if (typeof s.dname !== "string") s.dname = "";
       // header: left, middle, right (T title, P page number, U uptime, C time, - nothing); without
@@ -280,7 +286,7 @@
         msg.textContent = "No complete frame found. Paste one block from #BEGIN to #END.";
         msg.className = "note warn";
         $(`pg-${id}`).textContent = "";
-        paint(canvas, fb, w, h);
+        paint(canvas, fb, w, h, panel.yellow);
         return;
       }
       const pc = EPD.pageCount(model.disks.length, h, model.rows, w, !!model.sys, !!model.wifiPage, model.layout !== "---", model.nets.length);
@@ -301,14 +307,14 @@
           pinTitle: board.samd ? "Pins D" : "GPIO", pins: pins.length === 4 ? pins : [-1, -1, -1, -1],
           wifi: !board.wifi ? null : net === "sta" ? live.ip || "" : net === "ap" ? `AP ${s.wifi.apSsid || DEFAULT_AP_SSID} 192.168.4.1` : s.wifi.ssid ? "connecting ..." : "off",
           key: board.wifi && net === "ap" ? live.apKey || "" : null });
-        paint(canvas, sfb, sw, sh);
+        paint(canvas, sfb, sw, sh, panel.yellow);
         $(`pg-${id}`).textContent = "Start screen";
         msg.textContent = "";
         msg.className = "note";
         return;
       }
       EPD.drawScreen(fb, model);
-      paint(canvas, fb, w, h);
+      paint(canvas, fb, w, h, panel.yellow);
       const what = [model.sys ? "system" : "", model.disks.length || (!model.sys && !model.wifiPage && !model.nets.length) ? `${model.disks.length} drives` : "",
         model.nets.length ? `${model.nets.length} network` : "", model.wifiPage ? "WiFi" : ""].filter(Boolean).join(", ");
       $(`pg-${id}`).textContent = `Page ${model.page + 1}/${pc} · ${what}`;
@@ -320,12 +326,12 @@
     // turned, so an upright display looks exactly as big as the real one, only turned. Only 1x would
     // leave it much smaller than the room (2.13" in a narrow card on a screen at 100 %): fill the
     // room instead, a few display pixels then come out one screen pixel smaller
-    function paint(canvas, fb, w, h) {
+    function paint(canvas, fb, w, h, yellow = false) {   // yellow: third colour yellow instead of red
       const dpr = window.devicePixelRatio || 1;
       const room = canvas.closest(".shot").clientWidth - 28;   // inside the black frame (padding 14 px)
       const fit = Math.min(room, 520) * dpr / Math.max(w, h);   // 520: fits the fixed stage in every rotation
       const whole = Math.max(1, Math.floor(fit));
-      EPD.blit(canvas, fb, whole === 1 && fit >= 1.25 ? fit : whole);
+      EPD.blit(canvas, fb, whole === 1 && fit >= 1.25 ? fit : whole, yellow);
     }
 
     function drawAll() { displayList().forEach(e => { drawPreview(e); renderOrder(e); renderNetOrder(e); }); }
@@ -442,7 +448,7 @@
       // Panel type: what is set here, else what the board reports; the board saves it and restarts.
       // Size, rows, preview and fast refresh follow it, so the card is built again.
       const panelSel = el("select", { "aria-label": "Panel type", onchange: e => { s.panel = Number(e.target.value); pages[id] = 0; changed(); render(true); } },
-        ...PANELS.map(p => el("option", { value: String(p.id), selected: p.id === panel.id }, panelLabel(p))));
+        ...panels.map(p => el("option", { value: String(p.id), selected: p.id === panel.id }, panelLabel(p))));
       // Fast refresh: only panels that can redraw fast without flashing (black/white)
       const fastCap = panel.fast;
       const fastSel = el("select", { "aria-label": "Fast refresh", onchange: e => { s.fast = Number(e.target.value); redraw(); } },
@@ -836,6 +842,6 @@
       frames: () => displayList().map(e => ({ id: e.id, label: nameOf(e.id, settingsFor(e.id)), text: frameText(e).text || "" })) };
   }
 
-  window.InkSightsUI = { start, BOARDS, DEFAULT_BOARD, PANELS, panelLabel, pinLabel, PIN_NONE, PIN_NAMES, HOST_RE, SERVER_RE,
+  window.InkSightsUI = { start, BOARDS, DEFAULT_BOARD, PANELS, YELLOW_PANELS, panelLabel, pinLabel, PIN_NONE, PIN_NAMES, HOST_RE, SERVER_RE,
     DEFAULT_AP_SSID, DEFAULT_AP_PASS, DEFAULT_AP_DELAY, MAX_AP_DELAY, hexText };
 })();

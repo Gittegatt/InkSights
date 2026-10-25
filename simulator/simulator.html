@@ -82,8 +82,9 @@ const IDS = ["1A2B3C4D", "5E6F7A8B"];              // simulated chip IDs
 const PORTS = ["/dev/ttyACM0", "/dev/ttyACM1"];
 const IPS = ["192.168.1.51", "192.168.1.52"];
 
-// Panel types: the table of the settings page (InkSightsUI.PANELS); the board reports the one it runs
-const PANELS = InkSightsUI.PANELS;
+// Panel types: the table of the settings page (InkSightsUI.PANELS) and the yellow colour panels; the
+// board reports the one it runs
+const PANELS = InkSightsUI.PANELS.concat(InkSightsUI.YELLOW_PANELS);
 const panelById = id => PANELS.find(p => p.id === id) || PANELS[0];
 const OLD_PANELS = { "212x104x3": 1, "250x122x3": 3, "250x122x2": 4, "400x300x2": 5 };   // saved by earlier versions
 
@@ -293,6 +294,7 @@ function publicConfig() {
 let usb = null;   // the USB card, mounted below
 const ui = InkSightsUI.start({
   root: $("app"),
+  yellowPanels: true,   // also offer the colour panels with yellow
   load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights" }),
   save: async body => {
     const next = {};
