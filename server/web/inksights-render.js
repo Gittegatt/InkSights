@@ -816,11 +816,11 @@
     "03cc000000000c0f3ffffffc3000f7f0000000030f00",
     "03cc000000000c0f3ffffffc3000f63000000003fc00",
     "03cc000000000c0f3000000c3000f63000000003fc00",
-    "03c30000000003ff3000000c3000f1c0000000033c00",
+    "03c30000000003ff3000000c3000f3e0000000033c00",
     "03c30000000003ff3000000c3c0ff1c0000000033c00",
-    "00f3000000000c033000000c3c0ff7f0000000033c00",
-    "00f3000000000c030ffffffc0c0ff7f0000000033c00",
-    "00f3000000000fff0ffffffc0c0ff7f00000000c3c00",
+    "00f3000000000c033000000c3c0ff080000000033c00",
+    "00f3000000000c030ffffffc0c0ff080000000033c00",
+    "00f3000000000fff0ffffffc0c0ff3e00000000c3c00",
     "00f3000000000fffcc00000c3ffffff00000000c3c00",
     "00f3000000000fffcffffffc3ffffff00000000cf000",
     "00f3000000000fffcffffffc3ffffff00000000cf000",
@@ -971,11 +971,12 @@
     // page is switched off (no system page, no network or WiFi page, disk pages off), with its picture
     // above it (user); both screens share one block as high as the taller of the two, centred in the
     // rest: the text at its bottom and the picture standing on the text, so text and picture bottom
-    // are at the same height on both screens (user)
+    // are at the same height on both screens (user); always below the room of a header, also when the
+    // header is off ("Check connection" brings it back), so both screens match there too (user)
     const nothing = !m.sys && !m.wifiPage && !nets.length && m.disks.length === 0 && m.diskPages === 0;
     if (m.noData || nothing) {
-      const L = msgArt(m.noData, W, fb.h, HH, wide), O = msgArt(!m.noData, W, fb.h, HH, wide);
-      const bh = Math.max(L.gh + 7 * L.ms, O.gh + 7 * O.ms), ty = HH + Math.trunc((fb.h - HH - bh) / 2) + bh - 7 * L.ms;
+      const MH = headerH(W, fb.h), L = msgArt(m.noData, W, fb.h, MH, wide), O = msgArt(!m.noData, W, fb.h, MH, wide);
+      const bh = Math.max(L.gh + 7 * L.ms, O.gh + 7 * O.ms), ty = MH + Math.trunc((fb.h - MH - bh) / 2) + bh - 7 * L.ms;
       if (L.as) drawArt(fb, L.A, Math.trunc((W - L.A.w * L.as) / 2), ty - L.gh, L.as, m.mono ? BK : RD);
       fb.text(Math.trunc((W - textW(L.msg) * L.ms) / 2), ty, L.msg, BK, L.ms);
       return;
