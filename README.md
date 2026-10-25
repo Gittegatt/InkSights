@@ -547,7 +547,7 @@ The WiFi page is shown in the preview so far; the firmware does not draw it yet.
 `simulator/simulator.html` opens in any browser straight from the folder. It is the same settings page with simulated
 data. Below the displays, the **Simulation** section sets the simulated boards, panels and connections, the system
 values (incl. when the server started), the drives (with or without ZFS, each with a temperature, column **Temp °C**), or a frame pasted from a dry run.
-**No data** at a display shows what it draws when it gets no fresh data any more, **Start screen** what it shows
+A display with **Connected** off shows what it draws when it gets no fresh data any more (NO DATA, Check connection), **No data** at a connected one the "Nothing to ink" screen (nothing to show), **Start screen** what it shows
 after power-up until the first data arrive. The simulated interfaces cover every case: wired, no cable, switched
 off, a bridge and WiFi. The Simulation card folds (the triangle next to its heading). The panel choices of the simulator also hold the
 colour panels with yellow instead of red (preview only so far).
@@ -635,7 +635,7 @@ SSD and NVMe temperatures do not need it.
 - **NO DATA.** E-paper keeps its picture even without power, so a display that gets nothing any more would look
   the same as one that works. Without fresh data for twice the **Update every** time plus 2 minutes (at least
   10 minutes; e.g. 22 minutes at 10 minutes), the display shows **NO DATA** in the top line, where the page number
-  or the uptime stands, and **Check connection** in the middle, and stops turning pages. The time at the top right
+  or the uptime stands, and **Check connection** in the middle below a picture of the empty table, and stops turning pages. The time at the top right
   stays: that is when the last data came. With the next fresh data the pages come back. Reasons: the board is
   unplugged or the NAS server is off, the script or the settings page does not run, or a WiFi board lost its WiFi.
 - **"Update every" and fast refresh:** "Update every" stays the interval of the full updates (disks, pools, the

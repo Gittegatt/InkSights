@@ -228,7 +228,7 @@ function stateNow() {
       colors: panel.colors, panel: panel.id, pins: pins.join(","), board: h.board, wifi: board.wifi ? 1 : 0, fw: "1.0", net,
       ssid: net === "sta" ? h.ssid || "" : "", online: net === "sta" ? onlineSecs(h.since) : -1,   // seconds connected
       ip: net === "sta" ? IPS[i] : net === "ap" ? "192.168.4.1" : "", fast: panel.fast ? 1 : 0, answer: "OK",
-      noData: !!h.noData,   // the board got no fresh frame for too long: "NO DATA" / "Check connection"
+      nothingToInk: !!h.noData,   // "No data": connected, but nothing to show -> "Nothing to ink"
       // its start screen, before the first data; with the setup access point open it shows the password
       splash: !!h.splash, apKey: (sim.config[IDS[i]] && sim.config[IDS[i]].wifi && sim.config[IDS[i]].wifi.apPass) || "ink!1234" });
   });
@@ -295,6 +295,7 @@ let usb = null;   // the USB card, mounted below
 const ui = InkSightsUI.start({
   root: $("app"),
   yellowPanels: true,   // also offer the colour panels with yellow
+  offlineNoData: true,  // "Connected" off: the display shows "NO DATA" / "Check connection"
   load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights" }),
   save: async body => {
     const next = {};

@@ -12,6 +12,7 @@
  *   backend.serverAddress -> address of this page as a display reaches it (WiFi settings)
  *   backend.titleSuffix   -> appended to the browser tab title
  *   backend.yellowPanels  -> also offer the colour panels with yellow (simulator)
+ *   backend.offlineNoData -> a display that is not connected previews its "Check connection" screen (simulator)
  *
  * Drawing: inksights-render.js. No description texts next to the controls (labels only).
  */
@@ -289,6 +290,8 @@
         paint(canvas, fb, w, h, panel.yellow);
         return;
       }
+      // simulator "No data": connected, but nothing to show -> the "Nothing to ink" screen
+      if (live && live.nothingToInk) { model.sys = null; model.nets = []; model.disks = []; model.diskPages = 0; model.wifiPage = 0; }
       const pc = EPD.pageCount(model.disks.length, h, model.rows, w, !!model.sys, !!model.wifiPage, model.layout !== "---", model.nets.length);
       pages[id] = (((pages[id] || 0) % pc) + pc) % pc;
       model.page = pages[id];
@@ -298,7 +301,8 @@
       model.wifi = { net: live ? (live.transport === "wifi" ? "sta" : live.net || "off") : "off", ssid: (live && (live.ssid || hexText(live.ssidHex))) || s.wifi.ssid,
         ip: live ? live.ip || "" : "", ap: s.wifi.apSsid || DEFAULT_AP_SSID,
         online: live && Number.isInteger(live.online) && live.online >= 0 ? Math.floor(live.online / 60) : -1 };   // black/white panel: highlighted used/total inverted instead of in colour
-      model.noData = !!(live && live.noData);   // no fresh data for too long (simulator: "No data")
+      // no fresh data for too long; in the simulator also a display that is not connected ("Connected" off)
+      model.noData = live ? !!live.noData : !!backend.offlineNoData;
       if (override) { model.timer = s.timer; model.ringDir = s.ringDir; model.icons = s.icons; model.pctBar = s.pctBar ? (s.barCap ? 2 : 1) : 0; }
       if (live && live.splash) {   // the board's start screen, before the first data (simulator: "Start screen")
         const [sw, sh] = panelSize(panel, 0), sfb = new EPD.Fb(sw, sh), board = boardOf(live);

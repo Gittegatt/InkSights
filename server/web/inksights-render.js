@@ -608,10 +608,11 @@
 
   // m = { host, time, rows, warn, timer, ringDir, icons, pctBar, uptime, layout, disks, page, mono (black/white panel) }
   // Pictures of the "Nothing to ink" screen: three people sitting about, one hex string per row (MSB =
-  // left pixel), the same tables as in the firmware: NOTHING_ART 118 x 60, NOTHING_ART_S 96 x 49 for
-  // narrow panels (2.13" upright), both sampled from the same drawing. red = x0, y0, x1, y1 of the
-  // bottle's content, in the third colour on colour panels (user)
-  const NOTHING_ART = { w: 118, h: 60, red: [70, 23, 72, 27], rows: [
+  // left pixel), the same tables as in the firmware: NOTHING_ART 118 x 60 (4.2"), NOTHING_ART_M the same
+  // with the 2.13" bottle (longer neck, one row higher, like on the "Check connection" picture; user),
+  // NOTHING_ART_S 96 x 49 for narrow panels (2.13" upright), all sampled from the same drawing.
+  // red = x0, y0, x1, y1 of the bottle's content, in the third colour on colour panels (user)
+  const NOTHING_ART = { w: 118, h: 60, red: [70, 14, 73, 27], cut: [[70, 18, -1], [73, 18, 1]], rows: [
     "0000f8000000001fc00000000c0000",
     "0001fc000000003fa0000001fe0000",
     "0003fe00000000ff90000003ff8000",
@@ -626,24 +627,24 @@
     "00020d8800000461c000000381c000",
     "0005104800001fd380000001210000",
     "0004882e00001fd900000000030000",
-    "003a703600003ffe00000000058000",
-    "007f301700007ffe00000000418000",
-    "00ff9f1f8000ffff000000003a7800",
-    "01ffdf8f8000ffff80000000e7ff00",
-    "07ffdfcf8001ffff80000001cfff80",
-    "1fffe7f78001ffff81000003dfff80",
-    "78fff7ffc003ffffc1000007dffff0",
-    "ff8ff7ffc003ffffc100000fbffff0",
-    "ff87fbffc003fff7e180000fbffff8",
-    "ffc7fbffc003fff7f280007f3fc07c",
-    "ffe3fbbfc007fffff3c001ff7f8ffc",
-    "7c71fd878074fffcfdc7ffff7f1ffc",
-    "0335fd800046fffcfda7fff97e37fc",
-    "012dfd81fc468004fdb87ff9fe3678",
+    "003a703600003ffe01800000058000",
+    "007f301700007ffe01800000418000",
+    "00ff9f1f8000ffff018000003a7800",
+    "01ffdf8f8000ffff81800000e7ff00",
+    "07ffdfcf8001ffff83c00001cfff80",
+    "1fffe7f78001ffff83c00003dfff80",
+    "78fff7ffc003ffffc3c00007dffff0",
+    "ff8ff7ffc003ffffc0c0000fbffff0",
+    "ff87fbffc003fff7e0c0000fbffff8",
+    "ffc7fbffc003fff7f0c0007f3fc07c",
+    "ffe3fbbfc007fffff0c001ff7f8ffc",
+    "7c71fd878074fffcfcc7ffff7f1ffc",
+    "0335fd800046fffcffe7fff97e37fc",
+    "012dfd81fc468004fff87ff9fe3678",
     "013ffd83fc3e8004fff03f82fed400",
     "01bffe8ffe427ffc78080002fe9400",
     "019fff7ffe7f7ffcbff80005ffe400",
-    "019ffdffff3f7ffcffe0f80bffec00",
+    "019ffdffff1f7ffcffe0f80bffec00",
     "00dff3ffcf034004e000ff9bffe800",
     "00cfdfffbf834004f801ffe7ffe800",
     "00cfbffffb817ffcfe01fff3ffc800",
@@ -654,25 +655,86 @@
     "007f0033fbe0bffcf71fdbfffb1000",
     "007ffff1fbe0efef8e3fbcffff3000",
     "007ffff0fbf0a004be7fbf00002000",
-    "00300320f9f0bffcfc7fbeffffe000",
-    "00300320f9f8bffcfc3fbcffffe000",
-    "00300320f9c8a3e4f83fbc4c006000",
-    "00300320789da3e4f81e3c4c006000",
-    "0030032078ffa3e6f81e3c4c006000",
-    "003fffe0787f23e6f07e3e4c006000",
-    "003003e0787f31e6f0fc3e6fffe000",
-    "00300320787f39eef1fc3e7c002000",
-    "00300320787379fee7fc3c4c002000",
-    "007fffe0782160e6cfec046c002000",
-    "00600320780160e6cfcc1c7ffff000",
-    "00600320780160e6cf8c1c4c003000",
-    "006003207c0161f6c0003e4c001000",
-    "006003207c0261f6e0007e4c001000",
+    "00320320f9f0bffcfc7fbeffffe000",
+    "00320320f9f8bffcfc3fbcffffe000",
+    "00320320f9c8a3e4f83fbc4c046000",
+    "00320320789da3e4f81e3c4c046000",
+    "0032032078ffa3e6f81e3c4c046000",
+    "003fffe0787f23e6f07e3e4c046000",
+    "003203e0787f31e6f0fc3e6fffe000",
+    "00320320787f39eef1fc3e7c042000",
+    "00320320787379fee7fc3c4c042000",
+    "007fffe0782160e6cfec046c042000",
+    "00640320780160e6cfcc1c7ffff000",
+    "00640320780160e6cf8c1c4c023000",
+    "006403207c0161f6c0003e4c021000",
+    "006403207c0261f6e0007e4c021000",
     "00c003007e0263fef000fe0c001800",
     "00c003006f8243fef003f604001800",
     "0000000067c2c1f26007e600000000",
     "0000000000078003c0000000000000"] };
-  const NOTHING_ART_S = { w: 96, h: 49, red: [57, 18, 58, 22], rows: [
+  const NOTHING_ART_M = { w: 118, h: 60, red: [70, 13, 73, 26], rows: [
+    "0000f8000000001fc00000000c0000",
+    "0001fc000000003fa0000001fe0000",
+    "0003fe00000000ff90000003ff8000",
+    "0007cf00000000ff90000007ffc000",
+    "00078700000001fff0000007ffc000",
+    "00078700000001fff000000fcfe000",
+    "000703c0000003e0f800000f8fe000",
+    "0005fe80000003063000000f07c000",
+    "00047f2000000306600000063be000",
+    "000066d000000180e0000005b96000",
+    "00020548000007c040000007984000",
+    "00020d8800000461c000000381c000",
+    "0005104800001fd380000001210000",
+    "0004882e00001fd901800000030000",
+    "003a703600003ffe01800000058000",
+    "007f301700007ffe01800000418000",
+    "00ff9f1f8000ffff018000003a7800",
+    "01ffdf8f8000ffff83c00000e7ff00",
+    "07ffdfcf8001ffff83c00001cfff80",
+    "1fffe7f78001ffff83c00003dfff80",
+    "78fff7ffc003ffffc0c00007dffff0",
+    "ff8ff7ffc003ffffc0c0000fbffff0",
+    "ff87fbffc003fff7e0c0000fbffff8",
+    "ffc7fbffc003fff7f0c0007f3fc07c",
+    "ffe3fbbfc007fffff0c001ff7f8ffc",
+    "7c71fd878074fffcffc7ffff7f1ffc",
+    "0335fd800046fffcffe7fff97e37fc",
+    "012dfd81fc468004fff87ff9fe3678",
+    "013ffd83fc3e8004fff03f82fed400",
+    "01bffe8ffe427ffc78080002fe9400",
+    "019fff7ffe7f7ffcbff80005ffe400",
+    "019ffdffff1f7ffcffe0f80bffec00",
+    "00dff3ffcf034004e000ff9bffe800",
+    "00cfdfffbf834004f801ffe7ffe800",
+    "00cfbffffb817ffcfe01fff3ffc800",
+    "00c77ffffb813ffcfe01fffdffc800",
+    "00c7fffdfbc13ffcff03fffe7fd800",
+    "0067fffbfbc33ffcff07ffff9f9000",
+    "0060ffcffbe33ffcff0fe7ffe79000",
+    "007f0033fbe0bffcf71fdbfffb1000",
+    "007ffff1fbe0efef8e3fbcffff3000",
+    "007ffff0fbf0a004be7fbf00002000",
+    "00320320f9f0bffcfc7fbeffffe000",
+    "00320320f9f8bffcfc3fbcffffe000",
+    "00320320f9c8a3e4f83fbc4c046000",
+    "00320320789da3e4f81e3c4c046000",
+    "0032032078ffa3e6f81e3c4c046000",
+    "003fffe0787f23e6f07e3e4c046000",
+    "003203e0787f31e6f0fc3e6fffe000",
+    "00320320787f39eef1fc3e7c042000",
+    "00320320787379fee7fc3c4c042000",
+    "007fffe0782160e6cfec046c042000",
+    "00640320780160e6cfcc1c7ffff000",
+    "00640320780160e6cf8c1c4c023000",
+    "006403207c0161f6c0003e4c021000",
+    "006403207c0261f6e0007e4c021000",
+    "00c003007e0263fef000fe0c001800",
+    "00c003006f8243fef003f604001800",
+    "0000000067c2c1f26007e600000000",
+    "0000000000078003c0000000000000"] };
+  const NOTHING_ART_S = { w: 96, h: 49, red: [57, 12, 59, 22], rows: [
     "000780000000fc0000006000",
     "000fc0000001f8000007f000",
     "001fe0000007fa00000ff800",
@@ -685,17 +747,17 @@
     "0010510000312800000e0c00",
     "002c8900007e900000059000",
     "00d7868000ffe00000003800",
-    "01f902c001ffe00000000800",
-    "03fde3c001fff00000009fc0",
-    "0ffef9c003fff80000073fe0",
-    "1fff7de003fff82000067ff0",
-    "71ff7fe003fffc20000efffc",
-    "fe7f7ff007ff7c20001ffffe",
-    "fe3ffff007ffbc60007ffffe",
-    "ff9ff7f007ffbe7001fdf8ff",
+    "01f902c001ffe03000000800",
+    "03fde3c001fff03000009fc0",
+    "0ffef9c003fff87000073fe0",
+    "1fff7de003fff87000067ff0",
+    "71ff7fe003fffc30000efffc",
+    "fe7f7ff007ff7c30001ffffe",
+    "fe3ffff007ffbc30007ffffe",
+    "ff9ff7f007ffbe3001fdf8ff",
     "798ff1e071ffdfb1fffdf1ff",
-    "04aff00055ffcfabfff5e37f",
-    "00eff07e55000fac7fe7e35e",
+    "04aff00055ffcffbfff5e37f",
+    "00eff07e55000ffc7fe7e35e",
     "00ffd1ff44ffcf043f0be940",
     "02ffefff7cffc7fc000fea40",
     "02ffdfff3effcff8781ffec0",
@@ -707,22 +769,170 @@
     "0187f9ffe2ffdf47e7ff3900",
     "01fffe7de1fffccffffff300",
     "01fffe7df18033dfbe000200",
-    "00c0247df1ffef9fbefffe00",
-    "00c0247cf1ffef8fbcfffe00",
-    "0080243cca8f2f07bc100600",
-    "0080243c7e8f2f073c100600",
-    "00fffc3c7e8f2e1f3c100600",
-    "0080343c7eef2e1e3c5ffe00",
-    "0080243c7eefee7e3c700200",
-    "01fffc3c62876cfa18100200",
-    "0180241c028729f61c7fff00",
-    "0180241c028728e61c100300",
-    "0180243e0087ac003c100100",
-    "0100243f048fac007c100100",
-    "0300203f848fae01f4100180",
+    "00d0247df1ffef9fbefffe00",
+    "00d0247cf1ffef8fbcfffe00",
+    "0090243cca8f2f07bc901600",
+    "0090243c7e8f2f073c901600",
+    "00fffc3c7e8f2e1f3c901600",
+    "0090343c7eef2e1e3cdffe00",
+    "0090243c7eefee7e3cf01200",
+    "01fffc3c62876cfa18901200",
+    "0190241c028729f61cffff00",
+    "01a0241c028728e61c901300",
+    "01a0243e0087ac003c901100",
+    "0100243f048fac007c900900",
+    "0300203f848fae01f4100980",
     "00000033c50f2c03e4000000",
     "000000000700180000000000"] };
-  // draws picture a at x, y with every picture pixel s x s; third = colour of the bottle's content
+  // Pictures of the "Check connection" screen (NO DATA): the same table and chairs without the people
+  // and the bottle of the "Nothing to ink" picture (red = the bottle, third colour; user):
+  // 172 x 93 in the pixels of the 4.2" (drawn 1x), the same tables as in the firmware
+  const NODATA_ART = { w: 172, h: 93, red: [108, 5, 115, 32], rows: [
+    "fff00000000000000000000000000000000000000000",
+    "fff00000000000000000000000000000000000000000",
+    "fff00000000000000000000000000000000000000000",
+    "fff00000000000000000000000000000000000000000",
+    "f0c0000000000000000000000000000000000000fff0",
+    "f0c0000000000000000000000003c00000000000fff0",
+    "3cc0000000000000000000000003c00000000000fff0",
+    "3cc0000000000000000000000003c00000000000fff0",
+    "3cc0000000000000000000000003c0000000000030f0",
+    "3cc0000000000000000000000003c0000000000030f0",
+    "3c30000000000000000000000003c0000000000033c0",
+    "3c30000000000000000000000003c0000000000033c0",
+    "3c30000000000000000000000003c0000000000033c0",
+    "3c30000000000000000000000007e0000000000033c0",
+    "0f3000000000000000000000000ff00000000000c3c0",
+    "0f3000000000000000000000000ff00000000000c3c0",
+    "0f3000000000000000000000000ff00000000000c3c0",
+    "0f3000000000000000000000000ff00000000000c3c0",
+    "0f3000000000000000000000000ff00000000000cf00",
+    "0f30000000000000000000000000f00000000000cf00",
+    "0f0c000000000000000000000000f00000000000cf00",
+    "0f0c00000000000ff000000ff000f00000000000cf00",
+    "03fc000000000fcff000000ff000f00000000000cf00",
+    "03fc000000000fcc3000000c3000f00000000000cf00",
+    "03cc000000000c0c3000000c3000f7f0000000030f00",
+    "03cc000000000c0f3ffffffc3000f7f0000000030f00",
+    "03cc000000000c0f3ffffffc3000f63000000003fc00",
+    "03cc000000000c0f3000000c3000f63000000003fc00",
+    "03c30000000003ff3000000c3000f1c0000000033c00",
+    "03c30000000003ff3000000c3c0ff1c0000000033c00",
+    "00f3000000000c033000000c3c0ff7f0000000033c00",
+    "00f3000000000c030ffffffc0c0ff7f0000000033c00",
+    "00f3000000000fff0ffffffc0c0ff7f00000000c3c00",
+    "00f3000000000fffcc00000c3ffffff00000000c3c00",
+    "00f3000000000fffcffffffc3ffffff00000000cf000",
+    "00f3000000000fffcffffffc3ffffff00000000cf000",
+    "00f30000000000ffcffffffc3fffff000000000cf000",
+    "00f30000000000ffcc00000c3fffff000000000cf000",
+    "003cc00000000000cc00000c300000000000000cf000",
+    "003cc00000000000cc00000c300000000000000cf000",
+    "003cc00000000000cc00000c300000000000000cf000",
+    "003cc00000000000cffffffc300000000000000cf000",
+    "003cc00000000000cffffffc3000000000000033c000",
+    "003cc00000000000c3000f0c3000000000000033c000",
+    "003fffffffffc000c3000f0c3000000000000033c000",
+    "003fffffffffc000c3000f0c3000000000000033c000",
+    "003fffffffffc000c3000f0c3000000000000033c000",
+    "003fffffffffc000c3000f0c3000000000000033c000",
+    "0003e00003c30000c3000f0c3000003fffffffffc000",
+    "0003e00003c30000c30ffffc3ff0003fffffffffc000",
+    "0003e00003c30000c30ffffc7ff0003fffffffffc000",
+    "0003e00003c30000f3fc000c6070003fffffffffc000",
+    "0003e00003c30000f3fc000c60f0000c3c00007c0000",
+    "0003e00003c300003380000c61f0000c3c00007c0000",
+    "0003e00003c300003380000c67b0000c3c00007c0000",
+    "0003e00003c300003f00000fef30000c3c00007c0000",
+    "0003e00003c300003f00000fff30000c3c00007c0000",
+    "0003e00003c3000033fffffc7330000c3c00007c0000",
+    "0003ffffffff000033fffffc7330000c3c00007c0000",
+    "0003ffffffff0000330fcf0c7330000c3c00007c0000",
+    "0003e00003c30000330ccf0c7330000ffffffffc0000",
+    "0003e00003c30000330ccf0c7330000ffffffffc0000",
+    "0003e00003c30000330ccf0c7330000c3c00007c0000",
+    "0003e00003c30000330ccf0c3330000c3c00007c0000",
+    "0003e00003c30000330ccf0c3330000c3c00007c0000",
+    "0003e00003c30000f30ccf0f3330000c3c00007c0000",
+    "000fffffffff0000f30ccf0f3330000c3c00006f0000",
+    "000fffffffff0000c30ccf033330000c3c00006f0000",
+    "000f600003c30000c30ccf033330000fffffffff0000",
+    "000f600003c30000c30ccf033330000fffffffff0000",
+    "000f600003c30000c30cfff33330000c3c00006f0000",
+    "000f600003c30000c30cfff33330000c3c00006f0000",
+    "000f600003c30000c30cffff3330000c3c00006f0000",
+    "000f600003c30000cf0cffff3330000c3c00006f0000",
+    "000f000003c30000cf0cc0033330000c3c00000f0000",
+    "000f000003c00000cc0cc003333000003c00000f0000",
+    "003c000003c00000cc0cc003333000003c000003c000",
+    "003c000003c00000cc0cc003333000003c000003c000",
+    "003c000003c00000cc0cc003333000003c000003c000",
+    "003c000003c00000cc0cc003333000003c000003c000",
+    "0000000000000000cc0cc00333300000000000000000",
+    "0000000000000001cc0cc00333300000000000000000",
+    "0000000000000001cc0cc00333300000000000000000",
+    "00000000000000018c0cc00333300000000000000000",
+    "00000000000000018c0cc00333300000000000000000",
+    "00000000000000018c0fc00333f00000000000000000",
+    "00000000000000018c0fc00333f00000000000000000",
+    "00000000000000018c00000338000000000000000000",
+    "00000000000000030c00000338000000000000000000",
+    "00000000000000033c00000318000000000000000000",
+    "00000000000000033c00000318000000000000000000",
+    "0000000000000003f000000318000000000000000000",
+    "0000000000000003f0000003f8000000000000000000"] };
+  // the same at half size for the 2.13" (landscape and upright)
+  const NODATA_ART_M = { w: 86, h: 47, red: [54, 2, 57, 15], rows: [
+    "fc00000000000000000000",
+    "fc00000000000000000000",
+    "c8000000000001800000fc",
+    "68000000000001800000fc",
+    "680000000000018000004c",
+    "6400000000000180000058",
+    "64000000000003c0000058",
+    "34000000000003c0000098",
+    "34000000000003c0000098",
+    "34000000000000c00000b0",
+    "32000003c00000c00000b0",
+    "1e00003a4003c0c00000b0",
+    "1a0000237ffe40dc000130",
+    "1a000023400240d40001e0",
+    "1900001f7ffe43c8000160",
+    "0d000021600223dc000160",
+    "0d00003fbffe7ffc000260",
+    "0d00003fa0027ffc0002c0",
+    "0d00000fa0027ff00002c0",
+    "06800000bffe40000002c0",
+    "06800000903240000002c0",
+    "0680000090324000000580",
+    "07ffff8090324000000580",
+    "07ffff8090324000000580",
+    "01c0190093fe7c07ffff80",
+    "01c01900dffefc07ffff80",
+    "01c01900de02dc02600e00",
+    "01c019007803fc02600e00",
+    "01c019007ffff402600e00",
+    "01ffff005ffed402600e00",
+    "01c0190052b2d403fffe00",
+    "01c0190052b2d402600e00",
+    "01c01900d2b35402600e00",
+    "03ffff00d2b35402600f00",
+    "03c0190092b15403ffff00",
+    "03c0190092fd5402600f00",
+    "03c01900b2ff5402600f00",
+    "03001900b2815402600300",
+    "06001800a2815400600180",
+    "06001800a2815400600180",
+    "00000001a2815400000000",
+    "00000001a2815400000000",
+    "00000001a3815c00000000",
+    "00000001a3817c00000000",
+    "0000000160016000000000",
+    "00000001e0016000000000",
+    "00000001c001e000000000"] };
+  // draws picture a at x, y with every picture pixel s x s; third = colour of the bottle's content.
+  // cut: [x, y, side] pixels that lose their upper outer quarter when drawn 2x or bigger (side -1 left,
+  // 1 right): the bottle's step from the neck to the shoulder, half a picture pixel high (user)
   function drawArt(fb, a, x, y, s, third) {
     const [rx0, ry0, rx1, ry1] = a.red;
     a.rows.forEach((hex, r) => {
@@ -730,6 +940,23 @@
         if ((parseInt(hex.substr((c >> 3) * 2, 2), 16) >> (7 - (c & 7))) & 1)
           fb.fillRect(x + c * s, y + r * s, s, s, c >= rx0 && c <= rx1 && r >= ry0 && r <= ry1 ? third : BK);
     });
+    const q = s >> 1;
+    if (q) for (const [c, r, side] of a.cut || []) fb.fillRect(x + c * s + (side > 0 ? s - q : 0), y + r * s, q, q, WH);
+  }
+
+  // message, text size, picture and its scale of the "Check connection" (noData) or "Nothing to ink"
+  // screen: triple size on the 4.2", double on the 2.13", smaller while wider than W - 8; "Nothing to
+  // ink": the people (4.2" its own bottle), the narrow one where 1x does not fit (2.13" upright), as big
+  // as fits (whole multiples, at most as wide as the text unless 1x); "Check connection": the empty
+  // table (4.2" its own picture, 2.13" the half-size one), only 1x
+  function msgArt(noData, W, H, HH, wide) {
+    const msg = noData ? "Check connection" : "Nothing to ink";
+    let ms = wide ? 3 : 2;
+    while (ms > 1 && textW(msg) * ms > W - 8) ms--;
+    const A = noData ? (wide ? NODATA_ART : NODATA_ART_M) : wide ? NOTHING_ART : NOTHING_ART_M.w <= W - 4 ? NOTHING_ART_M : NOTHING_ART_S;
+    let as = 0;
+    for (let s = 1; A.w * s <= W - 4 && A.h * s + 10 * ms <= H - HH - 8 && (s === 1 || (!noData && A.w * s <= textW(msg) * ms)); s++) as = s;
+    return { msg, ms, A, as, gh: as ? A.h * as + 3 * ms : 0 };
   }
 
   function drawScreen(fb, m) {
@@ -741,22 +968,16 @@
     const pages = pageCount(m.disks.length, fb.h, wanted, W, !!m.sys, !!m.wifiPage, head, nets.length);
     drawHeader(fb, m, pages, wide);
     // "Check connection" (the time stays: when the last data came), or "Nothing to ink" when every
-    // page is switched off (no system page, no network or WiFi page, disk pages off), in the middle of the rest;
-    // triple size on the 4.2", double on the 2.13", smaller while wider than W - 8. "Nothing to ink" gets
-    // its picture above it (user), as big as fits (whole multiples, at most as wide as the text unless 1x),
-    // the narrow picture where 1x does not fit (2.13" upright); picture and text centred together
+    // page is switched off (no system page, no network or WiFi page, disk pages off), with its picture
+    // above it (user); both screens share one block as high as the taller of the two, centred in the
+    // rest: the text at its bottom and the picture standing on the text, so text and picture bottom
+    // are at the same height on both screens (user)
     const nothing = !m.sys && !m.wifiPage && !nets.length && m.disks.length === 0 && m.diskPages === 0;
     if (m.noData || nothing) {
-      const msg = m.noData ? "Check connection" : "Nothing to ink";
-      let ms = wide ? 3 : 2;
-      while (ms > 1 && textW(msg) * ms > W - 8) ms--;
-      const A = NOTHING_ART.w <= W - 4 ? NOTHING_ART : NOTHING_ART_S;   // the narrow one where 1x does not fit
-      let as = 0;
-      if (!m.noData)
-        for (let s = 1; A.w * s <= W - 4 && A.h * s + 10 * ms <= fb.h - HH - 8 && (s === 1 || A.w * s <= textW(msg) * ms); s++) as = s;
-      const gh = as ? A.h * as + 3 * ms : 0, top = HH + Math.trunc((fb.h - HH - gh - 7 * ms) / 2);
-      if (as) drawArt(fb, A, Math.trunc((W - A.w * as) / 2), top, as, m.mono ? BK : RD);
-      fb.text(Math.trunc((W - textW(msg) * ms) / 2), top + gh, msg, BK, ms);
+      const L = msgArt(m.noData, W, fb.h, HH, wide), O = msgArt(!m.noData, W, fb.h, HH, wide);
+      const bh = Math.max(L.gh + 7 * L.ms, O.gh + 7 * O.ms), ty = HH + Math.trunc((fb.h - HH - bh) / 2) + bh - 7 * L.ms;
+      if (L.as) drawArt(fb, L.A, Math.trunc((W - L.A.w * L.as) / 2), ty - L.gh, L.as, m.mono ? BK : RD);
+      fb.text(Math.trunc((W - textW(L.msg) * L.ms) / 2), ty, L.msg, BK, L.ms);
       return;
     }
     if (m.sys && m.page === 0) { m.sys.stby = m.stby === 1; drawSystem(fb, m.sys, HH, wide, stacked); return; }
