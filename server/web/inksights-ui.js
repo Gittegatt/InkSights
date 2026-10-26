@@ -79,7 +79,12 @@
   const DEFAULT_AP_SSID = "InkSights";
   const DEFAULT_AP_PASS = "ink!1234";
   const DEFAULT_AP_DELAY = 30, MAX_AP_DELAY = 3600;   // seconds without WiFi before the access point opens
-  const FAST = [[0, "Off"], [2, "2 s"], [5, "5 s"], [10, "10 s"], [30, "30 s"]];   // fast refresh (black/white panels)
+  // Refresh per display in seconds: under a minute only on panels that redraw fast without flashing
+  // (black/white), as fast refresh; from a minute on a full update of this display that often
+  const REFRESH = [[2, "2 s"], [5, "5 s"], [10, "10 s"], [30, "30 s"], [60, "1 min"], [180, "3 min"], [300, "5 min"], [600, "10 min"],
+    [900, "15 min"], [1800, "30 min"], [3600, "1 h"], [5400, "1.5 h"], [7200, "2 h"], [10800, "3 h"], [14400, "4 h"]];
+  const DEFAULT_REFRESH = 600;
+  const refreshMins = s => Math.max(1, Math.floor(s.refresh / 60));   // a refresh under a minute counts as 1 minute
   const IFACE_RE = /^(?!-$)[A-Za-z0-9._-]{1,15}$/;
   const PREFS = "inksights-ui";   // folded sections; per browser only
 
@@ -149,10 +154,6 @@
           el("h1", { id: "pagetitle" }, "InkSights"),
           el("p", { class: "status", id: "status" }, "Loading …")),
         el("div", { class: "actions" },
-          el("label", { class: "interval", for: "interval" }, "Update every ",
-            el("select", { id: "interval", onchange: e => { interval = Number(e.target.value); changed(); } },
-              ...[[1, "1 min (redraw on change)"], [3, "3 min"], [5, "5 min"], [10, "10 min"], [15, "15 min"], [30, "30 min"], [60, "60 min"]]
-                .map(([v, l]) => el("option", { value: String(v) }, l)))),
           el("button", { class: "btn", id: "refresh", type: "button", onclick: doRefresh }, "Update now"),
           el("button", { class: "btn primary", id: "save", type: "button", disabled: true, onclick: doSave }, "Save"))),
       el("p", { class: "msg", id: "msg", role: "status", "aria-live": "polite" }),
@@ -204,7 +205,9 @@
       if (s.sys === 1 || s.sys === undefined) s.sys = SYS_PARTS.map(([p]) => p);
       if (!Array.isArray(s.sys)) s.sys = [];
       s.sys = SYS_PARTS.map(([p]) => p).filter(p => s.sys.includes(p));
-      if (!FAST.some(([v]) => v === s.fast)) s.fast = 0;
+      // refresh in seconds; missing (earlier version): the fast refresh, else the update interval of all displays
+      if (!REFRESH.some(([v]) => v === s.refresh)) s.refresh = [2, 5, 10, 30].includes(s.fast) ? s.fast : REFRESH.some(([v]) => v === interval * 60) ? interval * 60 : DEFAULT_REFRESH;
+      s.fast = s.refresh < 60 ? s.refresh : 0;   // under a minute: fast refresh
       if (typeof s.net !== "string") s.net = "";
       if (!s.wifi || typeof s.wifi !== "object") s.wifi = {};
       const w = s.wifi;
@@ -222,6 +225,8 @@
       return ids.map(id => ({ id, live: live.get(id) || null }));
     }
     const boardOf = live => BOARDS[live && live.board] || BOARDS[DEFAULT_BOARD];
+    // minutes between full updates: the shortest refresh of the displays (as the app writes it)
+    const fullMins = () => { const l = displayList(); return l.length ? Math.min(...l.map(e => refreshMins(settingsFor(e.id)))) : interval; };
     const nameOf = (id, s) => s.dname.trim() || s.name || `Display ${id}`;
 
     function typeCounts() {
@@ -275,7 +280,10 @@
         liveAsked[id] = Date.now();
         liveBusy[id] = true;
         backend.live(id).then(r => {
-          if (!r || typeof r.frame !== "string") return;
+          if (!r || typeof r.frame !== "string") {   // none (any more): the preview from the settings again
+            if (liveFrames[id]) { delete liveFrames[id]; if (!dirty) drawPreview(entry); }
+            return;
+          }
           const old = liveFrames[id];
           liveFrames[id] = { text: r.frame, at: Date.now() - Math.max(0, r.age || 0) * 1000 };
           if (!dirty && (!old || old.text !== r.frame)) drawPreview(entry);
@@ -289,9 +297,12 @@
       if (override != null) return { text: override, override: true };
       const lt = liveText(entry);
       if (lt != null) return { text: lt, override: false };
-      const title = (s.name || state.host || "SYSTEM").slice(0, 12);
-      const fast = panelOf(entry.live, s).fast;
-      return { text: EPD.buildFrame(state.disks || [], s, title, state.timeText || hhmm(state.updated), state.system || null, fast, interval), override: false };
+      return { text: buildFor(entry, state), override: false };
+    }
+    // the frame of a display from its settings and state st (state.json, or simulated live values)
+    function buildFor(entry, st) {
+      const s = settingsFor(entry.id), title = (s.name || st.host || "SYSTEM").slice(0, 12);
+      return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s));
     }
 
     function drawPreview(entry) {
@@ -481,10 +492,12 @@
       // Size, rows, preview and fast refresh follow it, so the card is built again.
       const panelSel = el("select", { "aria-label": "Panel type", onchange: e => { s.panel = Number(e.target.value); pages[id] = 0; changed(); render(true); } },
         ...panels.map(p => el("option", { value: String(p.id), selected: p.id === panel.id }, panelLabel(p))));
-      // Fast refresh: only panels that can redraw fast without flashing (black/white)
-      const fastCap = panel.fast;
-      const fastSel = el("select", { "aria-label": "Fast refresh", onchange: e => { s.fast = Number(e.target.value); redraw(); } },
-        ...FAST.map(([v, l]) => el("option", { value: String(v), selected: v === s.fast }, l)));
+      // Refresh: the seconds (fast refresh) only on panels that can redraw fast without flashing
+      // (black/white); a panel that cannot gets 1 minute instead
+      if (!panel.fast && s.refresh < 60) { s.refresh = 60; s.fast = 0; }
+      const refreshSel = el("select", { "aria-label": "Refresh", onchange: e => {
+        s.refresh = Number(e.target.value); s.fast = s.refresh < 60 ? s.refresh : 0; redraw(); } },
+        ...REFRESH.filter(([v]) => panel.fast || v >= 60).map(([v, l]) => el("option", { value: String(v), selected: v === s.refresh }, l)));
       // System page: network interface, "" = the one with the default route
       const sysInfo = state.system || {};
       const ifNames = (Array.isArray(sysInfo.ifaces) ? sysInfo.ifaces : []).map(i => i.name).filter(n => IFACE_RE.test(n || ""));
@@ -738,7 +751,7 @@
               // the only hint text on the page
               field("Auto page turn (HH:MM:SS)", el("div", { class: "choices", style: "flex-wrap: nowrap; gap: 8px" }, pageTurn,
                 el("span", { class: "count", style: "white-space: nowrap" }, "00:00:00 = off"))),
-              ...(fastCap ? [field("Fast refresh", fastSel)] : []))),
+              field("Refresh", refreshSel))),
           el("div", { class: "field wide boxed" },
             el("span", { class: "label" }, "Display pins"),
             el("div", { class: "choices pins" }, ...pinSelects)),
@@ -759,7 +772,6 @@
       const typing = box.contains(document.activeElement) && document.activeElement.matches("input[type=text], input[type=number], input[type=password]");
       if (!force && key === lastKey && (typing || dirty)) { drawAll(); return; }
       lastKey = key;
-      $("interval").value = String(interval);
       // Each display: its card, then its own cards (System page, Disks, WiFi) right below it, as one
       // stack; two stacks side by side per row (one column on narrow screens), so a folded card
       // lets the cards below it move up
@@ -814,7 +826,7 @@
       const mins = Math.max(0, Math.round((Date.now() / 1000 - state.updated) / 60));
       const c = typeCounts();
       st.textContent = `${state.host} · data from ${state.timeText || hhmm(state.updated)} (${mins} min ago) · ${c.hdd} HDD, ${c.ssd} SSD, ${c.nvme} NVMe`;
-      const stale = mins > interval * 2 + 5;
+      const stale = mins > fullMins() * 2 + 5;
       st.className = stale ? "status warn" : "status";
       if (stale) st.textContent += " · nothing new for a while";
     }
@@ -851,7 +863,7 @@
       }
       $("save").disabled = true;
       try {
-        await backend.save({ displays, interval, pagename: pageName.trim() });
+        await backend.save({ displays, interval: fullMins(), pagename: pageName.trim() });
         dirty = false;
         setMsg("Saved. The displays pick it up within a minute.", "ok");
         await load(true);   // fresh settings (WiFi passwords now only as "set")
@@ -874,9 +886,11 @@
     if (backend.pollMs) setInterval(() => load(false), backend.pollMs);
     if (backend.live) setInterval(pollLive, 500);
 
-    // frames: what every display would get right now (simulator: "Send to display" over USB)
+    // frames: what every display would get right now (simulator: "Send to display" over USB);
+    // frameFor: the frame of one display from another state (simulator: live values)
     return { reload: force => load(force), redrawPreviews: drawAll,
-      frames: () => displayList().map(e => ({ id: e.id, label: nameOf(e.id, settingsFor(e.id)), text: frameText(e).text || "" })) };
+      frames: () => displayList().map(e => ({ id: e.id, label: nameOf(e.id, settingsFor(e.id)), text: frameText(e).text || "" })),
+      frameFor: (id, st) => { const e = displayList().find(x => x.id === id); return e ? buildFor(e, st) : null; } };
   }
 
   window.InkSightsUI = { start, BOARDS, DEFAULT_BOARD, PANELS, YELLOW_PANELS, panelLabel, pinLabel, PIN_NONE, PIN_NAMES, HOST_RE, SERVER_RE,

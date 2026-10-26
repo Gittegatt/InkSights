@@ -364,11 +364,13 @@ Other systems: the same line with `* * * * *` in root's crontab (`sudo crontab -
 **The data folder after `-d` must be the one from b).** Otherwise the log says
 `Data folder … not found`: the displays still get data, but without your settings, and the settings page stays empty.
 
-**What the script does.** It almost always does nothing and exits right away. A full update only happens at the set
-interval, after saving on the settings page, when a display is plugged in or out, or on "Update now" / "Redraw now".
-In between, displays with fast refresh get a new frame with fresh system values and spindown timers (the time left
-counts down between the polls of the spindown timer, its next poll corrects it); disk and pool
-data then come from the last full update.
+**What the script does.** It almost always does nothing and exits right away. A full update (drives, pools, system
+values, the settings page) happens as often as the shortest **Refresh** of your displays (one under a minute counts
+as 1 minute), after saving on the settings page, when a display is plugged in or out, or on "Update now" /
+"Redraw now". In a full update every display whose own **Refresh** has passed gets a frame, after a change all of
+them. In between, displays with a refresh in seconds get a new frame with fresh system values and spindown timers
+(the time left counts down between the polls of the spindown timer, its next poll corrects it); disk and pool data
+then come from the last full update.
 
 **Log:** the script keeps its log in memory at `/var/run/inksights/inksights.log` (the last 2000 lines, gone after
 a reboot): `sudo tail -f /var/run/inksights/inksights.log`. With the loop it also shows in the tmux session
@@ -440,8 +442,8 @@ Which cards are folded is remembered per browser.
 
 **At the top of the page** (for all displays):
 
-- **Update every** (1–60 minutes): how often the NAS server sends fresh values.
-- **Update now**: sends fresh values right away.
+- **Update now**: sends fresh values to all displays right away. How often each display gets fresh values is set in
+  its card (**Refresh**).
 
 **In each display card:** the preview (‹ › turns its pages), **Redraw now** (redraws this display within a minute,
 even if nothing changed and without waiting for the 3 minutes) and a line with ID, port, board, firmware and the
@@ -457,7 +459,7 @@ display's last answer.
 | **Rotation** | 0°, 90°, 180°, 270° | Clockwise. 90° and 270° stand the display upright: device and used/total in the first line, the pool in its own line. |
 | **Rows per page** | Auto, 2–5 (6 on the 4.2″) | More rows fit more disks per page. Fewer rows: bigger bar, symbols and timer (readable from further away). |
 | **Auto page turn** | HH:MM:SS | 00:00:00 = always page 1. The display redraws at most every 3 minutes, so shorter times act like 00:03:00 (not with fast refresh). |
-| **Fast refresh** | Off, 2, 5, 10, 30 s | Only black/white panels. The display gets a new frame this often and redraws the changed parts; a full refresh on page turns and every 10 minutes against ghosting. Needs the loop (`-l`). The preview follows the display just as often (live, the frame it was sent), except while settings are changed and not saved. |
+| **Refresh** | 1, 3, 5, 10, 15, 30 min, 1, 1.5, 2, 3, 4 h; black/white panels also 2, 5, 10, 30 s | How often this display gets fresh values (default 10 min). Colour panels redraw at most every 3 minutes and only on changes, so 1 min gets changes there as fast as possible. **Seconds** (fast refresh, only black/white panels): the display gets a new frame this often and redraws the changed parts without flashing; a full refresh on page turns and every 10 minutes against ghosting. Needs the loop (`-l`). The preview then follows the display just as often (live, the frame it was sent), except while settings are changed and not saved. |
 | **Display pins** | CS, D/C, Reset, Busy | Only the pins the board allows; Reset and Busy can be None. The board stores new pins and restarts once. |
 | **Frame** | – | What the display receives (over USB or WiFi). |
 | **Remove settings** | – | Only for displays that are not connected: forget their settings. |
@@ -547,7 +549,7 @@ The WiFi page is shown in the preview so far; the firmware does not draw it yet.
 
 `simulator/simulator.html` opens in any browser straight from the folder. It is the same settings page with simulated
 data. Below the displays, the **Simulation** section sets the simulated boards, panels and connections, the system
-values (incl. when the server started), the drives (with or without ZFS, each with a temperature, column **Temp °C**), or a frame pasted from a dry run.
+values (incl. when the server started; **Live values** = a running system: displays with a refresh in seconds show changing system values, drive temperatures and counting-down spindown timers, as often as they refresh), the drives (with or without ZFS, each with a temperature, column **Temp °C**), or a frame pasted from a dry run.
 A display with **Connected** off shows what it draws when it gets no fresh data any more (NO DATA, Check connection), **No data** at a connected one the "Nothing to ink" screen (nothing to show), **Start screen** what it shows
 after power-up until the first data arrive. The simulated interfaces cover every case: wired, no cable, switched
 off, a bridge and WiFi. The Simulation card folds (the triangle next to its heading). The panel choices of the simulator also hold the
@@ -632,16 +634,16 @@ SSD and NVMe temperatures do not need it.
 - **Disks outside ZFS** show the biggest filesystem mounted on them (or on their partitions, RAID or LVM), named after
   its mount point (`/` = `root`). A disk with nothing mounted shows its size and "not mounted" instead of a bar.
 - **Spares the panel.** A display does not redraw when nothing changed, and never more often than every 3 minutes;
-  with several pages it turns one page per redraw. Only "Redraw now" skips both. "1 min (redraw on change)" gets
-  changes there as fast as possible. With fast refresh (black/white panels) it redraws as often as set.
+  with several pages it turns one page per redraw. Only "Redraw now" skips both. A **Refresh** of 1 min gets
+  changes there as fast as possible. With a refresh in seconds (black/white panels) it redraws as often as set.
 - **NO DATA.** E-paper keeps its picture even without power, so a display that gets nothing any more would look
-  the same as one that works. Without fresh data for twice the **Update every** time plus 2 minutes (at least
-  10 minutes; e.g. 22 minutes at 10 minutes), the display shows **NO DATA** in the top line, where the page number
+  the same as one that works. Without fresh data for twice its **Refresh** plus 2 minutes (at least 10 minutes;
+  e.g. 22 minutes at 10 minutes, 8 hours 2 minutes at 4 hours), the display shows **NO DATA** in the top line, where the page number
   or the uptime stands, and **Check connection** in the middle below a picture of the empty table, and stops turning pages. The time at the top right
   stays: that is when the last data came. With the next fresh data the pages come back. Reasons: the board is
   unplugged or the NAS server is off, the script or the settings page does not run, or a WiFi board lost its WiFi.
-- **"Update every" and fast refresh:** "Update every" stays the interval of the full updates (disks, pools, the
-  settings page); fast refresh comes on top.
+- **Refresh in seconds and minutes:** a display on seconds gets fresh system values and timers that often; its
+  drives and pools come from the full updates, at least once a minute while such a display is there.
 - **The app is isolated.** It has no USB access and no rights on the NAS server; it only shares the data folder with
   the script. The script checks its settings strictly and never executes any of it.
 - **Anyone who can open the page on your network can change the display settings.** Nothing more. The same goes for

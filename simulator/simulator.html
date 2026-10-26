@@ -213,8 +213,36 @@ function toState(d) {
   };
 }
 
+// "Live values": a running system for the displays with fast refresh. The system values wander a
+// little around the ones set below, the drive temperatures by a degree now and then, and the
+// spindown timers of the spinning hard disks count down from the moment it was ticked
+let liveStart = Date.now(), wander = {};
+function wobble(key, base, spread, lo, hi) {
+  const v = (wander[key] ?? base) + (Math.random() - 0.5) * spread;   // a random step ...
+  return (wander[key] = Math.min(hi, Math.max(lo, v + (base - v) * 0.2)));   // ... pulled back to the set value
+}
+function liveSys() {
+  const y = { ...sim.sys }, set = k => typeof y[k] === "number" && y[k] >= 0;
+  if (set("cpu")) y.cpu = Math.round(wobble("cpu", y.cpu, 20, 0, 100));
+  if (set("temp")) y.temp = Math.round(wobble("temp", y.temp, 3, 0, 199));
+  if (set("power")) y.power = Math.round(wobble("power", y.power, 6, 0, 9999));
+  if (set("ramUsed")) y.ramUsed = wobble("ram", y.ramUsed, 0.4, 0, set("ramTotal") ? y.ramTotal : 9999);
+  if (set("rx")) y.rx = wobble("rx", y.rx, y.rx + 0.1, 0, 99999);
+  if (set("tx")) y.tx = wobble("tx", y.tx, y.tx + 0.1, 0, 99999);
+  return y;
+}
+function liveDisk(d, i) {
+  const out = { ...d };
+  if (Number.isInteger(d.temp)) {
+    if (Math.random() < 0.15) wobble(`t${i}`, d.temp, 2, 0, 99);
+    out.temp = Math.round(wander[`t${i}`] ?? d.temp);
+  }
+  if (d.type === "hdd" && d.spin === "A") out.idle = Math.min(100, d.idle + (Date.now() - liveStart) / 600 / Math.max(1, d.timeout));
+  return out;
+}
+
 // ------------------------------------------------------------ simulated NAS server
-function stateNow() {
+function stateNow(live = false) {
   const timeOk = /^\d\d:\d\d$/.test(sim.time);
   const displays = [];
   sim.hw.forEach((h, i) => {
@@ -233,9 +261,9 @@ function stateNow() {
       splash: !!h.splash, apKey: (sim.config[IDS[i]] && sim.config[IDS[i]].wifi && sim.config[IDS[i]].wifi.apPass) || "ink!1234" });
   });
   if (sim.oldFw) displays.push({ port: "/dev/ttyACM2", id: "", error: "No answer with chip ID (old firmware?)" });
-  const disks = sim.disks.map(toState);
+  const disks = sim.disks.map((d, i) => toState(live ? liveDisk(d, i) : d));
   return { host: sim.host || "SYSTEM", updated: timeOk ? Math.floor(Date.now() / 1000) : 0, timeText: timeOk ? sim.time : "--:--",
-    disks, displays, system: systemNow(disks) };
+    disks, displays, system: systemNow(disks, live ? liveSys() : sim.sys) };
 }
 
 // Seconds since the WiFi connected ("Connected since"); empty or in the future = unknown
@@ -245,8 +273,8 @@ function onlineSecs(since) {
 }
 
 // state.system like inksights.sh writes it: RAM in MiB, network in KiB/s, -1 = unknown
-function systemNow(disks) {
-  const y = sim.sys, num = (k, f = 1) => (typeof y[k] === "number" && y[k] >= 0 ? Math.round(y[k] * f) : -1);
+function systemNow(disks, y) {
+  const num = (k, f = 1) => (typeof y[k] === "number" && y[k] >= 0 ? Math.round(y[k] * f) : -1);
   // interfaces like inksights.sh reports them; state U up / L no link / D down, wireless for WiFi
   const eno1 = { name: "eno1", rx: num("rx", 1024), tx: num("tx", 1024), speed: num("link"), wireless: 0, state: "U" };
   // uptime from the start of the server ("Booted") to the time of the data (today), in full calendar
@@ -276,7 +304,11 @@ function buildSys() {
       style: "width: 5.5em", oninput: e => { const v = e.target.value.trim(); sim.sys[k] = v === "" ? -1 : Number(v); update(); } }))),
     el("label", { class: "check" }, "Booted ",
       el("input", { type: "datetime-local", value: typeof sim.sys.boot === "string" ? sim.sys.boot : "",
-        oninput: e => { sim.sys.boot = e.target.value; update(); } })));
+        oninput: e => { sim.sys.boot = e.target.value; update(); } })),
+    // a running system: changing values on the displays with fast refresh, as often as they refresh
+    el("label", { class: "check" },
+      el("input", { type: "checkbox", checked: !!sim.liveOn, onchange: e => { sim.liveOn = e.target.checked; liveStart = Date.now(); wander = {}; save(); } }),
+      "Live values"));
 }
 
 // The browser gets WiFi passwords only as "set", like from the real app
@@ -314,6 +346,8 @@ const ui = InkSightsUI.start({
   redraw: async () => {},
   pollMs: 0,
   frameOverride: () => (sim.source === "paste" ? sim.paste : null),
+  // "Live values": the frame of a display with fast refresh from changing values (none when off)
+  live: async id => (sim.liveOn ? { frame: ui.frameFor(id, stateNow(true)), age: 0 } : { frame: null, age: -1 }),
   serverAddress: "http://hostname:8099",
   titleSuffix: " · Simulator",
 });

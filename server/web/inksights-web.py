@@ -44,8 +44,12 @@ SORTS = ("pool", "uid", "dev", "manual")
 MAX_ORDER = 32
 MAX_BOXES = 20                          # spindown boxes per disk; 0 = none
 ROWS = (0, 2, 3, 4, 5, 6)               # rows per page; 0 = automatic; 6 only fits the 4.2" panel
-INTERVALS = (1, 3, 5, 10, 15, 30, 60)   # minutes between regular display updates
-                                        # (1 = every minute; the display only redraws on change, max. every 3 min)
+# Refresh per display in seconds: below a minute only for panels that redraw fast without flashing
+# (black/white, fast=1), as fast refresh; from a minute on a full update that often (colour panels
+# redraw at most every 3 min, and only on change)
+REFRESH = (2, 5, 10, 30, 60, 180, 300, 600, 900, 1800, 3600, 5400, 7200, 10800, 14400)
+DEFAULT_REFRESH = 600
+MAX_INTERVAL = 240                      # minutes; the interval line = the shortest refresh of the displays
 DEFAULT_INTERVAL = 10
 DEFAULT_WARN = 85                     # bar is highlighted from this % used; 0 = never
 ROTATIONS = (0, 90, 180, 270)         # degrees clockwise
@@ -66,7 +70,7 @@ MAX_NETS = 32                          # interfaces in the order and hidden list
 NET_SORTS = ("name", "manual")
 NET_BARS = (0, 1, 2)                   # details in the bar of the network pages: none, percentage of the link, link speed
 SYS_PARTS = ("cpu", "ram", "net", "nvme", "ssd", "hdd")       # system page components (rows); none = no system page
-CONF_COLS = 42
+CONF_COLS = 43
 PANELS = (1, 2, 3, 4, 5)              # panel types (GDEW0213Z16, GDEH0213Z19, GDEY0213Z98, GDEY0213B74, GDEY042T81)
 # Header layout: what stands left, in the middle and right; T title, P page number, U uptime,
 # C time, - nothing; lower case = that place highlighted; each of T, P, U, C at most once
@@ -143,7 +147,7 @@ def read_conf(path):
                     continue
                 parts = line.rstrip("\r\n").split("\t")
                 if parts[0] == "interval" and len(parts) > 1 and parts[1].isdigit():
-                    interval = int(parts[1]) if int(parts[1]) in INTERVALS else DEFAULT_INTERVAL
+                    interval = int(parts[1]) if 1 <= int(parts[1]) <= MAX_INTERVAL else DEFAULT_INTERVAL
                     continue
                 if parts[0] == "pagename" and len(parts) > 1:
                     page_name = parts[1].strip() if PAGE_NAME_RE.match(parts[1]) else ""
@@ -194,6 +198,8 @@ def read_conf(path):
                     "dname": dname if DNAME_RE.match(dname) else "",
                     "wifi": wifi,
                     "fast": fast if fast in FAST else 0,
+                    # refresh in seconds; missing (earlier version): the fast refresh, else the interval line
+                    "refresh": int(parts[42]) if parts[42].isdigit() and int(parts[42]) in REFRESH else None,
                     "sys": sysp,
                     "net": parts[24] if parts[24] != "-" and IFACE_RE.match(parts[24]) else "",
                     "zfs": 0 if parts[25] == "0" else 1,
@@ -219,7 +225,17 @@ def read_conf(path):
                 }
     except FileNotFoundError:
         pass
+    for s in conf.values():
+        if s["refresh"] is None:
+            s["refresh"] = s["fast"] or (interval * 60 if interval * 60 in REFRESH else DEFAULT_REFRESH)
     return conf, interval, page_name
+
+
+def read_interval(conf, default=DEFAULT_INTERVAL):
+    """Minutes between full updates (drives, pools, the settings page): the shortest refresh of
+    the displays, one under a minute counts as 1 minute"""
+    mins = [max(1, s.get("refresh", DEFAULT_REFRESH) // 60) for s in conf.values()]
+    return min(min(mins), MAX_INTERVAL) if mins else default
 
 
 class SettingsError(ValueError):
@@ -285,9 +301,10 @@ def validate(displays, old_conf=None):
             if v not in (0, 1) or isinstance(v, bool):
                 raise SettingsError(f"Display {did}: invalid {key}.")
             show[key] = v
-        fast = s.get("fast", 0)
-        if not is_int(fast) or fast not in FAST:
-            raise SettingsError(f"Display {did}: fast refresh must be off, 2, 5, 10 or 30 seconds.")
+        refresh = s.get("refresh", DEFAULT_REFRESH)
+        if not is_int(refresh) or refresh not in REFRESH:
+            raise SettingsError(f"Display {did}: invalid refresh.")
+        fast = refresh if refresh < 60 else 0   # under a minute: fast refresh
         zfs = s.get("zfs", 1)
         if zfs not in (0, 1) or isinstance(zfs, bool):
             raise SettingsError(f"Display {did}: invalid ZFS cache setting.")
@@ -359,7 +376,7 @@ def validate(displays, old_conf=None):
                       "order": list(dict.fromkeys(order)), "warn": warn, "rot": rot, "page": page, "pins": pins, "name": name,
                       "timer": style[0], "ringDir": style[1], "icons": style[2], "pctBar": style[3], "barCap": style[4], "pctDec": style[5],
                       "hidden": list(dict.fromkeys(hidden)), "dname": dname, "wifi": wifi,
-                      "fast": fast, "sys": sysp, "net": net, "zfs": zfs, "panel": panel, **show}
+                      "fast": fast, "refresh": refresh, "sys": sysp, "net": net, "zfs": zfs, "panel": panel, **show}
     return clean
 
 
@@ -378,14 +395,14 @@ def public_conf(conf):
 def write_conf(path, conf, interval, page_name=""):
     lines = [
         "# InkSights - display settings (written by the web page)",
-        "# interval<TAB>minutes between regular display updates",
-        f"interval\t{interval}",
+        "# interval<TAB>minutes between full updates: the shortest refresh of the displays (written here)",
+        f"interval\t{read_interval(conf, interval)}",
         "# pagename<TAB>name in the header of the settings page (empty = InkSights)",
         f"pagename\t{page_name}",
         "# id<TAB>types<TAB>boxes<TAB>rows<TAB>sort<TAB>order<TAB>warn<TAB>rot<TAB>page<TAB>pins<TAB>title"
         "<TAB>style<TAB>hidden<TAB>name<TAB>ssid<TAB>password<TAB>host<TAB>server<TAB>ap<TAB>ap ssid<TAB>ap password<TAB>ap delay"
         "<TAB>fast<TAB>system<TAB>network<TAB>zfs<TAB>pages<TAB>system icons<TAB>header<TAB>panel<TAB>wifi icons<TAB>layout<TAB>header on"
-        "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted<TAB>header color",
+        "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted<TAB>header color<TAB>refresh",
         "#   '-' = empty. boxes 0 = timer off, rows 0 = auto, warn = highlight from % used (0 = never),",
         "#   rot = degrees clockwise (0, 90, 180, 270), page = seconds between page turns (0 = off),",
         "#   pins = cs,dc,rst,busy (rst/busy -1 = none, '-' = keep the pins of the display),",
@@ -393,7 +410,7 @@ def write_conf(path, conf, interval, page_name=""):
         "#   hidden = uids not shown, name = name on this page,",
         "#   ssid ... ap password = WiFi settings (hex encoded UTF-8), sent to the display over USB;",
         "#   ap delay = seconds without WiFi before the display opens its setup access point (0-3600),",
-        "#   fast = seconds between fast refreshes (0 = off), system = system page components cpu,ram,net,nvme,ssd,hdd",
+        "#   fast = seconds between fast refreshes (0 = off; from refresh), system = system page components cpu,ram,net,nvme,ssd,hdd",
         "#   ('-' = no system page; types '-' = only the system page),",
         "#   network = interface for the system page ('-' = the one with the default route),",
         "#   zfs = ZFS cache on the system page 1 = shown / 0 = hidden,",
@@ -407,7 +424,8 @@ def write_conf(path, conf, interval, page_name=""):
         "#   net icons = symbols 1 = on / 0 = off, net bar = details in the bar 0 none / 1 percentage / 2 link speed,",
         "#   drive temps = temperatures on the drive pages 1 = on / 0 = off, stby = asleep hard disks 1 = STBY / 0 = --,",
         "#   header inverted = 1 white header with black text / 0 black with white text",
-        "#   header color = inverted header: 1 highlighted places in the third colour / 0 black",
+        "#   header color = inverted header: 1 highlighted places in the third colour / 0 black,",
+        "#   refresh = seconds between updates of this display (under 60 = fast refresh, black/white panels only)",
     ]
     for did, s in sorted(conf.items()):
         order = ",".join(s["order"]) or "-"
@@ -430,7 +448,8 @@ def write_conf(path, conf, interval, page_name=""):
                                 s.get("layout") if layout_ok(s.get("layout")) else DEFAULT_LAYOUT,
                                 str(s.get("showHeader", 1)), s.get("netSort", "name"),
                                 ",".join(s.get("netOrder") or []) or "-", ",".join(s.get("netHidden") or []) or "-",
-                                str(s.get("netIcons", 1)), str(s.get("netBar", 0)), str(s.get("driveTemp", 0)), str(s.get("stby", 0)), str(s.get("headInv", 0)), str(s.get("headCol", 0))]))
+                                str(s.get("netIcons", 1)), str(s.get("netBar", 0)), str(s.get("driveTemp", 0)), str(s.get("stby", 0)), str(s.get("headInv", 0)), str(s.get("headCol", 0)),
+                                str(s.get("refresh", DEFAULT_REFRESH))]))
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".conf.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
@@ -675,9 +694,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise SettingsError("Invalid data.")
                     old_conf, _, _ = read_conf(os.path.join(data_dir, CONF_NAME))
                     conf = validate(data.get("displays"), old_conf)
-                    interval = data.get("interval", DEFAULT_INTERVAL)
-                    if not is_int(interval) or interval not in INTERVALS:
-                        raise SettingsError("Invalid update interval.")
+                    interval = read_interval(conf)   # the shortest refresh of the displays
                     page_name = data.get("pagename", "")
                     if not isinstance(page_name, str) or not PAGE_NAME_RE.match(page_name):
                         raise SettingsError("Name: max. 32 characters, no tabs or line breaks.")

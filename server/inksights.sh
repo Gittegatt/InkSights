@@ -16,16 +16,18 @@
 # (SSDs), never for hard disks.
 #
 # Runs once and exits; start it every minute (cron) or let it loop (-l, e.g. in tmux). A full
-# update only happens every INTERVAL minutes, when the settings changed, a display was plugged
-# in or the web page asked for it ("Update now", "Redraw now"). In between, displays with fast
-# refresh (4.2" black/white) get a new frame every 2 to 30 seconds (loop only).
+# update only happens every INTERVAL minutes (the shortest refresh of the displays), when the
+# settings changed, a display was plugged in or the web page asked for it ("Update now", "Redraw
+# now"). Every display gets a new frame as often as its own refresh is set (1 minute to 4 hours),
+# all of them after a change; a display with a refresh under a minute (black/white panels, fast
+# refresh) gets one every 2 to 30 seconds in between (loop only).
 #
 # Usage:
 #   ./inksights.sh [-h] [-l] [-n] [-f] [-d <dir>] [-I <min>] [-s <file>] [-p <port>]... [-x <disk>]...
 #
 # Options:
 #   -d DIR    : Data folder shared with the web page (default: script folder)
-#   -I MIN    : Minutes between regular updates (default: from the web page, else 10)
+#   -I MIN    : Minutes between full updates (default: from the web page = the shortest refresh of the displays, else 10)
 #   -l        : Loop: run again and again (every 10 s; every second while a display uses fast refresh)
 #   -f        : Force a full update now
 #   -s FILE   : Spindown status file (default: /var/run/sata-sas-spindown-status)
@@ -62,6 +64,7 @@
 #   temps        NVMe and SSD temperatures, read at most every 30 s
 #   disks.cache  disk data of the last full update (fast refreshes reuse it)
 #   fast         displays with fast refresh: <id> <seconds> <port or wifi> <last frame epoch>
+#   sent         per display the time of its last frame in a full update and its answer
 #   frames/      frames of the WiFi displays, read by the settings page (<id>.txt)
 #   live/        frames of the USB displays with fast refresh, only for the live preview of the
 #                settings page (<id>.txt, without WiFi settings)
@@ -84,6 +87,7 @@ LOOP=false
 STATUS_FILE="/var/run/sata-sas-spindown-status"
 RUN_DIR="/var/run/inksights"
 STAMP_FILE="$RUN_DIR/stamp"
+SENT_FILE="$RUN_DIR/sent"         # per display: when it got its last frame in a full update, its answer
 LOCK_FILE="$RUN_DIR/lock"
 FAST_FILE="$RUN_DIR/fast"
 CACHE_FILE="$RUN_DIR/disks.cache"
@@ -175,11 +179,12 @@ if [ "$INTERVAL_SET" = false ] && [[ -r "$CONF_FILE" ]]; then
     while IFS=$'\t' read -r k v _; do
         [[ "$k" == "interval" ]] && { conf_interval="${v%$'\r'}"; break; }
     done < "$CONF_FILE"
-    [[ "${conf_interval:-}" =~ ^[0-9]{1,3}$ ]] && (( 10#$conf_interval >= 1 && 10#$conf_interval <= 120 )) && INTERVAL=$((10#$conf_interval))
+    [[ "${conf_interval:-}" =~ ^[0-9]{1,3}$ ]] && (( 10#$conf_interval >= 1 && 10#$conf_interval <= 240 )) && INTERVAL=$((10#$conf_interval))
 fi
 [[ "$INTERVAL" =~ ^[1-9][0-9]*$ ]] || INTERVAL=10
-# A display that gets no fresh frame for this long shows "NO DATA": two full updates missed plus
-# 2 minutes, at least 10 minutes (same rule as noDataSecs() in inksights-render.js)
+# A display that gets no fresh frame for this long shows "NO DATA": two of its updates missed plus
+# 2 minutes, at least 10 minutes (same rule as noDataSecs() in inksights-render.js); per display
+# from its refresh (frame_for), this one for displays without settings
 NODATA_SECS=$(( INTERVAL * 120 + 120 ))
 (( NODATA_SECS < 600 )) && NODATA_SECS=600
 
@@ -296,15 +301,21 @@ read_fast_file() {
     done < "$FAST_FILE"
 }
 
-if [ "$FORCE" = false ] && [ "$DRY_RUN" = false ] && [[ ! -e "$REFRESH_FILE" && ! -e "$REDRAW_FILE" ]]; then
+# FORCE_ALL 1: every display gets a frame (settings saved, a display plugged in or out, "Update
+# now", -f, dry run); 0: a regular update, only the displays whose refresh has passed
+FORCE_ALL=1
+if [ "$FORCE" = false ] && [ "$DRY_RUN" = false ] && [[ ! -e "$REFRESH_FILE" ]]; then
     last_run=0; last_sig=""
     [[ -r "$STAMP_FILE" ]] && read -r last_run last_sig < "$STAMP_FILE"
     [[ "$last_run" =~ ^[0-9]+$ ]] || last_run=0
-    if [[ "$SIGNATURE" == "$last_sig" ]] && (( NOW - last_run < INTERVAL * 60 )); then
-        read_fast_file
-        (( ${#FAST_DUE[@]} )) || exit 0
-        [[ -O "$CACHE_FILE" ]] || exit 0
-        MODE=fast
+    if [[ "$SIGNATURE" == "$last_sig" ]]; then
+        if (( NOW - last_run < INTERVAL * 60 )) && [[ ! -e "$REDRAW_FILE" ]]; then
+            read_fast_file
+            (( ${#FAST_DUE[@]} )) || exit 0
+            [[ -O "$CACHE_FILE" ]] || exit 0
+            MODE=fast
+        fi
+        FORCE_ALL=0
     fi
 fi
 if [ "$MODE" = full ]; then
@@ -329,7 +340,7 @@ fi
 #   <id> <types> <boxes> <rows> <sort> <order> <warn> <rot> <page> <pins> <title>
 #   <style> <hidden> <name> <ssid> <password> <host> <server> <ap> <ap ssid> <ap password> <ap delay>
 #   <fast> <system> <network> <zfs> <pages> <system icons> <header> <panel> <wifi icons> <layout> <header on>
-#   <net sort> <net order> <net hidden> <net icons> <net bar> <drive temps> <stby> <header inverted> <header color>
+#   <net sort> <net order> <net hidden> <net icons> <net bar> <drive temps> <stby> <header inverted> <header color> <refresh>
 #   types : hdd,ssd,nvme; - = none
 #   boxes : 0 = timer off, else on | rows : 0 = auto, 2 to 6 | sort : pool, uid, dev or manual
 #   order : uid,uid,... | warn : highlight from % used, 0 = never | rot : 0, 90, 180 or 270
@@ -340,7 +351,7 @@ fi
 #   hidden : uid,uid,... not shown
 #   name  : display name on the web page (not used here)
 #   ssid ... ap delay : WiFi settings for boards with WiFi, texts hex encoded (sent over USB only)
-#   fast  : seconds between fast refreshes (0, 2, 5, 10, 30)
+#   fast  : seconds between fast refreshes (0, 2, 5, 10, 30); taken from refresh when that is set
 #   system: system page components cpu,ram,net,nvme,ssd,hdd; - = no system page (1 = all of an earlier version, without hdd)
 #   network : interface for the system page, - = the one with the default route
 #   zfs   : ZFS cache on the system page 1 = shown / 0 = hidden (counted as free)
@@ -360,8 +371,10 @@ fi
 #   stby : asleep hard disks show 1 = "STBY" / 0 = "--" (default)
 #   header inverted : 1 = white header with black text, 0 = black with white text (default)
 #   header color : inverted header: 1 = highlighted places in the third colour, 0 = black (default)
+#   refresh : seconds between updates of this display: 2, 5, 10, 30 (fast refresh, black/white panels),
+#             60 ... 14400 (a full update that often); missing = the fast refresh, else the interval line
 # -----------------------
-declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL
+declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH
 IFLIST_RE='^[A-Za-z0-9._-]{1,15}(,[A-Za-z0-9._-]{1,15}){0,31}$'
 NAME_RE='^[A-Za-z0-9 ._+/-]{0,12}$'
 ORDER_RE='^[A-Za-z0-9._-]{1,40}(,[A-Za-z0-9._-]{1,40}){0,31}$'
@@ -396,12 +409,12 @@ layout_valid() {
 }
 
 if [[ -r "$CONF_FILE" ]]; then
-    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc; do
+    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc; do
         name="${name%$'\r'}"; wappass="${wappass%$'\r'}"; wapdelay="${wapdelay%$'\r'}"
         fastc="${fastc%$'\r'}"; sysc="${sysc%$'\r'}"; netc="${netc%$'\r'}"; zfsc="${zfsc%$'\r'}"; pagesc="${pagesc%$'\r'}"; sysiconc="${sysiconc%$'\r'}"; headerc="${headerc%$'\r'}"; panelc="${panelc%$'\r'}"
         layoutc="${layoutc%$'\r'}"; headonc="${headonc%$'\r'}"
         nsortc="${nsortc%$'\r'}"; norderc="${norderc%$'\r'}"; nhidec="${nhidec%$'\r'}"; niconc="${niconc%$'\r'}"
-        nbarc="${nbarc%$'\r'}"; dtempc="${dtempc%$'\r'}"; stbyc="${stbyc%$'\r'}"; headinvc="${headinvc%$'\r'}"; headcolc="${headcolc%%[$'\t\r']*}"   # last column: also cut anything after it
+        nbarc="${nbarc%$'\r'}"; dtempc="${dtempc%$'\r'}"; stbyc="${stbyc%$'\r'}"; headinvc="${headinvc%$'\r'}"; headcolc="${headcolc%$'\r'}"; refreshc="${refreshc%%[$'\t\r']*}"   # last column: also cut anything after it
         [[ "$id" =~ ^[0-9A-F]{8}$ ]] || continue
         [[ "$name" == "-" ]] && name=""
         [[ "$sysc" == "1" ]] && sysc="cpu,ram,net,nvme,ssd"
@@ -423,6 +436,12 @@ if [[ -r "$CONF_FILE" ]]; then
         [[ "$style" =~ ^[01],[01],[01],[01](,[01](,[012])?)?$ ]] || style="0,0,1,0"
         [[ "$hidden" =~ $ORDER_RE && "$hidden" != "-" ]] || hidden=""
         [[ "$fastc" =~ ^(0|2|5|10|30)$ ]] || fastc=0
+        # refresh in seconds (under 60 = fast refresh); missing (earlier version): the fast refresh,
+        # else the interval line
+        if [[ ! "$refreshc" =~ ^(2|5|10|30|60|180|300|600|900|1800|3600|5400|7200|10800|14400)$ ]]; then
+            refreshc=$(( fastc > 0 ? fastc : INTERVAL * 60 ))
+        fi
+        fastc=$(( refreshc < 60 ? refreshc : 0 ))
         [[ "$zfsc" == "0" ]] || zfsc=1
         [[ "$sysiconc" == "0" ]] || sysiconc=1
         [[ "$headerc" == "1" ]] || headerc=0
@@ -465,6 +484,7 @@ if [[ -r "$CONF_FILE" ]]; then
         CFG_PINS[$id]=$pins
         CFG_NAME[$id]=$name
         CFG_FAST[$id]=$fastc
+        CFG_REFRESH[$id]=$refreshc
         CFG_SYS[$id]=$sysc
         CFG_NET[$id]=$netc
         CFG_ZFS[$id]=$zfsc
@@ -1079,7 +1099,7 @@ order_disks() {
 # -----------------------
 build_frame() {
     local title="$1" types=",$2," maxb="$3" rows="$4" warn="$7" turns=$(( ${8:-0} / 90 )) pagesec="${9:-$DEFAULT_PAGE}"
-    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}"
+    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}"
     local d steps idle tmo poll st remain tsec head i dt pct pdec u t
     local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0)
     order_disks "$5" "$6"
@@ -1098,7 +1118,7 @@ build_frame() {
     # speed, and symbols 1 on / 0 off; netp = "sort;order;hidden;icons;bar", "" = network pages off
     local -a np
     IFS=';' read -ra np <<< "$netp"
-    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$NODATA_SECS" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv" "$headcol")   # field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0, 24: its highlighted boxes in the third colour 1 / 0
+    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$nodata" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv" "$headcol")   # field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0, 24: its highlighted boxes in the third colour 1 / 0
     # header: uptime instead of the page number (minutes after the full months, months)
     [[ "$header" == 1 && "$UP_REST" =~ ^[0-9]+$ ]] && sv[5]=$UP_REST sv[6]=$UP_MONTHS
     local n=17
@@ -1161,6 +1181,10 @@ frame_for() {
     [[ -z "${CFG_PAGES[$1]+set}" ]] && sysp="cpu,ram,net,nvme,ssd,hdd" pages=",system,"
     local pins="${CFG_PINS[$1]:-}"
     (( fastcap )) && fast="${CFG_FAST[$id]:-0}"
+    # "NO DATA" after two of its updates missed plus 2 minutes, at least 10 minutes
+    local refresh="${CFG_REFRESH[$id]:-$(( INTERVAL * 60 ))}" nodata
+    nodata=$(( (refresh >= 60 ? refresh / 60 : 1) * 120 + 120 ))
+    (( nodata < 600 )) && nodata=600
     if [[ -n "${CFG_PANEL[$id]:-}" ]]; then   # panel type chosen: P line with it (pins kept if not set)
         [[ -z "$pins" ]] && pins_valid "$devpins" && pins=$devpins
         [[ -n "$pins" ]] && pins+=",${CFG_PANEL[$id]}"
@@ -1173,7 +1197,7 @@ frame_for() {
         "${CFG_SORT[$id]:-pool}" "${CFG_ORDER[$id]:-}" "${CFG_WARN[$id]:-$DEFAULT_WARN}" "${CFG_ROT[$id]:-0}" \
         "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-}" "${CFG_HIDDEN[$id]:-}" \
         "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-1}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-0}" \
-        "${CFG_LAYOUT[$id]:-TCP}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-0}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}"
+        "${CFG_LAYOUT[$id]:-TCP}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-0}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}" "$nodata"
 }
 
 # Display with fast refresh: remember it (port or wifi) for the fast runs in between
@@ -1183,6 +1207,32 @@ note_fast() {
     FAST_SECS[$id]=$secs; FAST_PORT[$id]=$port; FAST_LAST[$id]=$NOW; FAST_SEEN[$id]=1
 }
 declare -A FAST_SEEN
+
+# Full updates: when each display last got a frame (sent file: <id> <epoch> <its answer>)
+declare -A SENT SENT_ANS SENT_SEEN
+read_sent() {
+    local id t ans
+    [[ -r "$SENT_FILE" ]] || return
+    while read -r id t ans; do
+        [[ "$id" =~ ^[0-9A-F]{8}$ && "$t" =~ ^[0-9]+$ ]] || continue
+        SENT[$id]=$t; SENT_ANS[$id]="$(tr -cd '[:print:]' <<< "${ans:0:100}")"
+    done < "$SENT_FILE"
+}
+write_sent() {
+    local id out=""
+    [ "$DRY_RUN" = true ] && return
+    for id in "${!SENT_SEEN[@]}"; do out+="$id ${SENT[$id]:-0} ${SENT_ANS[$id]:-}"$'\n'; done
+    printf '%s' "$out" > "$SENT_FILE.$$" && mv -f "$SENT_FILE.$$" "$SENT_FILE"
+}
+# Does display <id> get a frame in this full update? Every display after a change (FORCE_ALL),
+# one with "Redraw now", one that never got a frame and one with fast refresh; else when its
+# refresh has passed (30 s early is fine: the runs drift by a few seconds)
+display_due() {
+    local id="$1" r="${CFG_REFRESH[$1]:-$(( INTERVAL * 60 ))}"
+    (( FORCE_ALL )) && return 0
+    [[ -n "${REDRAW[$id]:-}" || -z "${SENT[$id]:-}" ]] && return 0
+    (( r < 60 || NOW - SENT[$id] >= r - 30 ))
+}
 
 # -----------------------
 # Talk to one display: PING -> chip ID -> its frame -> "OK ..."
@@ -1248,19 +1298,26 @@ update_display() {
         return 0
     fi
 
-    printf '%s\n' "${FRAME[@]}" >&3
-    while read -r -t 30 line <&3; do
-        line="${line%$'\r'}"
-        [[ "$line" == OK* ]] && { answer="$line"; break; }
-    done
-    exec 3>&-
-
-    answer="$(tr -cd '[:print:]' <<< "$answer")"
-    if [[ -n "$answer" ]]; then
-        [ "$MODE" = full ] && log "$port (ID $id): $ndisks disks$([[ -n "${REDRAW[$id]:-}" ]] && echo ", redraw requested") -> $answer"
+    if [ "$MODE" = full ] && ! display_due "$id"; then
+        exec 3>&-   # its refresh has not passed: no frame this time, the last answer stays
+        answer="${SENT_ANS[$id]:-}"
     else
-        log "$port (ID $id): no answer to the frame"
+        printf '%s\n' "${FRAME[@]}" >&3
+        while read -r -t 30 line <&3; do
+            line="${line%$'\r'}"
+            [[ "$line" == OK* ]] && { answer="$line"; break; }
+        done
+        exec 3>&-
+
+        answer="$(tr -cd '[:print:]' <<< "$answer")"
+        if [[ -n "$answer" ]]; then
+            [ "$MODE" = full ] && log "$port (ID $id): $ndisks disks$([[ -n "${REDRAW[$id]:-}" ]] && echo ", redraw requested") -> $answer"
+        else
+            log "$port (ID $id): no answer to the frame"
+        fi
+        [ "$MODE" = full ] && { SENT[$id]=$NOW; SENT_ANS[$id]=$answer; }
     fi
+    [ "$MODE" = full ] && SENT_SEEN[$id]=1
     USB_IDS[$id]=1
     note_fast "$id" "$fastcap" "$port"
     # fast refresh: the frame for the live preview of the settings page (in memory)
@@ -1310,12 +1367,16 @@ update_wifi_display() {
         printf '%s\n' "${FRAME[@]}"
         return
     fi
-    mkdir -p "$FRAMES_DIR" && chmod 755 "$FRAMES_DIR"
-    tmp="$(mktemp "$FRAMES_DIR/.frame.XXXXXX")" || return
-    printf '%s\n' "${FRAME[@]}" > "$tmp"
-    chmod 644 "$tmp"
-    mv -f "$tmp" "$FRAMES_DIR/$id.txt"
-    [ "$MODE" = full ] && log "WiFi $ip (ID $id): frame ready${answer:+, last answer: $answer}"
+    # its refresh has not passed: the display keeps fetching the frame it has
+    if [ "$MODE" = fast ] || display_due "$id"; then
+        mkdir -p "$FRAMES_DIR" && chmod 755 "$FRAMES_DIR"
+        tmp="$(mktemp "$FRAMES_DIR/.frame.XXXXXX")" || return
+        printf '%s\n' "${FRAME[@]}" > "$tmp"
+        chmod 644 "$tmp"
+        mv -f "$tmp" "$FRAMES_DIR/$id.txt"
+        [ "$MODE" = full ] && { log "WiFi $ip (ID $id): frame ready${answer:+, last answer: $answer}"; SENT[$id]=$NOW; }
+    fi
+    [ "$MODE" = full ] && SENT_SEEN[$id]=1
     note_fast "$id" "$fastcap" wifi
     DISPLAYS_JSON+=("{\"port\": \"WiFi\", \"transport\": \"wifi\", \"id\": \"$id\", \"size\": \"$size\", \"colors\": $colors, \"panel\": $devpanel, \"pins\": \"$devpins\", \"board\": \"$board\", \"wifi\": 1, \"fw\": \"$fw\", \"net\": \"sta\", \"ip\": \"$ip\", \"ssidHex\": \"$ssidhex\", \"fast\": $fastcap, \"seen\": $seen, \"answer\": $(json_str "$answer"), \"frame\": $(json_str "$(printf '%s\n' "${FRAME[@]}")")}")
 }
@@ -1351,6 +1412,7 @@ if [ "$MODE" = fast ]; then
     exit 0
 fi
 
+read_sent
 for port in "${PORTS[@]}"; do
     if [[ -e "$port" ]]; then
         update_display "$port"
@@ -1364,6 +1426,7 @@ for info in "$WIFI_DIR"/*.info; do
 done
 
 write_fast_file
+write_sent
 
 if (( ${#PORTS[@]} == 0 )) && [[ -z "$(compgen -G "$WIFI_DIR/*.info")" ]]; then
     log "No display connected"
