@@ -34,6 +34,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
+VERSION = "1.0"   # of InkSights (firmware, script and this app go together); the page compares it with the latest release
 ID_RE = re.compile(r"^[0-9A-F]{8}$")
 NAME_RE = re.compile(r"^[A-Za-z0-9 ._+/-]{0,12}$")
 PAGE_NAME_RE = re.compile(r"^[^\x00-\x1f\x7f]{0,32}$")   # name of this page (header, browser tab); no tabs/line breaks
@@ -659,7 +660,7 @@ class Handler(BaseHTTPRequestHandler):
             conf, interval, page_name = read_conf(os.path.join(data_dir, CONF_NAME))
             self._json(200, {"state": load_state(data_dir), "config": public_conf(conf), "interval": interval,
                              "pagename": page_name, "defaultPagename": DEFAULT_PAGE_NAME,
-                             "problem": data_problem(data_dir)})
+                             "problem": data_problem(data_dir), "version": VERSION})
         elif path == "/api/frame":
             try:
                 frame, code = wifi_frame(data_dir, self.server.run_dir, self.path.split("?", 1)[1] if "?" in self.path else "")
@@ -687,7 +688,7 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
 
         try:
-            if path == "/api/config":
+            if path in ("/api/config", "/api/validate"):
                 try:
                     data = json.loads(raw or b"{}")
                     if not isinstance(data, dict):
@@ -703,6 +704,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(400, {"error": str(e)})
                 except ValueError:   # broken JSON
                     return self._json(400, {"error": "Invalid data."})
+                if path == "/api/validate":   # import of a backup: only checked, nothing written
+                    return self._json(200, {"ok": True})
                 write_conf(os.path.join(data_dir, CONF_NAME), conf, interval, page_name)
                 self.log_message("settings saved for %d display(s)", len(conf))
                 self._json(200, {"ok": True})

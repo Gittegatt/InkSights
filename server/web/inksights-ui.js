@@ -8,6 +8,8 @@
  *   backend.refresh()     -> Promise ("Update now")
  *   backend.redraw(id)    -> Promise ("Redraw now")
  *   backend.pollMs        -> reload the state this often (0 = never)
+ *   backend.latest()      -> Promise of { version, url } of the latest release, or null (optional)
+ *   backend.validate(body)-> Promise; checks imported settings like a save, without saving (optional)
  *   backend.live(id)      -> Promise of { frame, age }: the latest frame of a display with fast
  *                            refresh (live preview as often as it refreshes; optional)
  *   backend.frameOverride(id) -> frame text to show instead of the settings (simulator: pasted frame)
@@ -156,6 +158,7 @@
         el("div", { class: "actions" },
           el("button", { class: "btn", id: "refresh", type: "button", onclick: doRefresh }, "Update now"),
           el("button", { class: "btn primary", id: "save", type: "button", disabled: true, onclick: doSave }, "Save"))),
+      el("div", { class: "update", id: "update", role: "status", hidden: true }),
       el("p", { class: "msg", id: "msg", role: "status", "aria-live": "polite" }),
       el("div", { id: "warnings", class: "displays" }),
       el("section", { class: "displays", id: "displays", "aria-label": "Displays" }));
@@ -176,7 +179,10 @@
 
     function settingsFor(id) {
       if (!config[id]) config[id] = {};
-      const s = config[id];
+      return normalize(config[id]);
+    }
+    // the settings of a display with defaults for anything missing or unusable (changed in place)
+    function normalize(s) {
       if (!Array.isArray(s.types)) s.types = [...ALL_TYPES];
       if (typeof s.boxes !== "number") s.boxes = 10;
       if (typeof s.rows !== "number") s.rows = 0;
@@ -760,7 +766,13 @@
           el("summary", {}, `Frame (data received via ${via})`),
           el("pre", { id: `frame-${id}` })));
       if (wifiCard) wifiCard.classList.add("keep-on");   // its settings are not dimmed when the page is off
-      return { main, subs: [displayCard, headerCard, sysCard, disksCard, netCard, ...(wifiCard ? [wifiCard] : [])] };
+      // Backup: the settings of this display as a JSON file, and back (also from another board)
+      const backupCard = subCard("backupOpen", "Backup", false, null,
+        el("div", { class: "choices" },
+          el("button", { class: "btn", type: "button", onclick: () => doExport(id) }, "Export"),
+          el("button", { class: "btn", type: "button", onclick: () => $(`import-${id}`).click() }, "Import"),
+          el("input", { type: "file", id: `import-${id}`, accept: ".json,application/json", hidden: true, onchange: e => doImport(id, e.target.files[0]) })));
+      return { main, subs: [displayCard, headerCard, sysCard, disksCard, netCard, ...(wifiCard ? [wifiCard] : []), backupCard] };
     }
 
     function render(force) {
@@ -848,6 +860,7 @@
         applyPageName();
         render(force);
         syncPageName();
+        if (typeof data.version === "string" && data.version !== appVersion) { appVersion = data.version; checkUpdate(); }
       } catch (e) {
         $("status").textContent = "No connection to the app. Is it running on the NAS server?";
         $("status").className = "status warn";
@@ -880,6 +893,95 @@
       } catch (e) { setMsg(e.message, "warn"); }
     }
 
+    // ---------------------------------------------------------- new version
+    // The latest release (backend.latest: GitHub), asked at most every 6 hours (kept per browser).
+    // Shown when it is newer than this installation, unless muted (until the page is opened again)
+    // or skipped (until a newer one is released).
+    const UPDATE_KEY = "inksights-update", UPDATE_EVERY = 6 * 3600 * 1000;
+    let appVersion = "", latestRel = null, muted = false;
+    const verParts = v => String(v || "").replace(/^v/i, "").split(".").map(n => parseInt(n, 10) || 0);
+    function newer(a, b) {   // version a after version b
+      const x = verParts(a), y = verParts(b);
+      for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+      return false;
+    }
+    function showUpdate() {
+      const box = $("update"), r = latestRel, skip = pref("app", "skipVersion", "");
+      const on = !!r && !muted && !!appVersion && newer(r.version, appVersion) && (!skip || newer(r.version, skip));
+      box.hidden = !on;
+      if (!on) return;
+      box.replaceChildren(el("span", {}, `InkSights ${r.version.replace(/^v/i, "")} is available.`),
+        el("span", { class: "choices" },
+          el("a", { class: "btn small primary", href: r.url, target: "_blank", rel: "noopener" }, "Download"),
+          el("button", { class: "btn small", type: "button", onclick: () => { muted = true; showUpdate(); } }, "Mute"),
+          el("button", { class: "btn small", type: "button", onclick: () => { setPref("app", "skipVersion", r.version); showUpdate(); } }, "Skip version")));
+    }
+    async function checkUpdate() {
+      if (!backend.latest) return;
+      let kept = null;
+      try { kept = JSON.parse(localStorage.getItem(UPDATE_KEY) || "null"); } catch (e) { kept = null; }
+      if (kept && Date.now() - kept.at < UPDATE_EVERY) { latestRel = kept.rel; showUpdate(); return; }
+      try {
+        latestRel = await backend.latest();
+        try { localStorage.setItem(UPDATE_KEY, JSON.stringify({ at: Date.now(), rel: latestRel })); } catch (e) { /* not essential */ }
+      } catch (e) { latestRel = kept ? kept.rel : null; }   // GitHub not reached: the last known one
+      showUpdate();
+    }
+    // simulator: a release one step after this installation (or after the skipped one)
+    function testUpdate() {
+      const skip = pref("app", "skipVersion", ""), base = skip && newer(skip, appVersion) ? skip : appVersion || "1.0";
+      const p = verParts(base);
+      latestRel = { version: `v${p[0] || 0}.${(p[1] || 0) + 1}`, url: "https://github.com/Gittegatt/InkSights/releases" };
+      muted = false;
+      showUpdate();
+    }
+
+    // ---------------------------------------------------------- backup
+    // Per display. Export: its settings as JSON (WiFi passwords never reach this page, so they are
+    // not in it), file inksights-v<version>-<name>-<chip id>-<date>.json (the name only when one is set).
+    // Import: the file is checked (format, then like a save by the app) and its settings go to this
+    // display as unsaved changes, also from another board (a board that was replaced); the WiFi
+    // passwords stored on the NAS server stay.
+    const slug = v => String(v || "").toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+    function doExport(id) {
+      const s = structuredClone(settingsFor(id)), w = s.wifi || {};
+      delete w.pass; delete w.apPass; delete w.passSet; delete w.apPassSet;
+      const data = { app: "InkSights", version: appVersion, exported: new Date().toISOString(), display: id, settings: s };
+      const ver = appVersion ? `v${appVersion.replace(/^v/i, "").replace(/[^0-9.]/g, "")}` : "";   // like the release files: inksights-v1.0-...
+      const name = ["inksights", ver, slug(s.dname), id.toLowerCase(), new Date().toISOString().slice(0, 10)].filter(Boolean).join("-");
+      const a = el("a", { href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2) + "\n"], { type: "application/json" })), download: `${name}.json` });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      setMsg(`${nameOf(id, s)}: exported, without WiFi passwords.`, "ok");
+    }
+    async function doImport(id, file) {
+      $(`import-${id}`).value = "";   // the same file can be picked again
+      if (!file) return;
+      const who = nameOf(id, settingsFor(id));
+      let data;
+      try { data = JSON.parse(await file.text()); } catch (e) { setMsg(`${who}: import: not a JSON file.`, "warn"); return; }
+      const obj = v => !!v && typeof v === "object" && !Array.isArray(v);
+      if (!obj(data) || data.app !== "InkSights" || !obj(data.settings)) { setMsg(`${who}: import: not an InkSights backup of a display.`, "warn"); return; }
+      // missing settings (a backup of an older version) get their defaults; the values given are
+      // checked as they are
+      const def = normalize({}), s = { ...def, ...structuredClone(data.settings) };
+      const w = { ...def.wifi, ...(obj(s.wifi) ? s.wifi : {}) };
+      for (const k of ["pass", "apPass", "passSet", "apPassSet"]) delete w[k];   // passwords never come from a file
+      const old = (config[id] && config[id].wifi) || {};
+      s.wifi = { ...w, passSet: !!old.passSet, apPassSet: !!old.apPassSet };
+      try { if (backend.validate) await backend.validate({ pagename: pageName.trim(), displays: { [id]: { ...s, wifi: { ...w, pass: null, apPass: null } } } }); }
+      catch (e) { setMsg(`${who}: import: ${e.message}`, "warn"); return; }
+      config[id] = s;
+      settingsFor(id);   // defaults for anything an older backup does not have
+      pages[id] = 0;
+      render(true);
+      changed();
+      if (!problems().length) setMsg(`${nameOf(id, s)}: imported. Check it and save.`, "ok");
+    }
+
     window.addEventListener("beforeunload", e => { if (dirty && backend.warnOnLeave) { e.preventDefault(); e.returnValue = ""; } });
     new ResizeObserver(() => drawAll()).observe($("displays"));
     load(true);
@@ -888,7 +990,7 @@
 
     // frames: what every display would get right now (simulator: "Send to display" over USB);
     // frameFor: the frame of one display from another state (simulator: live values)
-    return { reload: force => load(force), redrawPreviews: drawAll,
+    return { reload: force => load(force), redrawPreviews: drawAll, testUpdate,
       frames: () => displayList().map(e => ({ id: e.id, label: nameOf(e.id, settingsFor(e.id)), text: frameText(e).text || "" })),
       frameFor: (id, st) => { const e = displayList().find(x => x.id === id); return e ? buildFor(e, st) : null; } };
   }

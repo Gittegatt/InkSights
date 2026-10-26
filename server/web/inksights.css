@@ -35,6 +35,10 @@ p { margin: 0; }
 .msg.warn { color: var(--warn); }
 .msg.ok { color: var(--ok); }
 .alert { border: 1px solid var(--warn); color: var(--warn); border-radius: var(--r); padding: 10px 14px; font-size: 0.92rem; }
+/* a newer release: text and its buttons in one framed line, wrapping on narrow screens */
+.update { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; border: 1px solid var(--accent); border-radius: var(--r); padding: 10px 14px; font-size: 0.92rem; }
+.update[hidden] { display: none; }
+a.btn { display: inline-block; text-decoration: none; }
 .pill.on { color: var(--ok); }
 .card-head .redraw { margin-left: auto; align-self: center; }
 /* one line, so both black display windows start at the same height; a long name is cut */
@@ -136,8 +140,10 @@ td select { padding: 3px 6px; }
 .wifi-grid input[type="text"], .wifi-grid input[type="password"] { width: 100%; max-width: 16em; }
 input[type="password"] { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 5px 8px; }
 .ro { font-family: var(--font-mono); font-size: 0.85rem; }
-.panel-pick { flex-wrap: wrap; gap: 6px 12px; }
-.panel-pick select { min-width: 0; max-width: 100%; }
+/* the board name always stays right of the panel select (user); in a narrow card the select gets narrower */
+.panel-pick { flex-wrap: nowrap; gap: 6px 12px; width: 100%; min-width: 0; }
+.panel-pick select { min-width: 0; flex: 0 1 auto; }
+.panel-pick .ro { flex: none; white-space: nowrap; }
 /* simulator: settings of the simulated hardware */
 /* Simulation card: folds like the cards of a display, its heading stays the card heading */
 .sim-fold > summary { list-style-position: outside; margin-left: 1em; text-transform: none; letter-spacing: 0; color: var(--fg); }

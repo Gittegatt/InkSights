@@ -33,6 +33,7 @@ document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}"
       <label class="field"><span class="label">Time of the data</span><input type="text" id="time" maxlength="5" autocomplete="off" style="width: 4.5em; font-family: var(--font-mono)"></label>
       <label class="field"><span class="label">Host name</span><input type="text" id="host" maxlength="16" autocomplete="off" style="max-width: 10em"></label>
       <div class="field"><span class="label">Controller without answer</span><span class="choices" id="oldfw"></span></div>
+      <div class="field"><span class="label">Update notice</span><span class="choices"><button class="btn" id="testUpdate" type="button">Test</button></span></div>
       <div class="field wide boxed"><span class="label">Displays</span><div class="sim-grid" id="hw"></div></div>
       <div class="field wide boxed"><span class="label">System</span><div class="choices" id="sys"></div></div>
     </div>
@@ -328,7 +329,7 @@ const ui = InkSightsUI.start({
   root: $("app"),
   yellowPanels: true,   // also offer the colour panels with yellow
   offlineNoData: true,  // "Connected" off: the display shows "NO DATA" / "Check connection"
-  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights" }),
+  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights", version: "1.0" }),
   save: async body => {
     const next = {};
     for (const [id, s] of Object.entries(body.displays)) {
@@ -439,6 +440,8 @@ $("host").value = sim.host;
 $("host").addEventListener("input", e => { sim.host = e.target.value; update(); });
 $("oldfw").replaceChildren(el("label", { class: "check" },
   el("input", { type: "checkbox", checked: sim.oldFw, onchange: e => { sim.oldFw = e.target.checked; update(); } }), "/dev/ttyACM2"));
+// a release one step after this installation (or after a skipped one): the notice at the top
+$("testUpdate").addEventListener("click", () => ui.testUpdate());
 $("paste").value = sim.paste;
 $("paste").addEventListener("input", e => { sim.paste = e.target.value; update(); });
 $("add").addEventListener("click", () => {

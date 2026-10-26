@@ -444,6 +444,20 @@ Which cards are folded is remembered per browser.
 
 - **Update now**: sends fresh values to all displays right away. How often each display gets fresh values is set in
   its card (**Refresh**).
+- **New version:** the page asks GitHub for the latest InkSights release when it is opened (at most every 6 hours;
+  your browser does that, the NAS server does not). When it is newer than the installed version, a line shows it:
+  **Download** opens the release page, **Mute** hides it until the page is opened again, **Skip version** hides it
+  until a newer version is released.
+
+**Backup** (the last card of each display): **Export** saves the settings of this display as a JSON file
+`inksights-v<version>-<name>-<chip id>-<date>.json` (e.g. `inksights-v1.0-living-room-1a2b3c4d-2026-10-26.json`; the name
+only when the display has one), with the InkSights version it was made with. WiFi passwords are not in it: they never reach the
+page. **Import** reads such a file into this display, also one of another board (e.g. after replacing a board, which
+has a new chip ID). It is checked first (an InkSights backup of a display, then every setting by the app with the
+same rules as saving; settings a backup of an older version does not have get their defaults). A valid file
+becomes this display's settings on the page as unsaved changes, its display name included: check the preview (and
+the display pins, when it came from another kind of board) and press **Save**. The WiFi passwords stored on the NAS
+server stay.
 
 **In each display card:** the preview (‹ › turns its pages), **Redraw now** (redraws this display within a minute,
 even if nothing changed and without waiting for the 3 minutes) and a line with ID, port, board, firmware and the
@@ -552,7 +566,8 @@ data. Below the displays, the **Simulation** section sets the simulated boards, 
 values (incl. when the server started; **Live values** = a running system: displays with a refresh in seconds show changing system values, drive temperatures and counting-down spindown timers, as often as they refresh), the drives (with or without ZFS, each with a temperature, column **Temp °C**), or a frame pasted from a dry run.
 A display with **Connected** off shows what it draws when it gets no fresh data any more (NO DATA, Check connection), **No data** at a connected one the "Nothing to ink" screen (nothing to show), **Start screen** what it shows
 after power-up until the first data arrive. The simulated interfaces cover every case: wired, no cable, switched
-off, a bridge and WiFi. The Simulation card folds (the triangle next to its heading). The panel choices of the simulator also hold the
+off, a bridge and WiFi. **Update notice · Test** shows the line about a new version (one version after the installed
+one, or after a skipped one). The Simulation card folds (the triangle next to its heading). The panel choices of the simulator also hold the
 colour panels with yellow instead of red (preview only so far).
 Nothing is sent anywhere, except to a board on USB: the **USB** card at the bottom is the [USB setup](#usb-setup),
 plus **Send to display**: it sends what a simulated display gets to the real board, so the display shows it right
