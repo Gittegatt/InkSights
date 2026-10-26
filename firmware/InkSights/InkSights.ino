@@ -91,8 +91,9 @@
  *     timehead: (29th field) the time page with the header line 1 / without 0 (default)
  *     headfill: (30th field) header: 1 the whole line in the colour of the highlighted boxes (every
  *              place drawn highlighted), 0 only the boxes (default)
- *   C|<YYYYMMDDHHMMSS>|<date 1/0>|<weekday 1/0>|<date format 0-3>|<ntp 1/0>|<ntp server or ->|<POSIX zone or ->
- *                              (optional) the time page, the last page: the time in big, below it
+ *   C|<YYYYMMDDHHMMSS>|<date 1/0>|<weekday 1/0>|<date format 0-3>|<ntp 1/0>|<ntp server or ->|<POSIX zone or ->[|<color 1/0>|<frame 1/0>]
+ *                              (optional) the time page: the time in big (color: in the third
+ *                              colour, frame: with a black outline; colour panels), below it
  *                              weekday and date (0: 26 Oct 2026, 1: 2026-10-26, 2: 10/26/2026,
  *                              3: 26.10.2026). The local time of the NAS server, counted on by the
  *                              board; with ntp (boards with WiFi) its own clock from that server in
@@ -323,6 +324,7 @@ struct ClockCfg {
   uint8_t date, wday, dfmt, ntp;   // date, weekday shown; date format 0-3; NTP (boards with WiFi)
   char    server[41];
   char    tz[49];                  // POSIX time zone for NTP
+  uint8_t color, frame;            // the time in the third colour; a black outline around it
 };
 // A point in time on the time page; weekday 0 = Sunday
 struct ClockNow {
@@ -2639,15 +2641,25 @@ void drawClockPage(int16_t HH) {
   while (hasSub && dz > 1 && textW(sub) * dz > W - 8) dz--;
   const int16_t h = 7 * z + (hasSub ? 3 * dz + 7 * dz : 0), w = partW(z);
   const int16_t top = HH + (H - HH - h) / 2, x = (W - w) / 2;
-  printAt(x, top, main, BK, z);
-  if (ampm[0]) printAt(x + textW(main) * z + z, top + 7 * z - 7 * az, ampm, BK, az);   // AM / PM on the baseline
+  // Color highlight: the time in the third colour (the date stays black); Time frame: a black
+  // outline around its digits, the time in black moved by up to o pixels under the coloured one
+  const uint16_t col = clockCfg.color && hasColor ? RD : BK;
+  const int16_t o = clockCfg.color && clockCfg.frame && hasColor ? imax(1, z / 6) : 0;
+  for (int16_t dy = -o; dy <= o; dy++)
+    for (int16_t dx = -o; dx <= o; dx++) {
+      if (!dx && !dy) continue;
+      printAt(x + dx, top + dy, main, BK, z);
+      if (ampm[0]) printAt(x + textW(main) * z + z + dx, top + 7 * z - 7 * az + dy, ampm, BK, az);
+    }
+  printAt(x, top, main, col, z);
+  if (ampm[0]) printAt(x + textW(main) * z + z, top + 7 * z - 7 * az, ampm, col, az);   // AM / PM on the baseline
   if (hasSub) printAt((W - textW(sub) * dz) / 2, top + 7 * z + 3 * dz, sub, BK, dz);
 }
 
-// C|<YYYYMMDDHHMMSS>|<date>|<weekday>|<date format>|<ntp>|<server>|<zone>
+// C|<YYYYMMDDHHMMSS>|<date>|<weekday>|<date format>|<ntp>|<server>|<zone>[|<color>|<frame>]
 void parseClock(char* line) {
-  char* f[8];
-  const uint8_t n = splitFields(line, f, 8);
+  char* f[10];
+  const uint8_t n = splitFields(line, f, 10);
   if (n < 5) return;
   memset(&rxClock, 0, sizeof(rxClock));
   rxClock.on   = true;
@@ -2660,6 +2672,8 @@ void parseClock(char* line) {
     copyStr(rxClock.server, f[6], sizeof(rxClock.server));
     copyStr(rxClock.tz, f[7], sizeof(rxClock.tz));
   }
+  rxClock.color = n >= 9 && strcmp(f[8], "1") == 0;                    // the time in the third colour
+  rxClock.frame = rxClock.color && n >= 10 && strcmp(f[9], "1") == 0;  // with a black outline
 }
 
 // ---------------------------------------------------------------- Advanced Ink

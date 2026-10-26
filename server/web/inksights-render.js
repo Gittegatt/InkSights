@@ -138,7 +138,9 @@
   }
   // The time page: the time as big as fits, in the middle; below it the weekday and the date
   // (each when ticked) in a third of its size; t = { y, mo, d, h, mi, wd }
-  function drawClockPage(fb, c, t, fmt, HH) {
+  // third = the third colour of the panel (BK on black/white): with Color highlight (C line) the
+  // time in it, the date stays black; Time frame: a black outline around its digits (user)
+  function drawClockPage(fb, c, t, fmt, HH, third = BK) {
     const W = fb.w, H = fb.h;
     if (!t) { const z = 2; fb.text(Math.trunc((W - textW("--:--") * z) / 2), HH + Math.trunc((H - HH - 7 * z) / 2), "--:--", BK, z); return; }
     const { main, ampm: ap } = clockText(t.h, t.mi, fmt > 0), ampm = fmt === 1 ? ap : "";
@@ -150,8 +152,18 @@
     let { az, dz, w, h } = parts(z);
     while (sub && dz > 1 && textW(sub) * dz > W - 8) { dz--; h = 7 * z + 3 * dz + 7 * dz; }
     const top = HH + Math.trunc((H - HH - h) / 2), x = Math.trunc((W - w) / 2);
-    fb.text(x, top, main, BK, z);
-    if (ampm) fb.text(x + textW(main) * z + z, top + 7 * z - 7 * az, ampm, BK, az);   // AM / PM on the baseline
+    const col = c.color && third !== BK ? third : BK, o = c.color && c.frame && third !== BK ? Math.max(1, Math.trunc(z / 6)) : 0;
+    const time = ink => {
+      fb.text(x, top, main, ink, z);
+      if (ampm) fb.text(x + textW(main) * z + z, top + 7 * z - 7 * az, ampm, ink, az);   // AM / PM on the baseline
+    };
+    // the outline: the time in black, moved by up to o pixels in every direction, under the coloured one
+    if (o) for (let dy = -o; dy <= o; dy++) for (let dx = -o; dx <= o; dx++) {
+      if (!dx && !dy) continue;
+      fb.text(x + dx, top + dy, main, BK, z);
+      if (ampm) fb.text(x + textW(main) * z + z + dx, top + 7 * z - 7 * az + dy, ampm, BK, az);
+    }
+    time(col);
     if (sub) fb.text(Math.trunc((W - textW(sub) * dz) / 2), top + 7 * z + 3 * dz, sub, BK, dz);
   }
 
@@ -1069,7 +1081,7 @@
     if (kind === "S") { m.sys.stby = m.stby === 1; drawSystem(fb, m.sys, HH, wide, stacked); return; }
     if (kind === "W") { drawWifi(fb, m.wifi || {}, HH, wide, stacked, m.wifiIcons); return; }
     // the time page (m.now: the time to show, else the time of the frame)
-    if (kind === "T") { drawClockPage(fb, m.clock, m.now || clockParts(m.clock.dt), m.timeFmt, HH); return; }
+    if (kind === "T") { drawClockPage(fb, m.clock, m.now || clockParts(m.clock.dt), m.timeFmt, HH, m.mono ? BK : RD); return; }
     const rows = rowsPerPage(fb.h, wanted, W, head), rowH = rowHeight(fb.h, wanted, W, head), first = idx * rows;
     // network pages, every page sized for as many rows as the fullest one
     if (kind === "N") {
@@ -1455,9 +1467,11 @@
         };
       } else if (line.startsWith("C|")) {
         // time page: C|<local date and time YYYYMMDDHHMMSS>|<date 1/0>|<weekday 1/0>|<date format 0-3>|<NTP 1/0>|<NTP server>|<POSIX time zone>
-        const f = splitFields(line, 8);
+        //   [|<time in the third colour 1/0>|<black outline around it 1/0>]
+        const f = splitFields(line, 10);
         if (f.length >= 5) rx.clock = { dt: /^\d{14}$/.test(f[1]) ? f[1] : "", date: f[2] === "1" ? 1 : 0, wday: f[3] === "1" ? 1 : 0,
-          dfmt: clamp(atoi(f[4]), 0, 3), ntp: f[5] === "1" ? 1 : 0, server: f[6] && f[6] !== "-" ? f[6] : "", tz: f[7] && f[7] !== "-" ? f[7] : "" };
+          dfmt: clamp(atoi(f[4]), 0, 3), ntp: f[5] === "1" ? 1 : 0, server: f[6] && f[6] !== "-" ? f[6] : "", tz: f[7] && f[7] !== "-" ? f[7] : "",
+          color: f[8] === "1" ? 1 : 0, frame: f[8] === "1" && f[9] === "1" ? 1 : 0 };
       } else if (line.startsWith("N|")) {
         // network pages: interface | down KiB/s | up KiB/s | link Mb/s | wireless 1/0 | state U up / L no link / D down
         const f = splitFields(line, 7);
@@ -1563,7 +1577,9 @@
       let when = /^\d{14}$/.test(dt) ? dt : "";
       if (!when) { const n = new Date(), hm = /^(\d\d):(\d\d)$/.exec(time || ""); when = `${n.getFullYear()}${two(n.getMonth() + 1)}${two(n.getDate())}${hm ? hm[1] + hm[2] : two(n.getHours()) + two(n.getMinutes())}00`; }
       const ntp = s.ntp === 1 && s.ntpServer && s.tzPosix;
-      lines.push(["C", when, s.timeDate === 0 ? 0 : 1, s.timeWday === 0 ? 0 : 1, s.dateFmt || 0, ntp ? 1 : 0, ntp ? s.ntpServer : "-", ntp ? s.tzPosix : "-"].join("|"));
+      const tcol = s.timeColor === 1 ? 1 : 0;   // Color highlight: the time in the third colour, Time frame: outlined
+      lines.push(["C", when, s.timeDate === 0 ? 0 : 1, s.timeWday === 0 ? 0 : 1, s.dateFmt || 0, ntp ? 1 : 0, ntp ? s.ntpServer : "-", ntp ? s.tzPosix : "-",
+        tcol, tcol && s.timeFrame === 1 ? 1 : 0].join("|"));
     }
     const hidden = new Set(s.hidden || []);
     const dec = s.pctBar && !s.barCap ? s.pctDec || 0 : 0;   // decimals, only while the percentage stands in the bar

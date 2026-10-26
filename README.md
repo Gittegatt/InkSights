@@ -6,7 +6,7 @@ Shows the drive status of a system on small e-paper displays, typically a server
 a system page with CPU, RAM, network and drive temperatures, network pages, a WiFi page and a clock. Every display hangs on its own small board, plugged
 into the server via USB or (boards with WiFi) running anywhere in reach of the WiFi. All settings are made on a small web page.
 
-<img src="examples/example_03_2-13_system_page_red_header.png" alt="System page on a 2.13″ display with a red top line: CPU, RAM, network and drive temperatures" width="400">
+<img src="examples/example_02_2-13_system_page.png" alt="System page on a 2.13″ display with a red top line: CPU, RAM, network and drive temperatures" width="400">
 
 More pictures: [examples](examples/)
 
@@ -50,17 +50,17 @@ Per drive one row:
 - **Usage bar** (free = grey raster), highlighted from 85 % (third colour, inverted on black/white panels),
   optionally with the percentage (whole or with decimals) or the used capacity inside the bar
 - **Temperature** of each drive (optional), `--` or `STBY` for a hard disk that is asleep
-- **Spindown timer** for hard disks at the right end of the bar: a **badge** with the time left (MM:SS, "SLEEP" when
+- **Spindown timer** for hard disks at the right end of the bar (optional, off by default): a **badge** with the time left (MM:SS, "SLEEP" when
   asleep) or a **ring** that shrinks until spindown (dotted when asleep)
 
 <img src="examples/example_07_4-2_drives_page.png" alt="Drive page on a 4.2″ display: symbols, pools, bars with the used capacity, temperatures and spindown rings" width="400">
 
-The top line shows the title (default: name of the NAS server), the time and the page number; the uptime instead or
+The top line shows the time, the title (default: name of the NAS server) and the uptime; the page number instead or
 as well, any order, highlighted or not, white on black or inverted, in the third colour on colour panels, or no top
 line at all (see [Header card](#header-card)). If not all drives fit on one page, the display turns pages by itself.
 Besides the drive pages a display can show a **system page** (see [System page](#system-page)), **network pages**
 with one row per interface (see [Network card](#network-card)), a **time page** (see [Time card](#time-card)) and a
-**WiFi page**, each switched on or off per display, in any order (by default: system, drives, network, time, WiFi).
+**WiFi page**, each switched on or off per display, in any order (by default: time, system, drives, network, WiFi).
 
 <img src="examples/example_06_2-13_drives_page_yellow.png" alt="Drive page on a 2.13″ display with yellow as third colour" width="400">
 
@@ -442,14 +442,18 @@ page and the simulator are then online at `https://<user>.github.io/<repository>
 ## 5. The settings page
 
 Open **http://&lt;server&gt;:8099**. Every display appears with a live preview of what it will show, and below it its own
-foldable cards **Display**, **Header**, **System**, **Drives**, **Network**, **Time**, (boards with WiFi) **WiFi** and **Advanced Ink**. A new
-display starts with the header and the system page; switch the drive pages on in its Drives card. Change settings,
+foldable cards **Display**, **Header**, **Time**, **System**, **Drives**, **Network**, (boards with WiFi) **WiFi** and **Advanced Ink**. A new
+display starts with every page on (time, system, drives, network, WiFi) and these settings: top line with time,
+title and uptime, black, no divider line, nothing highlighted; time page without top line, weekday and date
+(`2026-10-26`), zone UTC, no NTP; every system row, no ZFS RAM cache, asleep hard disks `STBY`; every drive type,
+the percentage with one decimal in the bar, temperatures on, no spindown timer, highlight from 85 %; network pages
+with symbols and the percentage in the bar; WiFi page with symbols, setup access point on after 30 s. Change settings,
 *Save*, and the NAS server applies them within a minute. The page itself shows no explanations, to keep it tidy; they
 are here. Which cards are folded is remembered per browser.
 
 **Order of the pages:** the cards **System**, **Drives**, **Network**, **Time** and **WiFi** have a grip (two
 horizontal lines left of **Ink**). Drag a card by it up or down, or click the grip and use the arrow keys. The order of these cards is
-the order of the pages on the display (default: system, drives, network, time, WiFi); *Save* applies it.
+the order of the pages on the display (default: time, system, drives, network, WiFi); *Save* applies it.
 **Display**, **Header** and **Advanced Ink** stay in their place.
 
 <img src="examples/example_18_settings_page.png" alt="The settings page with two displays: live previews, on the left the Display card open, on the right the Header card, the other cards folded" width="100%">
@@ -493,27 +497,25 @@ display's last answer.
 | **Frame** | – | What the display receives (over USB or WiFi). |
 | **Remove settings** | – | Only for displays that are not connected: forget their settings. |
 
-<img src="examples/example_10_2-13_upright_drives.png" alt="A 2.13″ display turned upright: device and used/total in the first line, the pool below" width="244">
-
 ### Header card
 
-The top line of the display. Its settings stand in four framed sections: **Title**, **Colors** (Invert colors,
-Highlight color, Fill gaps), **Divider line** and **Positions** (Left, Middle, Right).
+The top line of the display. Its settings stand in four frames: **Title**; the colours (Invert colors, Color
+highlight, Fill gaps); **Divider line**; the places (Left, Middle, Right).
 
 | Setting | Options | Notes |
 |---|---|---|
 | **Ink** | tick | Shows the top line or not; its settings stay. Without it the rows get its room. "NO DATA" still shows it. |
 | **Title** | up to 12 characters | Empty = name of the NAS server (e.g. TRUENAS). |
 | **Invert colors** | On, Off | On: white top line with black text and a thin black line below it; highlighted places then black with white text. |
-| **Highlight color** | On, Off | Only with **Invert colors** on a colour panel: the highlighted places in the third colour (red or yellow) with white text, on yellow black text. |
-| **Fill gaps** | On, Off | Only with **Invert colors** and **Highlight color** on a colour panel: the whole top line in the third colour (red or yellow), every place drawn like a highlighted one, no gaps between them; the **Highlight** ticks then have no effect. Off by default. (On black/white it would be the same as switching **Invert colors**.) |
-| **Divider line** | On, Off | The line between the top line and the page (on by default): with **Invert colors** a thin black line below it; on the black top line its black edge below the highlighted places (Off: they reach down to its edge). 2 px on the 4.2". |
-| **Left**, **Middle**, **Right** | Title, Pages, Uptime, Time, None | What stands where. Choosing what already stands in another place swaps the two. None = nothing there. Default: Title, Time, Pages. |
+| **Color highlight** | On, Off | Only with **Invert colors** on a colour panel: the highlighted places in the third colour (red or yellow) with white text, on yellow black text. |
+| **Fill gaps** | On, Off | Only with **Invert colors** and **Color highlight** on a colour panel: the whole top line in the third colour (red or yellow), every place drawn like a highlighted one, no gaps between them; the **Highlight** ticks then have no effect. Off by default. (On black/white it would be the same as switching **Invert colors**.) |
+| **Divider line** | On, Off | The line between the top line and the page (off by default): with **Invert colors** a thin black line below it; on the black top line its black edge below the highlighted places (Off: they reach down to its edge). 2 px on the 4.2". |
+| **Left**, **Middle**, **Right** | Title, Pages, Uptime, Time, None | What stands where. Choosing what already stands in another place swaps the two. None = nothing there. Default: Time, Title, Uptime. |
 | **Highlight** | tick, for each place | The place in the opposite colours: black text on a white box (with **Invert colors**: white on black). |
 
 The time page has no top line unless the Time card's **Header** is ticked.
 
-<img src="examples/example_05_2-13_drives_page_red_filled_header.png" alt="Drive page on a 2.13″ display with Fill gaps: the whole top line red" width="400">
+<img src="examples/example_03_2-13_system_page_inverted.png" alt="System page on a 2.13″ black/white display with a white top line (Invert colors)" width="400">
 
 - **Pages** is the page number (e.g. 1/3), only with more than one page. **Uptime** is how long the NAS server has
   been running. **Time** is when the data were sent.
@@ -529,7 +531,7 @@ The time page has no top line unless the Time card's **Header** is ticked.
 | Setting | Options | Notes |
 |---|---|---|
 | **Ink** | tick | Shows the system page on the display or not; its settings stay. |
-| **Components** | CPU, RAM, Network, NVMe, SSD, HDD, any combination | The ticked rows form an extra page (by default the first); none = no system page. The number of drives of each type is shown in brackets. HDD needs [drive-temp-export](#hdd-temperatures). |
+| **Components** | CPU, RAM, Network, NVMe, SSD, HDD, any combination | The ticked rows form an extra page (by default after the time page); none = no system page. The number of drives of each type is shown in brackets. HDD needs [drive-temp-export](#hdd-temperatures). |
 | **Network** | Default, the interfaces found | The interface shown; Default = the one with the default route. |
 | **ZFS RAM cache** | On, Off | Off: no grey part in the RAM bar, the cache counts as free. |
 | **HDD asleep** | --, STBY | What the HDD row shows for a hard disk that is asleep. The same setting as **Asleep** in the Drives card. |
@@ -554,11 +556,13 @@ The time page has no top line unless the Time card's **Header** is ticked.
 | **Order and visibility by** | Pool, UID, Device, Custom (▲▼) | The tick next to each disk shows or hides it on this display. Names like sda can change after a reboot, so Pool, UID and Custom use the serial number (UID); Device orders by name. |
 
 <img src="examples/example_04_2-13_drives_page_highlight.png" alt="Drive page on a 2.13″ display with three rows: the pool above 85 % in red, percentages with two decimals, spindown badges" width="400">
+<img src="examples/example_05_2-13_drives_page_rings.png" alt="Drive page on a 2.13″ black/white display with four rows and the spindown timer as rings" width="400">
 <img src="examples/example_08_4-2_drives_page_three_rows.png" alt="Drive page on a 4.2″ display with three big rows" width="400">
 
 ### Network card
 
 <img src="examples/example_11_4-2_network_page.png" alt="Network page on a 4.2″ display: download, upload and link speed per interface" width="400">
+<img src="examples/example_12_4-2_network_page_percentage.png" alt="Network page on a 4.2″ display without symbols: how busy each link is in percent" width="400">
 
 Pages with one row per network interface (by default after the drive pages), as many rows per page as the drive pages.
 
@@ -578,8 +582,7 @@ are left out.
 
 ### Time card
 
-A page with the time in big, below it the weekday and the date (each when ticked); by default after the network
-pages. **Ink** switches it on or off. 12 or 24 hours: **Time format** in the Display card.
+A page with the time in big, below it the weekday and the date (each when ticked); by default the first page. **Ink** switches it on or off. 12 or 24 hours: **Time format** in the Display card.
 
 <img src="examples/example_14_4-2_time_page.png" alt="Time page on a 4.2″ display: the time in big, weekday and date below, no top line" width="400">
 <img src="examples/example_15_2-13_time_page_12h.png" alt="Time page on a 2.13″ display in 12 hours with PM" width="400">
@@ -591,6 +594,8 @@ pages. **Ink** switches it on or off. 12 or 24 hours: **Time format** in the Dis
 | **Show** | Date, Weekday, Header | Below the time the date and the weekday short (`Mon`). **Header** (off by default): the time page with the top line; off, it has none (the other pages keep theirs). With **Just give me time** (Advanced Ink) it decides whether the display has a top line at all. |
 | **NTP** | On, Off | Off (default): the local time of the NAS server, which comes with every update; the board counts on by itself, so the time stays right between updates. On (boards with WiFi only): the board sets its clock from the NTP server itself. |
 | **NTP server** | e.g. `pool.ntp.org`, `0.pool.ntp.org` … `3.pool.ntp.org`, or any name or IP address | Only with NTP. A click on the field lists the pool servers. |
+| **Color highlight** | tick | Colour panels only: the time in the third colour (red or yellow); weekday and date stay black. |
+| **Time frame** | tick | Only with **Color highlight**: a black outline around the digits of the time, so a light colour such as yellow stays easy to read. |
 
 The time in the top line always is the time of the last update from the NAS server. A black/white panel redraws
 the time page every minute (without flashing); a colour panel redraws at most every 3 minutes, so its clock moves on
@@ -662,7 +667,7 @@ Then reload the settings page in the browser (Ctrl+F5). New firmware: upload it 
 
 ## System page
 
-One extra page (by default the first) with the ticked rows; sizes like a drive page with as many rows:
+One extra page (by default after the time page) with the ticked rows; sizes like a drive page with as many rows:
 
 | Row | Left | Middle | Right | Bar |
 |---|---|---|---|---|
@@ -733,7 +738,7 @@ SSD and NVMe temperatures do not need it.
   stays: that is when the last data came. With the next fresh data the pages come back. Reasons: the board is
   unplugged or the NAS server is off, the script or the settings page does not run, or a WiFi board lost its WiFi.
 
-  <img src="examples/example_16_2-13_upright_no_connection.png" alt="A 2.13″ display upright without fresh data: NO DATA in the top line, Check connection below the empty table" width="244">
+  <img src="examples/example_16_2-13_no_connection.png" alt="A 2.13″ display without fresh data: NO DATA in the top line, Check connection below the empty table" width="400">
 
 - **Nothing to ink.** With every page of a display switched off (no system, drive, network, time or WiFi page), it shows
   **Nothing to ink** below a picture of three people at a table, so it never looks broken.
@@ -783,7 +788,7 @@ stored); a panel with fast refresh adds `fast=1`.
 | `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, timer, ring direction, symbols, details in the bar, fast refresh, uptime, uptime months, WiFi page, no data after, header layout, drive pages, network details, network symbols, drive temperatures, asleep, header inverted, header colour, time format, screens, divider line, page order, time page header, header fill] | The last twenty-three are optional: timer 0 badge / 1 ring; ring direction 0 clockwise / 1 counterclockwise; symbols 1 on / 0 off; details in the bar 0 none / 1 percentage / 2 used capacity; fast refresh in seconds, 0 = off; uptime in minutes after the full calendar months, -1 = none; full calendar months; WiFi page 0 off / 1 with symbols / 2 without; seconds without fresh data before "NO DATA", 0 = never; header left, middle, right as three letters: `T` title, `P` page number, `U` uptime, `C` time, `-` nothing, lower case = highlighted (default `TCP`, `---` = no top line); drive pages 1 on / 0 off (with no system or network page either: "Nothing to ink"); network pages: details in the bar 0 none / 1 percentage / 2 link speed, symbols 1 on / 0 off; drive temperatures 1 on / 0 off (the D lines then carry them); asleep hard disks 1 `STBY` / 0 `--`; top line 1 inverted (white) / 0 black; inverted top line: highlighted places 1 in the third colour / 0 black; time format 0 24 hours / 1 12 hours with AM/PM / 2 12 hours without; screens shown when needed 1 start screen + 2 Nothing to ink + 4 Check connection (default 7); divider line below the top line 1 / none 0 (default 1); page order: `S` system, `D` drives, `N` network, `T` time, `W` WiFi, each once (default `SDNTW`); time page with the top line 1 / without 0 (default 0); top line filled in the third colour 1 / 0 (default 0, sent only with header inverted and header colour). |
 | `D` | device, pool, used, total, percent, filled boxes, total boxes, state, seconds until spindown, timeout seconds [, °C] | °C only with drive temperatures on, -1 = unknown, -2 = asleep (older firmware shows `--`). The boxes are no longer drawn. Seconds until spindown -1 = timer not running. State: `A` spinning, `S` asleep, `N` SSD/NVMe, `?` unknown, `-` timer off (HDDs only). Percent may have one or two decimals (cut) for the text in the bar; -1 = no pool and nothing mounted (total = the size of the disk, or `-`). |
 | `S` | rows, CPU %, CPU °C, CPU W, RAM used MiB, ZFS cache MiB, RAM total MiB, interface, down KiB/s, up KiB/s, link Mb/s, NVMe °C,…, SSD °C,… | Only with the system page. Rows: `C` CPU, `R` RAM, `N` network, `V` NVMe, `S` SSD, `H` HDD (temperatures in the `T` line), `I` = symbols on, `W` = the interface is wireless, `D` / `L` = it is down / has no link. -1 = unknown, `-` = none; at most six temperatures each. |
-| `C` | local date and time `YYYYMMDDHHMMSS`, date 1/0, weekday 1/0, date format 0–3, NTP 1/0, NTP server, POSIX time zone | Only with the time page; without NTP the board counts on from the date and time; server and zone `-` without NTP. |
+| `C` | local date and time `YYYYMMDDHHMMSS`, date 1/0, weekday 1/0, date format 0–3, NTP 1/0, NTP server, POSIX time zone [, time in the third colour 1/0, black outline 1/0] | Only with the time page; without NTP the board counts on from the date and time; server and zone `-` without NTP. The outline only with the colour; both only on colour panels. |
 | `T` | HDD °C,… | After the `S` line, only with the HDD row and drive-temp-export running; -1 = unknown, -2 = asleep, at most six. |
 | `N` | interface, down KiB/s, up KiB/s, link Mb/s, wireless 1/0, state | Only with the network pages, one per interface, at most 8. State: `U` up, `L` no link, `D` down. |
 | `P` | CS, D/C, Reset, Busy [, panel] | Only when pins or the panel type are set on the settings page. Pin numbers of the board (D numbers on the SAMD21, GPIO numbers on the ESP32 boards). New values → store and restart. |

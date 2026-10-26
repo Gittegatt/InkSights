@@ -94,6 +94,9 @@
   const SERVER_RE = /^https?:\/\/[^\s|]{1,120}$/;
   const DEFAULT_WARN = 85;
   const DEFAULT_PAGE = 600;
+  // a new display: header with the time left, the title in the middle, the uptime right; the pages
+  // time, system, drives, network, WiFi (user)
+  const NEW_LAYOUT = "CTU", NEW_PAGE_ORDER = "TSDNW";
   const DEFAULT_AP_SSID = "InkSights";
   const DEFAULT_AP_PASS = "ink!1234";
   const DEFAULT_AP_DELAY = 30, MAX_AP_DELAY = 3600;   // seconds without WiFi before the access point opens
@@ -124,7 +127,6 @@
   const NTP_RE = /^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$/;
   const DATE_FORMATS = [[0, "26 Oct 2026"], [1, "2026-10-26"], [2, "10/26/2026"], [3, "26.10.2026"]];
   // the zone of this browser when it is in the list, else UTC
-  const homeZone = (() => { try { const z = Intl.DateTimeFormat().resolvedOptions().timeZone; return ZONES.some(([n]) => n === z) ? z : "UTC"; } catch (e) { return "UTC"; } })();
   const refreshMins = s => Math.max(1, Math.floor(s.refresh / 60));   // a refresh under a minute counts as 1 minute
   const IFACE_RE = /^(?!-$)[A-Za-z0-9._-]{1,15}$/;
   const PREFS = "inksights-ui";   // folded sections; per browser only
@@ -223,7 +225,7 @@
     // the settings of a display with defaults for anything missing or unusable (changed in place)
     function normalize(s) {
       if (!Array.isArray(s.types)) s.types = [...ALL_TYPES];
-      if (typeof s.boxes !== "number") s.boxes = 10;
+      if (typeof s.boxes !== "number") s.boxes = 0;   // spindown timer off
       if (typeof s.rows !== "number") s.rows = 0;
       if (!SORTS.some(([v]) => v === s.sort)) s.sort = "pool";
       if (!Array.isArray(s.order)) s.order = [];
@@ -237,17 +239,17 @@
       if (typeof s.dname !== "string") s.dname = "";
       // header: left, middle, right (T title, P page number, U uptime, C time, - nothing); without
       // one (earlier version) as before: title, time, then the page number or the uptime
-      if (!EPD.layoutOk(s.layout)) s.layout = s.headerUp === 1 ? "TCU" : EPD.DEFAULT_LAYOUT;
+      if (!EPD.layoutOk(s.layout)) s.layout = s.headerUp === 1 ? "TCU" : NEW_LAYOUT;
       // a new display: header and system page (all components) on, disk and WiFi pages off
-      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 0], ["barCap", 0], ["zfs", 1], ["showSys", 1], ["showDisks", 0], ["sysIcons", 1], ["showWifi", 0], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 0], ["netIcons", 1], ["driveTemp", 0], ["stby", 0], ["headInv", 0], ["headCol", 0], ["timeFmt", 0], ["ampm", 1], ["showTime", 0], ["timeDate", 1], ["timeWday", 1], ["ntp", 0], ["inkSplash", 1], ["inkNothing", 1], ["inkNoData", 1], ["lineBottom", 1], ["justTime", 0], ["timeHead", 0], ["headFill", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
-      if (!EPD.orderOk(s.pageOrder)) s.pageOrder = EPD.PAGE_ORDER;   // the page order: S system, D drives, N network, T time, W WiFi
-      if (![0, 1, 2, 3].includes(s.dateFmt)) s.dateFmt = 0;   // time page: 26 Oct 2026, ISO, US, German
+      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 1], ["barCap", 0], ["zfs", 0], ["showSys", 1], ["showDisks", 1], ["sysIcons", 1], ["showWifi", 1], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 1], ["netIcons", 1], ["driveTemp", 1], ["stby", 1], ["headInv", 0], ["headCol", 0], ["timeFmt", 0], ["ampm", 1], ["showTime", 1], ["timeDate", 1], ["timeWday", 1], ["ntp", 0], ["inkSplash", 1], ["inkNothing", 1], ["inkNoData", 1], ["lineBottom", 0], ["justTime", 0], ["timeHead", 0], ["headFill", 0], ["timeColor", 0], ["timeFrame", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      if (!EPD.orderOk(s.pageOrder)) s.pageOrder = NEW_PAGE_ORDER;   // the page order: S system, D drives, N network, T time, W WiFi
+      if (![0, 1, 2, 3].includes(s.dateFmt)) s.dateFmt = 1;   // time page: 26 Oct 2026, ISO, US, German
       if (typeof s.ntpServer !== "string" || !NTP_RE.test(s.ntpServer)) s.ntpServer = NTP_SERVERS[0];
-      if (!ZONES.some(([n]) => n === s.tz)) s.tz = homeZone;
+      if (!ZONES.some(([n]) => n === s.tz)) s.tz = "UTC";
       s.tzPosix = ZONES.find(([n]) => n === s.tz)[1];
-      if (![0, 1, 2].includes(s.pctDec)) s.pctDec = 0;   // decimals of the percentage in the drive bars
+      if (![0, 1, 2].includes(s.pctDec)) s.pctDec = 1;   // decimals of the percentage in the drive bars
       // network pages: details in the bar 0 none / 1 percentage / 2 link speed, order by name or custom, hidden interfaces
-      if (![0, 1, 2].includes(s.netBar)) s.netBar = 0;
+      if (![0, 1, 2].includes(s.netBar)) s.netBar = 1;
       if (s.netSort !== "manual") s.netSort = "name";
       if (!Array.isArray(s.netOrder)) s.netOrder = [];
       if (!Array.isArray(s.netHidden)) s.netHidden = [];
@@ -352,7 +354,8 @@
     }
     // the frame of a display from its settings and state st (state.json, or simulated live values)
     function buildFor(entry, st) {
-      const s = settingsFor(entry.id), title = (s.name || st.host || "SYSTEM").slice(0, 12);
+      const s0 = settingsFor(entry.id), title = (s0.name || st.host || "SYSTEM").slice(0, 12);
+      const s = boardOf(entry.live).wifi ? s0 : { ...s0, showWifi: 0 };   // a board without WiFi has no WiFi page
       return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st));
     }
     // date and time of the data YYYYMMDDHHMMSS: the day of the update, the time it shows
@@ -577,7 +580,7 @@
         ...ifNames.map(n => el("option", { value: n, selected: n === s.net }, n)));
 
       // ZFS cache on the system page: shown (grey part of the RAM bar) or hidden (counted as free)
-      const zfsBox = el("div", { class: "choices" }, el("span", { class: "check" }, "ZFS RAM cache"),
+      const zfsBox = el("div", { class: "field" }, el("span", { class: "label" }, "ZFS RAM cache"),
         radios("zfs", [[1, "On"], [0, "Off"]], s.zfs, v => { s.zfs = v; }));
       const setDisabled = (box, off) => box.querySelectorAll("input").forEach(i => { i.disabled = off; });
       // 12 hours: AM / PM shown or not (Display card)
@@ -590,7 +593,7 @@
         s.stby = v;
         document.querySelectorAll(`input[name="stbyd-${id}"], input[name="stbys-${id}"]`).forEach(i => { i.checked = Number(i.value) === v; });
       };
-      const stbySys = el("div", { class: "choices" }, el("span", { class: "check" }, "HDD asleep"),
+      const stbySys = el("div", { class: "field" }, el("span", { class: "label" }, "HDD asleep"),
         radios("stbys", [[0, "--"], [1, "STBY"]], s.stby, pickStby));
       setDisabled(stbySys, !s.sys.includes("hdd"));
       // components as checkboxes, like the disk types; the drive counts in brackets
@@ -661,19 +664,23 @@
       // Ink: the WiFi page on the display (network and address); the WiFi settings apply either way
       const wifiCard = board.wifi ? subCard("wifiOpen", "WiFi", false, "showWifi",
         el("p", { class: "note" }, wifiState),
-        field("Icons", radios("wifiicons", [[1, "On"], [0, "Off"]], s.wifiIcons, v => { s.wifiIcons = v; })),
-        el("form", { class: "wifi-grid", autocomplete: "off", onsubmit: e => e.preventDefault() },   // a form, so browsers handle the password fields properly
-          wifiInput("ssid", "WiFi network", { maxlength: "32" }),
-          wifiInput("pass", "Password", { type: "password", maxlength: "63", value: "", placeholder: w.passSet ? "unchanged" : "" }),
-          wifiInput("server", "Settings page", { maxlength: "120", placeholder: backend.serverAddress || "http://hostname:8099" }),
-          wifiInput("host", "Host name", { maxlength: "32", placeholder: `inksights-${id.toLowerCase()}` }),
+        // framed: the symbols of the WiFi page, the WiFi network, the setup access point
+        el("div", { class: "field boxed" },
+          field("Icons", radios("wifiicons", [[1, "On"], [0, "Off"]], s.wifiIcons, v => { s.wifiIcons = v; }))),
+        el("form", { class: "wifi-form", autocomplete: "off", onsubmit: e => e.preventDefault() },   // a form, so browsers handle the password fields properly
+          el("div", { class: "wifi-grid boxed" },
+            wifiInput("ssid", "WiFi network", { maxlength: "32" }),
+            wifiInput("pass", "Password", { type: "password", maxlength: "63", value: "", placeholder: w.passSet ? "unchanged" : "" }),
+            wifiInput("server", "Settings page", { maxlength: "120", placeholder: backend.serverAddress || "http://hostname:8099" }),
+            wifiInput("host", "Host name", { maxlength: "32", placeholder: `inksights-${id.toLowerCase()}` })),
+          el("div", { class: "wifi-grid boxed" },
           field("Setup access point", radios("apon", [[true, "On"], [false, "Off"]], w.apOn, v => { w.apOn = v; })),
           el("label", { class: "field" }, el("span", { class: "label" }, "Access point after (s)"),
             el("input", { type: "number", min: "0", max: String(MAX_AP_DELAY), step: "1", value: String(w.apDelay),
               style: "max-width: 7em", oninput: e => {
                 w.apDelay = /^\d{1,4}$/.test(e.target.value) ? Number(e.target.value) : NaN; changed(); } })),
           wifiInput("apSsid", "Access point name", { maxlength: "32", placeholder: DEFAULT_AP_SSID }),
-          wifiInput("apPass", "Access point password", { type: "password", maxlength: "63", value: "", placeholder: w.apPassSet ? "unchanged" : DEFAULT_AP_PASS }))) : null;
+          wifiInput("apPass", "Access point password", { type: "password", maxlength: "63", value: "", placeholder: w.apPassSet ? "unchanged" : DEFAULT_AP_PASS })))) : null;
 
       // details in the bar: percentage or used capacity (only while "Details in bar" is on)
       // decimals of the percentage (only while the percentage stands in the bar)
@@ -685,10 +692,10 @@
       setDisabled(stbyBox, !s.driveTemp);
       // Disks: disk types | spindown timer, color highlight, then the order and visibility of the disks
       const disksCard = subCard("disksOpen", "Drives", true, "showDisks",
+        el("fieldset", { class: `set-${id}` },
+          el("div", { class: "field boxed" }, el("span", { class: "label" }, "Drive types"), el("div", { class: "choices" }, ...types))),
         el("div", { class: "pair" },
           el("div", { class: "col group-col" },
-            el("fieldset", { class: `set-${id}` },
-              field("Drive types", el("div", { class: "choices" }, ...types))),
             field("Icons", radios("icons", [[1, "On"], [0, "Off"]], s.icons, v => { s.icons = v; })),
             field("Details in bar", radios("pctbar", [[1, "On"], [0, "Off"]], s.pctBar, v => { s.pctBar = v; setDisabled(capBox, !v); setDisabled(decBox, !v || s.barCap); })),
             capBox,
@@ -724,12 +731,15 @@
         if (s.netBar) s.netBar = v;
       }));
       setDisabled(netKindBox, !s.netBar);
+      // framed: the symbols, the details in the bar, the order
       const netCard = subCard("netOpen", "Network", true, "showNet",
-        el("div", { class: "pair" },
-          field("Icons", radios("neticons", [[1, "On"], [0, "Off"]], s.netIcons, v => { s.netIcons = v; })),
-          el("div", { class: "col" },
-            field("Details in bar", radios("netbar", [[1, "On"], [0, "Off"]], s.netBar ? 1 : 0, v => { s.netBar = v ? netKind : 0; setDisabled(netKindBox, !v); })),
-            netKindBox)),
+        el("div", { class: "form" },
+          el("div", { class: "field wide boxed" },
+            field("Icons", radios("neticons", [[1, "On"], [0, "Off"]], s.netIcons, v => { s.netIcons = v; }))),
+          el("div", { class: "field wide boxed" },
+            el("div", { class: "choices header-sec" },
+              field("Details in bar", radios("netbar", [[1, "On"], [0, "Off"]], s.netBar ? 1 : 0, v => { s.netBar = v ? netKind : 0; setDisabled(netKindBox, !v); })),
+              netKindBox))),
         el("fieldset", { class: `set-${id}` },
           el("details", { class: "fold boxed field", open: pref(id, "netOrderOpen", true), ontoggle: e => setPref(id, "netOrderOpen", e.target.open) },
             el("summary", {}, "Order and visibility by"),
@@ -741,16 +751,19 @@
             el("ol", { class: "order", id: `nord-${id}`, "aria-label": `Network interface order of display ${id}` }))));
 
       // System page: components, network interface, ZFS cache
+      // framed: the components, the settings of single rows, the symbols
       const sysCard = subCard("sysOpen", "System", true, "showSys",
         el("fieldset", { class: `set-${id}` },
-          el("div", { class: "field" },
-            el("span", { class: "label" }, "Components"),
-            el("div", { class: "choices" }, ...sysChecks),
-            el("div", { class: "choices" },
-              el("label", { class: "check" }, "Network ", netSel),
-              zfsBox,
-              stbySys)),
-          field("Icons", radios("sysicons", [[1, "On"], [0, "Off"]], s.sysIcons, v => { s.sysIcons = v; }))));
+          el("div", { class: "form" },
+            el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Components"),
+              el("div", { class: "choices" }, ...sysChecks)),
+            el("div", { class: "field wide boxed" },
+              el("div", { class: "choices header-sec" },
+                el("label", { class: "field" }, el("span", { class: "label" }, "Network"), netSel),
+                zfsBox,
+                stbySys)),
+            el("div", { class: "field wide boxed" },
+              field("Icons", radios("sysicons", [[1, "On"], [0, "Off"]], s.sysIcons, v => { s.sysIcons = v; }))))));
 
       // Header: what stands left, in the middle and right (s.layout, a lower-case letter = that place
       // highlighted). Picking what already stands in another place swaps the two, so nothing can
@@ -778,7 +791,7 @@
       });
       syncLayout();
       // inverted header: the highlighted places in the third colour (only panels with one)
-      const colBox = field("Highlight color", radios("headcol", [[1, "On"], [0, "Off"]], s.headCol, v => { s.headCol = v; fillOk(); }));
+      const colBox = field("Color highlight", radios("headcol", [[1, "On"], [0, "Off"]], s.headCol, v => { s.headCol = v; fillOk(); }));
       setDisabled(colBox, !s.headInv || panel.colors === 2);
       // Fill gaps: the whole header in the third colour; only then something new (on black/white it
       // would be the same as switching Invert colors), so only with Invert colors and Highlight color
@@ -791,20 +804,20 @@
         radios("linebottom", [[1, "On"], [0, "Off"]], s.lineBottom, v => { s.lineBottom = v; }));
       const headerCard = subCard("headerOpen", "Header", true, "showHeader",
         el("fieldset", { class: `set-${id}` },
-          // framed sections: Title, Colors, Divider line, Positions
+          // framed sections: Title, colors, Divider line, positions
           el("div", { class: "form" },
             el("label", { class: "field wide boxed" },
               el("span", { class: "label" }, "Title"),
               el("input", { type: "text", maxlength: "12", value: s.name, placeholder: state.host || "SYSTEM", autocomplete: "off", style: "max-width: 10em",
                 oninput: e => { s.name = e.target.value; setHeading(); redraw(); } })),
-            el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Colors"),
+            el("div", { class: "field wide boxed" },
               el("div", { class: "choices header-sec" },
                 field("Invert colors", radios("headinv", [[1, "On"], [0, "Off"]], s.headInv, v => {
                   s.headInv = v; setDisabled(colBox, !v || panel.colors === 2); fillOk(); })),
                 colBox,
                 fillBox)),
             botBox,
-            el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Positions"),
+            el("div", { class: "field wide boxed" },
               el("div", { class: "choices header-places" }, ...places.map((place, i) => el("div", { class: "field" },
                 el("span", { class: "label" }, place), layoutSel[i],
                 el("label", { class: "check" }, litBox[i], "Highlight"))))))));
@@ -895,6 +908,11 @@
         ...ZONES.map(([n]) => el("option", { value: n, selected: n === s.tz }, n.replace(/_/g, " "))));
       const ntpBox = field("NTP", radios("ntp", [[1, "On"], [0, "Off"]], s.ntp, v => { s.ntp = v; ntpIn.disabled = tzSel.disabled = !v; ntpList.hidden = true; }));
       if (!ntpOk) setDisabled(ntpBox, true);   // no WiFi: always the system time
+      const colorPanel = panel.colors !== 2;
+      const timeFrameTick = el("input", { type: "checkbox", checked: s.timeFrame === 1, disabled: !colorPanel || s.timeColor !== 1,
+        onchange: e => { s.timeFrame = e.target.checked ? 1 : 0; redraw(); } });
+      const timeColTick = el("input", { type: "checkbox", checked: s.timeColor === 1, disabled: !colorPanel,
+        onchange: e => { s.timeColor = e.target.checked ? 1 : 0; timeFrameTick.disabled = !s.timeColor; redraw(); } });
       const timeCard = subCard("timeOpen", "Time", false, "showTime",
         // framed sections: Time zone and Date format side by side with Show below (what the page shows),
         // and NTP with its server
@@ -915,7 +933,12 @@
           el("div", { class: "field wide boxed" },
             el("div", { class: "choices header-sec" },
               ntpBox,
-              el("label", { class: "field" }, el("span", { class: "label" }, "NTP server"), el("div", { class: "combo" }, ntpIn, ntpList))))));
+              el("label", { class: "field" }, el("span", { class: "label" }, "NTP server"), el("div", { class: "combo" }, ntpIn, ntpList)))),
+          // colour panels: the time in the third colour (the date stays black), with a black outline
+          el("div", { class: "field wide boxed" },
+            el("div", { class: "choices" },
+              el("label", { class: "check" }, timeColTick, "Color highlight"),
+              el("label", { class: "check" }, timeFrameTick, "Time frame")))));
       // Advanced Ink: the start screen, "Nothing to ink" and "Check connection" each shown when needed or
       // never (the board keeps the start screen setting for the next power-up)
       const screenTick = (key, label) => el("label", { class: "check" },

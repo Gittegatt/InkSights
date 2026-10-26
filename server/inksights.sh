@@ -99,7 +99,7 @@ LOG_LINES=2000           # the log keeps the last lines (about 150 KB in memory)
 LOG_MAX=262144           # bytes; above this the log is cut back to LOG_LINES
 USB_VIDS="2886 303a 239a" # USB vendor IDs: Seeed Studio (XIAO SAMD21), Espressif (ESP32 native USB), Adafruit (QT Py)
 ALL_TYPES="hdd,ssd,nvme"
-DEFAULT_BOXES=10
+DEFAULT_BOXES=0           # spindown timer off for a new display
 DEFAULT_WARN=85          # bar is highlighted from this % used
 DEFAULT_PAGE=600         # seconds between automatic page turns on the display, 0 = off
 WIFI_STALE=300           # a WiFi display that has not fetched its frame for this long is left out
@@ -342,7 +342,7 @@ fi
 #   <fast> <system> <network> <zfs> <pages> <system icons> <header> <panel> <wifi icons> <layout> <header on>
 #   <net sort> <net order> <net hidden> <net icons> <net bar> <drive temps> <stby> <header inverted> <header color> <refresh>
 #   <time format> <date> <weekday> <date format> <ntp> <ntp server> <time zone> <posix time zone>
-#   <start screen> <nothing to ink> <no connection> <divider line> <page order> <just time> <time header> <header fill>
+#   <start screen> <nothing to ink> <no connection> <divider line> <page order> <just time> <time header> <header fill> <time color> <time frame>
 #   types : hdd,ssd,nvme; - = none
 #   boxes : 0 = timer off, else on | rows : 0 = auto, 2 to 6 | sort : pool, uid, dev or manual
 #   order : uid,uid,... | warn : highlight from % used, 0 = never | rot : 0, 90, 180 or 270
@@ -382,6 +382,7 @@ fi
 #   just time : 1 = only the time page (the pages column stays as set), 0 = the pages column (default)
 #   time header : the time page with the header line 1 = yes, 0 = without (default; with just time: the header at all)
 #   header fill : 1 = the whole header in the colour of the highlighted boxes, 0 = only the boxes (default)
+#   time color, time frame : time page: the time in the third colour 1 / 0, with a black outline 1 / 0
 #   refresh : seconds between updates of this display: 2, 5, 10, 30 (fast refresh, black/white panels),
 #             60 ... 14400 (a full update that often); missing = the fast refresh, else the interval line
 # -----------------------
@@ -430,7 +431,7 @@ order_valid() {
 }
 
 if [[ -r "$CONF_FILE" ]]; then
-    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc; do
+    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc tcolc tframec; do
         name="${name%$'\r'}"; wappass="${wappass%$'\r'}"; wapdelay="${wapdelay%$'\r'}"
         fastc="${fastc%$'\r'}"; sysc="${sysc%$'\r'}"; netc="${netc%$'\r'}"; zfsc="${zfsc%$'\r'}"; pagesc="${pagesc%$'\r'}"; sysiconc="${sysiconc%$'\r'}"; headerc="${headerc%$'\r'}"; panelc="${panelc%$'\r'}"
         layoutc="${layoutc%$'\r'}"; headonc="${headonc%$'\r'}"
@@ -442,7 +443,8 @@ if [[ -r "$CONF_FILE" ]]; then
         pordc="${pordc%$'\r'}"
         justc="${justc%$'\r'}"
         theadc="${theadc%$'\r'}"
-        hfillc="${hfillc%%[$'\t\r']*}"   # last column: also cut anything after it
+        hfillc="${hfillc%$'\r'}"; tcolc="${tcolc%$'\r'}"
+        tframec="${tframec%%[$'\t\r']*}"   # last column: also cut anything after it
         # Just give me time: the header line as the Time card's Header tick says (default off)
         if [[ "$justc" == 1 ]]; then [[ "$theadc" == 1 ]] && headonc=1 || headonc=0; fi
         [[ "$id" =~ ^[0-9A-F]{8}$ ]] || continue
@@ -488,6 +490,9 @@ if [[ -r "$CONF_FILE" ]]; then
         [[ "$tdatec" == 0 ]] || tdatec=1
         [[ "$twdayc" == 0 ]] || twdayc=1
         [[ "$dfmtc" =~ ^[0-3]$ ]] || dfmtc=0
+        # time page: the time in the third colour, with a black outline (only with the colour)
+        [[ "$tcolc" == 1 ]] || tcolc=0
+        [[ "$tcolc" == 1 && "$tframec" == 1 ]] || tframec=0
         [[ "$ntpc" == 1 && "$ntpsc" =~ $NTP_RE && "$tzpc" =~ $TZPOSIX_RE ]] || { ntpc=0; ntpsc="-"; tzpc="-"; }
         # network pages: sort, order, hidden interfaces, symbols, details in the bar
         [[ "$nsortc" == manual ]] || nsortc=name
@@ -526,12 +531,12 @@ if [[ -r "$CONF_FILE" ]]; then
         # Advanced Ink: start screen 1, "Nothing to ink" 2, "Check connection" 4 shown when needed
         CFG_SCREENS[$id]=$(( (inksplc == 0 ? 0 : 1) | (inknotc == 0 ? 0 : 2) | (inkndc == 0 ? 0 : 4) ))
         # inverted header: the divider line at its bottom 1 / none 0
-        [[ "$lbotc" == 0 ]] && CFG_LINES[$id]=0 || CFG_LINES[$id]=1
+        [[ "$lbotc" == 1 ]] && CFG_LINES[$id]=1 || CFG_LINES[$id]=0
         order_valid "$pordc" && CFG_PORDER[$id]=$pordc   # the order of the pages
         [[ "$theadc" == 1 ]] && CFG_THEAD[$id]=1 || CFG_THEAD[$id]=0   # the time page with the header line (default without)
         # header filled in the third colour: only with the inverted header and Highlight color
         [[ "$hfillc" == 1 && "$headinvc" == 1 && "$headcolc" == 1 ]] && CFG_HFILL[$id]=1 || CFG_HFILL[$id]=0
-        CFG_CLOCK[$id]="$tdatec|$twdayc|$dfmtc|$ntpc|$ntpsc|$tzpc"
+        CFG_CLOCK[$id]="$tdatec|$twdayc|$dfmtc|$ntpc|$ntpsc|$tzpc|$tcolc|$tframec"
         CFG_SYS[$id]=$sysc
         CFG_NET[$id]=$netc
         CFG_ZFS[$id]=$zfsc
@@ -1173,7 +1178,7 @@ build_frame() {
     while (( n > 0 )) && [[ "${sv[n-1]}" == "${defs[n-1]}" ]]; do n=$((n - 1)); done
     for (( i = 0; i < n; i++ )); do head+="|${sv[i]}"; done
     FRAME=("#BEGIN" "$head")
-    # time page: C|<local date and time>|<date>|<weekday>|<date format>|<NTP>|<NTP server>|<POSIX zone>
+    # time page: C|<local date and time>|<date>|<weekday>|<date format>|<NTP>|<NTP server>|<POSIX zone>|<time in colour>|<outline>
     if [[ -n "$clock" ]]; then
         local dt
         printf -v dt '%(%Y%m%d%H%M%S)T' -1
@@ -1231,8 +1236,9 @@ build_frame() {
 frame_for() {
     local id="$1" fastcap="$2" devpins="${3:-}" title="${CFG_NAME[$1]:-}" fast=0 types="${CFG_TYPES[$1]-$ALL_TYPES}" sysp="${CFG_SYS[$1]:-}"
     local pages=",${CFG_PAGES[$1]:-system,disks},"
-    # a display without settings yet: header and the system page with all components
-    [[ -z "${CFG_PAGES[$1]+set}" ]] && sysp="cpu,ram,net,nvme,ssd,hdd" pages=",system,"
+    # a display without settings yet: every page, the system page with all components (like a new
+    # display on the settings page)
+    [[ -z "${CFG_PAGES[$1]+set}" ]] && sysp="cpu,ram,net,nvme,ssd,hdd" pages=",system,disks,network,time,wifi,"
     local pins="${CFG_PINS[$1]:-}"
     (( fastcap )) && fast="${CFG_FAST[$id]:-0}"
     # "NO DATA" after two of its updates missed plus 2 minutes, at least 10 minutes
@@ -1246,15 +1252,15 @@ frame_for() {
     [[ "$pages" == *,disks,* ]] || types=""   # disk pages switched off
     [[ "$pages" == *,system,* ]] || sysp=""   # system page switched off
     local netp=""
-    [[ "$pages" == *,network,* ]] && netp="${CFG_NETP[$id]:-name;;;1;0}"   # network pages switched on
+    [[ "$pages" == *,network,* ]] && netp="${CFG_NETP[$id]:-name;;;1;1}"   # network pages switched on
     local clock=""
-    [[ "$pages" == *,time,* ]] && clock="${CFG_CLOCK[$id]:-1|1|0|0|-|-}"   # time page switched on
+    [[ "$pages" == *,time,* ]] && clock="${CFG_CLOCK[$id]:-1|1|1|0|-|-|0|0}"   # time page switched on
     build_frame "${title:-$HOST}" "$types" "${CFG_BOXES[$id]:-$DEFAULT_BOXES}" "${CFG_ROWS[$id]:-0}" \
         "${CFG_SORT[$id]:-pool}" "${CFG_ORDER[$id]:-}" "${CFG_WARN[$id]:-$DEFAULT_WARN}" "${CFG_ROT[$id]:-0}" \
-        "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-}" "${CFG_HIDDEN[$id]:-}" \
-        "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-1}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-0}" \
-        "${CFG_LAYOUT[$id]:-TCP}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-0}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}" "$nodata" \
-        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-1}" "${CFG_PORDER[$id]:-SDNTW}" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}"
+        "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-0,0,1,1,0,1}" "${CFG_HIDDEN[$id]:-}" \
+        "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-0}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-1}" \
+        "${CFG_LAYOUT[$id]:-CTU}" "$netp" "${CFG_DRIVETEMP[$id]:-1}" "${CFG_STBY[$id]:-1}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}" "$nodata" \
+        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-0}" "${CFG_PORDER[$id]:-TSDNW}" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}"
 }
 
 # Display with fast refresh: remember it (port or wifi) for the fast runs in between

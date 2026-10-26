@@ -176,6 +176,7 @@ td select { padding: 3px 6px; }
 .pct { display: inline-block; width: 3.2em; text-align: right; font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
 
 /* WiFi section */
+.wifi-form { display: grid; gap: 14px; }
 .wifi-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; }
 @media (max-width: 560px) { .wifi-grid { grid-template-columns: minmax(0, 1fr); } }
 .wifi-grid input[type="text"], .wifi-grid input[type="password"] { width: 100%; max-width: 16em; }
