@@ -55,7 +55,7 @@ Per drive one row:
 
 <img src="examples/example_07_4-2_drives_page.png" alt="Drive page on a 4.2″ display: symbols, pools, bars with the used capacity, temperatures and spindown rings" width="400">
 
-The top line shows the time, the title (default: name of the NAS server) and the uptime; the page number instead or
+The top line shows the time, the title (default: InkSights) and the uptime; the page number instead or
 as well, any order, highlighted or not, white on black or inverted, in the third colour on colour panels, or no top
 line at all (see [Header card](#header-card)). If not all drives fit on one page, the display turns pages by itself.
 Besides the drive pages a display can show a **system page** (see [System page](#system-page)), **network pages**
@@ -505,7 +505,7 @@ highlight, Fill gaps); **Divider line**; the places (Left, Middle, Right).
 | Setting | Options | Notes |
 |---|---|---|
 | **Ink** | tick | Shows the top line or not; its settings stay. Without it the rows get its room. "NO DATA" still shows it. |
-| **Title** | up to 12 characters | Empty = name of the NAS server (e.g. TRUENAS). |
+| **Title** | up to 12 characters | Empty = InkSights. |
 | **Invert colors** | On, Off | On: white top line with black text and a thin black line below it; highlighted places then black with white text. |
 | **Color highlight** | On, Off | Only with **Invert colors** on a colour panel: the highlighted places in the third colour (red or yellow) with white text, on yellow black text. |
 | **Fill gaps** | On, Off | Only with **Invert colors** and **Color highlight** on a colour panel: the whole top line in the third colour (red or yellow), every place drawn like a highlighted one, no gaps between them; the **Highlight** ticks then have no effect. Off by default. (On black/white it would be the same as switching **Invert colors**.) |
@@ -644,7 +644,11 @@ values (incl. when the server started; **Live values** = a running system: displ
 A display with **Connected** off shows what it draws when it gets no fresh data any more (NO DATA, Check connection), **No data** at a connected one the "Nothing to ink" screen (nothing to show), **Start screen** what it shows
 after power-up until the first data arrive. The simulated interfaces cover every case: wired, no cable, switched
 off, a bridge and WiFi. **Update notice · Test** shows the line about a new version (one version after the installed
-one, or after a skipped one). The Simulation card folds (the triangle next to its heading). The panel choices of the simulator also hold the
+one, or after a skipped one). **Versions** sets the version of the WebUI and of the script, and per display the version of its
+firmware: below the status line the page then shows which versions run, and a notice for every one that does
+not match the WebUI, with **Latest release** (the release page on GitHub). At the bottom of the page the card
+**About** shows the versions, links to the project, the license with the libraries used, and how to support the
+project. Both only in the simulator so far. The Simulation card folds (the triangle next to its heading). The panel choices of the simulator also hold the
 colour panels with yellow instead of red (preview only so far).
 Nothing is sent anywhere, except to a board on USB: the **USB** card at the bottom is the [USB setup](#usb-setup),
 plus **Send to display**: it sends what a simulated display gets to the real board, so the display shows it right

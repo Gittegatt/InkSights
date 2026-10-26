@@ -145,7 +145,8 @@
     if (!t) { const z = 2; fb.text(Math.trunc((W - textW("--:--") * z) / 2), HH + Math.trunc((H - HH - 7 * z) / 2), "--:--", BK, z); return; }
     const { main, ampm: ap } = clockText(t.h, t.mi, fmt > 0), ampm = fmt === 1 ? ap : "";
     const sub = [c.wday ? WDAYS[t.wd] : "", c.date ? dateText(t, c.dfmt) : ""].filter(Boolean).join(" ");
-    const parts = z => { const az = Math.max(1, Math.trunc(z / 3)), dz = Math.max(1, Math.trunc(z / 4));
+    // the date at about a third of the time (212x104: 2, 4.2": 4; user), smaller below while too wide
+    const parts = z => { const az = Math.max(1, Math.trunc(z / 3)), dz = Math.max(1, Math.trunc((z + 1) / 3));
       return { az, dz, w: textW(main) * z + (ampm ? z + textW(ampm) * az : 0), h: 7 * z + (sub ? 3 * dz + 7 * dz : 0) }; };
     let z = 1;
     while (z < 40) { const p = parts(z + 1); if (p.w > W - 8 || p.h > H - HH - 8) break; z++; }
@@ -516,7 +517,7 @@
     if (lay.g) drawTimer(fb, d, lay.boxX, y + lay.timerDy, lay.g, lay);
   }
 
-  // Uptime of the NAS server for the header: full calendar months plus the minutes after them; the
+  // Uptime of the server for the header: full calendar months plus the minutes after them; the
   // three biggest units from the first one that is not 0 ("1Y 2M 3W", "2M 1W 3d", "1W 5d 4h"),
   // fewer when room is short ("2M 1W", "2M"); Y year, M month, W week, d day, h hour, m minute
   const UP_UNITS = "YMWdhm";
@@ -548,7 +549,7 @@
   }
 
   // Header: three places (left, middle, right) as in m.layout: T title, P page number, U uptime of
-  // the NAS server, C time, - nothing (default TCP; "---" = no header line, the rows get its room).
+  // the server, C time, - nothing (default TCP; "---" = no header line, the rows get its room).
   // Left and right stand at the edges, the middle one centred but never into its neighbours; only
   // the title is cut, and where there is room the others leave 5 of its characters. "NO DATA"
   // stands in the place of the page number, else of the uptime, else in a free place (the middle

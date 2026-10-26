@@ -3,7 +3,7 @@
 # inksights.sh v1.0.0
 #
 # Collects drive status and system values (CPU, RAM, network, NVMe temperatures) on a Linux
-# NAS server and sends them to one or more e-paper displays (firmware: firmware/InkSights):
+# server and sends them to one or more e-paper displays (firmware: firmware/InkSights):
 # over USB serial to every connected board, and as a frame file for displays that fetch their
 # data over WiFi from the settings page.
 # Every display reports its chip ID; its settings (disk types, spindown timer, timer style,
@@ -101,6 +101,7 @@ USB_VIDS="2886 303a 239a" # USB vendor IDs: Seeed Studio (XIAO SAMD21), Espressi
 ALL_TYPES="hdd,ssd,nvme"
 DEFAULT_BOXES=0           # spindown timer off for a new display
 DEFAULT_WARN=85          # bar is highlighted from this % used
+DEFAULT_TITLE="InkSights" # title of the top line when the settings page sets none
 DEFAULT_PAGE=600         # seconds between automatic page turns on the display, 0 = off
 WIFI_STALE=300           # a WiFi display that has not fetched its frame for this long is left out
 TEMPS_EVERY=30           # seconds between NVMe / SSD temperature readings
@@ -985,7 +986,7 @@ month_days() {
     esac
 }
 
-# Uptime of the NAS server (header option), from /proc/uptime: UPTIME_MIN in minutes, split into
+# Uptime of the server (header option), from /proc/uptime: UPTIME_MIN in minutes, split into
 # full calendar months (UP_MONTHS, local time: a month after 31 Jan is 28/29 Feb, a month after
 # 15 Mar is 15 Apr) and the minutes after them (UP_REST)
 UPTIME_MIN="" UP_MONTHS=0 UP_REST=""
@@ -1255,7 +1256,7 @@ frame_for() {
     [[ "$pages" == *,network,* ]] && netp="${CFG_NETP[$id]:-name;;;1;1}"   # network pages switched on
     local clock=""
     [[ "$pages" == *,time,* ]] && clock="${CFG_CLOCK[$id]:-1|1|1|0|-|-|0|0}"   # time page switched on
-    build_frame "${title:-$HOST}" "$types" "${CFG_BOXES[$id]:-$DEFAULT_BOXES}" "${CFG_ROWS[$id]:-0}" \
+    build_frame "${title:-$DEFAULT_TITLE}" "$types" "${CFG_BOXES[$id]:-$DEFAULT_BOXES}" "${CFG_ROWS[$id]:-0}" \
         "${CFG_SORT[$id]:-pool}" "${CFG_ORDER[$id]:-}" "${CFG_WARN[$id]:-$DEFAULT_WARN}" "${CFG_ROT[$id]:-0}" \
         "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-0,0,1,1,0,1}" "${CFG_HIDDEN[$id]:-}" \
         "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-0}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-1}" \
@@ -1495,7 +1496,7 @@ if (( ${#PORTS[@]} == 0 )) && [[ -z "$(compgen -G "$WIFI_DIR/*.info")" ]]; then
     log "No display connected"
     if [ "$DRY_RUN" = true ]; then
         echo "===== no display connected - frame with all disks and the system page ====="
-        build_frame "$HOST" "$ALL_TYPES" "$DEFAULT_BOXES" 0 pool "" "$DEFAULT_WARN" 0 "$DEFAULT_PAGE" "" "" "" 0 "cpu,ram,net,nvme,ssd,hdd" ""
+        build_frame "$DEFAULT_TITLE" "$ALL_TYPES" "$DEFAULT_BOXES" 0 pool "" "$DEFAULT_WARN" 0 "$DEFAULT_PAGE" "" "" "" 0 "cpu,ram,net,nvme,ssd,hdd" ""
         printf '%s\n' "${FRAME[@]}"
     fi
 fi

@@ -38,6 +38,9 @@ p { margin: 0; }
 /* a newer release: text and its buttons in one framed line, wrapping on narrow screens */
 .update { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; border: 1px solid var(--accent); border-radius: var(--r); padding: 10px 14px; font-size: 0.92rem; }
 .update[hidden] { display: none; }
+.update.warn { border-color: var(--warn); justify-content: space-between; align-items: start; }   /* versions that do not match */
+.update .notes { display: grid; gap: 4px; }
+.status .warn, .meta .warn { color: var(--warn); }
 a.btn { display: inline-block; text-decoration: none; }
 .pill.on { color: var(--ok); }
 .card-head .redraw { margin-left: auto; align-self: center; }
@@ -112,6 +115,12 @@ input:disabled, select:disabled { opacity: 0.45; }
 /* own cards below a display card (Disks, System page, WiFi): the content of the fold */
 .sub-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; padding-top: 8px; }
 .sub-card { position: relative; }
+/* About: the card at the bottom of the page */
+.about-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 18px; margin: 0; font-family: var(--font-mono); font-size: 0.85rem; }
+.about-list dt { color: var(--muted); }
+.about-list dd { margin: 0; }
+.about-list .warn { color: var(--warn); }
+.about-text { margin: 0; color: var(--muted); font-size: 0.9rem; }
 .page-toggle { position: absolute; top: 16px; right: 20px; font-size: 0.9rem; }
 /* grip of a movable card: two horizontal lines left of "Ink" */
 .grip { position: absolute; top: 12px; right: 76px; width: 26px; height: 28px; padding: 0; border: 0; border-radius: var(--r);
@@ -196,6 +205,7 @@ input[type="password"] { font: inherit; color: var(--fg); background: var(--bg);
 .sim-hw { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; min-width: 0; }
 .sim-hw + .sim-hw { border-top: 1px solid var(--line); padding-top: 10px; }
 .sim-hw .sim-id { flex-basis: 100%; }
+.sim-hw .sim-break { flex-basis: 100%; height: 0; }
 .sim-f { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 100%; }
 .sim-f > .label { white-space: nowrap; }
 .sim-f select, .sim-f input { max-width: 100%; }

@@ -8,12 +8,12 @@
  * or 4.2" black / white. The panel type is chosen on the settings page (saved on the board, like
  * the pins); every firmware drives all of them.
  *
- * Gets the drive status from the NAS server over USB (virtual COM port) or, on the ESP32
+ * Gets the drive status from the server over USB (virtual COM port) or, on the ESP32
  * boards, over WiFi (it fetches its frame from the settings page about every 30 s, with fast refresh as often as that), and
  * shows it on the e-paper. Per disk:
  *   symbol (chip = SSD/NVMe, grey disc = spinning, light disc = asleep) | device | pool | used/total
  *   usage bar (free = grey raster, optional percentage inside) | spindown timer (badge or ring)
- * Rows per page, timer style, highlight threshold etc. come from the NAS server (settings web page).
+ * Rows per page, timer style, highlight threshold etc. come from the server (settings web page).
  * The drawing is the same, pixel for pixel, as server/web/inksights-render.js (preview on the
  * settings page and the simulator). When the layout changes, change both.
  *
@@ -53,7 +53,7 @@
  *     ringdir: 0 = clockwise (default), 1 = counterclockwise
  *     icons  : 1 = symbols left of the bar (default), 0 = off
  *     pct    : details inside the bar: 1 = percentage, 2 = used capacity, 0 = off (default)
- *     uptime : (13th field) uptime of the NAS server, shown in the header instead of the page
+ *     uptime : (13th field) uptime of the server, shown in the header instead of the page
  *              number ("2M 1W 3d", "3d 4h 5m"): minutes after the full calendar months; missing / -1 =
  *              page number
  *     months : (14th field) full calendar months of the uptime, missing = 0
@@ -95,7 +95,7 @@
  *                              (optional) the time page: the time in big (color: in the third
  *                              colour, frame: with a black outline; colour panels), below it
  *                              weekday and date (0: 26 Oct 2026, 1: 2026-10-26, 2: 10/26/2026,
- *                              3: 26.10.2026). The local time of the NAS server, counted on by the
+ *                              3: 26.10.2026). The local time of the server, counted on by the
  *                              board; with ntp (boards with WiFi) its own clock from that server in
  *                              that time zone. The header always shows the time of the frame.
  *   N|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<wireless 1/0>|<state U / L / D>
@@ -125,7 +125,7 @@
  *                              -1 = unknown, "-" = none, at most 6 temperatures each
  *   T|<HDD C,...>              (optional, after the S line) HDD temperatures of the system page,
  *                              -1 = unknown ("--"), -2 = asleep ("--" or "STBY", like the D lines);
- *                              only when drive-temp-export runs on the NAS server
+ *                              only when drive-temp-export runs on the server
  *   P|<cs>|<dc>|<rst>|<busy>[|<panel>]
  *                              (optional) pin numbers of the board (D numbers on the SAMD21, GPIO
  *                              numbers on the ESP32 boards), rst/busy -1 = not connected, and
@@ -145,7 +145,7 @@
  *              apssid=<hex> apdelay=<s> pass=<1|0>]"   (fast=1: the panel can do fast refreshes; WiFi
  *              boards: the stored WiFi settings, texts UTF-8 hex encoded and only when set, never the
  *              passwords: pass=1 only says one is stored)
- *     The chip ID differs on every board. The NAS server uses it to tell which display
+ *     The chip ID differs on every board. The server uses it to tell which display
  *     gets which settings. It is shown on the start screen after power-up.
  *
  * Start screen: after power-up the display shows ID, board, panel, pins, WiFi and firmware
@@ -193,9 +193,9 @@ const char FW_VERSION[]   = "1.0";             // shown on the start screen and 
 
 // Default control pins: per board in BoardProfile.h
 
-const int      WARN_PCT       = 85;        // highlight bar and numbers from here, unless the NAS server says otherwise
+const int      WARN_PCT       = 85;        // highlight bar and numbers from here, unless the server says otherwise
 const uint32_t MIN_REFRESH_MS = 180000UL;  // redraw at most every 3 min (full refresh only, spares the panel)
-const uint32_t PAGE_SECS      = 600;       // automatic page turn, unless the NAS server says otherwise
+const uint32_t PAGE_SECS      = 600;       // automatic page turn, unless the server says otherwise
 const uint32_t FULL_REFRESH_MS = 600000UL; // fast refresh: a full refresh at least this often (against ghosting)
 
 #if HAS_WIFI
@@ -292,7 +292,7 @@ struct Disk {
 struct Head {
   uint8_t  rows, warn, rot, timer, ringDir, icons, pctBar, fast;
   uint32_t page;
-  int32_t  uptime;   // header: uptime of the NAS server instead of the page number, minutes after the
+  int32_t  uptime;   // header: uptime of the server instead of the page number, minutes after the
                      // full months, -1 = page number
   uint16_t upMonths; // full calendar months of the uptime
   uint32_t noData;   // seconds without fresh data before "NO DATA" is shown, 0 = never
@@ -399,7 +399,7 @@ bool     fromWifi = false;    // the line being handled came over WiFi
 
 // Layout constants (pixels; default font = 5x7 in a 6x8 cell)
 const int16_t HEADER_H      = 11;
-const int16_t ROW_H_AUTO    = 22;   // row height when the NAS server sends no row count
+const int16_t ROW_H_AUTO    = 22;   // row height when the server sends no row count
 const int16_t ROW_H_MIN     = 17;
 const int16_t ROW_H_WIDE    = 34;   // 4.2" landscape: automatic = 8 rows (9 were too many)
 const int16_t ROW_H_UPRIGHT = 32;   // small panels turned upright
@@ -456,13 +456,13 @@ char rxTime[6]    = "";
 ClockCfg clockCfg;              // time page shown (on = false: none)
 ClockCfg rxClock;               // being received
 char     rxClockDt[15] = "";    // its date and time YYYYMMDDHHMMSS
-int32_t  sysDays = 0, sysSecs = 0;   // the local time of the NAS server at sysAtMs: days since 1970, seconds of the day
+int32_t  sysDays = 0, sysSecs = 0;   // the local time of the server at sysAtMs: days since 1970, seconds of the day
 uint32_t sysAtMs = 0;
 bool     sysClockSet = false;
 uint32_t shownClockMin = 0xFFFFFFFFUL;   // minute shown on the time page
 #if HAS_WIFI
 char     ntpApplied[92] = "";   // server and zone the clock was set up with
-ClockCfg savedClock;            // the clock kept in flash for running without the NAS server
+ClockCfg savedClock;            // the clock kept in flash for running without the server
 #endif
 const uint32_t SCREEN_MAGIC = 0x494E4B53;   // "INKS"
 uint8_t  savedScreens = 7;      // Advanced Ink as kept in flash (start screen after power-up)
@@ -487,7 +487,7 @@ bool     pending       = false;  // redraw as soon as allowed
 bool     turnPage      = false;  // show the next page with that redraw
 bool     rxRedraw      = false;  // frame being received asks for a redraw now
 bool     forceRedraw   = false;  // redraw without waiting for MIN_REFRESH_MS
-uint32_t freshHash     = 0;      // frame including its time: a new one means the NAS server is still sending
+uint32_t freshHash     = 0;      // frame including its time: a new one means the server is still sending
 uint32_t lastFreshMs   = 0;      // when the last fresh frame arrived
 bool     noDataShown   = false;  // "NO DATA" screen on the panel (or being drawn)
 
@@ -692,7 +692,7 @@ bool clockPageNow() {
   return dataReceived && clockCfg.on && !noDataShown && pageAt(page, idx) == 'T';
 }
 
-// Fast refresh switched on by the NAS server and possible on this panel
+// Fast refresh switched on by the server and possible on this panel
 bool fastMode() { return fastPanel && dataReceived && head.fast > 0; }
 
 // Header layout from the H line: three of T, I, C, '-', each of T, I, C at most once
@@ -2050,7 +2050,7 @@ void drawSplash() {
   printAt(hx, waitY, "Waiting for data from system ...", BK, u);
 }
 
-// Uptime of the NAS server for the header: full calendar months plus the minutes after them; the
+// Uptime of the server for the header: full calendar months plus the minutes after them; the
 // three biggest units from the first one that is not 0 ("1Y 2M 3W", "2M 1W 3d", "1W 5d 4h"),
 // fewer when room is short ("2M 1W", "2M"); Y year, M month, W week, d day, h hour, m minute
 void uptimeText(uint16_t months, int32_t min, int16_t maxChars, char* out, size_t size) {
@@ -2069,7 +2069,7 @@ void uptimeText(uint16_t months, int32_t min, int16_t maxChars, char* out, size_
 }
 
 // Header: three places (left, middle, right) as in head.layout: T title, P page number, U uptime of
-// the NAS server, C time, - nothing (default TCP; "---" = no header line, the rows get its room);
+// the server, C time, - nothing (default TCP; "---" = no header line, the rows get its room);
 // a lower-case letter highlights its place (black text on a white box; inverted header, H field
 // 23: white with black text and a black line at the bottom, highlighted white on black). Left and right stand at
 // the edges, the middle one centred but never into its neighbours; only the title is cut, and
@@ -2547,7 +2547,7 @@ void civilFromDays(int32_t z, int16_t& y, uint8_t& m, uint8_t& d) {
   y = (int16_t)((int32_t)yoe + era * 400 + (m <= 2));
 }
 
-// The C line's date and time YYYYMMDDHHMMSS as the system clock (local time of the NAS server)
+// The C line's date and time YYYYMMDDHHMMSS as the system clock (local time of the server)
 bool setSysClock(const char* dt) {
   if (strlen(dt) != 14) return false;
   for (uint8_t i = 0; i < 14; i++) if (!isdigit((unsigned char)dt[i])) return false;
@@ -2633,11 +2633,11 @@ void drawClockPage(int16_t HH) {
   snprintf(sub, sizeof(sub), "%s%s%s", clockCfg.wday ? WDAYS[t.wd] : "", clockCfg.wday && date[0] ? " " : "", date);
   const bool hasSub = sub[0] != '\0';
   auto partW = [&](int16_t z) { return (int16_t)(textW(main) * z + (ampm[0] ? z + textW(ampm) * imax(1, z / 3) : 0)); };
-  auto partH = [&](int16_t z) { const int16_t dz = imax(1, z / 4); return (int16_t)(7 * z + (hasSub ? 3 * dz + 7 * dz : 0)); };
+  auto partH = [&](int16_t z) { const int16_t dz = imax(1, (z + 1) / 3);   // the date at about a third: 212x104 2, 4.2" 4 (user) return (int16_t)(7 * z + (hasSub ? 3 * dz + 7 * dz : 0)); };
   int16_t z = 1;
   while (z < 40 && partW(z + 1) <= W - 8 && partH(z + 1) <= H - HH - 8) z++;
   const int16_t az = imax(1, z / 3);
-  int16_t dz = imax(1, z / 4);
+  int16_t dz = imax(1, (z + 1) / 3);
   while (hasSub && dz > 1 && textW(sub) * dz > W - 8) dz--;
   const int16_t h = 7 * z + (hasSub ? 3 * dz + 7 * dz : 0), w = partW(z);
   const int16_t top = HH + (H - HH - h) / 2, x = (W - w) / 2;
@@ -2678,7 +2678,7 @@ void parseClock(char* line) {
 
 // ---------------------------------------------------------------- Advanced Ink
 // After power-up: the start screen (default), or nothing (the panel keeps its last picture); on WiFi
-// boards with a kept time page with NTP the clock instead, so the board also works without the NAS
+// boards with a kept time page with NTP the clock instead, so the board also works without the
 // server (it draws once NTP has the time)
 void loadPowerUp() {
   ScreenStore st;

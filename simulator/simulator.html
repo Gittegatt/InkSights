@@ -6,7 +6,7 @@
 <title>InkSights Simulator</title>
 <!--
   Simulator: the settings page itself (../server/web/inksights-ui.js, the same code as the
-  real page) with simulated data instead of the NAS server: two displays, a disk list or a pasted
+  real page) with simulated data instead of the server: two displays, a disk list or a pasted
   frame. The "Simulation" card below sets the simulated hardware. The drawing comes from
   ../server/web/inksights-render.js, so the previews show exactly what the firmware draws.
   Open this file directly in the browser; nothing is sent anywhere.
@@ -29,11 +29,21 @@ document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}"
     <summary><h2 id="simHead">Simulation</h2></summary>
     <div class="sub-body">
     <div class="form">
-      <div class="field"><span class="label">Data from</span><span class="choices" id="source"></span></div>
-      <label class="field"><span class="label">Time of the data</span><input type="text" id="time" maxlength="5" autocomplete="off" style="width: 4.5em; font-family: var(--font-mono)"></label>
-      <label class="field"><span class="label">Host name</span><input type="text" id="host" maxlength="16" autocomplete="off" style="max-width: 10em"></label>
-      <div class="field"><span class="label">Controller without answer</span><span class="choices" id="oldfw"></span></div>
-      <div class="field"><span class="label">Update notice</span><span class="choices"><button class="btn" id="testUpdate" type="button">Test</button></span></div>
+      <!-- framed: where the data come from, then the tests of special cases -->
+      <div class="field wide boxed"><span class="label">Data</span>
+        <div class="choices header-sec">
+          <div class="field"><span class="label">Data from</span><span class="choices" id="source"></span></div>
+          <label class="field"><span class="label">Time of the data</span><input type="text" id="time" maxlength="5" autocomplete="off" style="width: 4.5em; font-family: var(--font-mono)"></label>
+          <label class="field"><span class="label">Host name</span><input type="text" id="host" maxlength="16" autocomplete="off" style="max-width: 10em"></label>
+        </div>
+      </div>
+      <div class="field wide boxed"><span class="label">Tests</span>
+        <div class="choices header-sec">
+          <div class="field"><span class="label">Versions</span><span class="choices" id="versions-sim"></span></div>
+          <div class="field"><span class="label">Update notice</span><span class="choices"><button class="btn" id="testUpdate" type="button">Test</button></span></div>
+          <div class="field"><span class="label">Controller without answer</span><span class="choices" id="oldfw"></span></div>
+        </div>
+      </div>
       <div class="field wide boxed"><span class="label">Displays</span><div class="sim-grid" id="hw"></div></div>
       <div class="field wide boxed"><span class="label">System</span><div class="choices" id="sys"></div></div>
     </div>
@@ -140,7 +150,7 @@ const SYS_FIELDS = [
   ["ramUsed", "RAM used GiB", 0, 9999], ["ramArc", "ZFS RAM cache GiB", 0, 9999], ["ramTotal", "RAM total GiB", 0, 9999],
   ["rx", "Down MiB/s", 0, 99999], ["tx", "Up MiB/s", 0, 99999], ["link", "Link Mb/s", 0, 1000000],
 ];
-// Example start of the NAS server: 2 months, 9 days and 5 hours before now (local time, as the
+// Example start of the server: 2 months, 9 days and 5 hours before now (local time, as the
 // datetime-local field shows it)
 function bootExample() {
   const d = new Date();
@@ -242,7 +252,7 @@ function liveDisk(d, i) {
   return out;
 }
 
-// ------------------------------------------------------------ simulated NAS server
+// ------------------------------------------------------------ simulated server
 function stateNow(live = false) {
   const timeOk = /^\d\d:\d\d$/.test(sim.time);
   const displays = [];
@@ -254,7 +264,7 @@ function stateNow(live = false) {
     const panel = panelById(h.panel);
     const pins = (sim.config[IDS[i]] && sim.config[IDS[i]].pins) || board.defaults;
     displays.push({ id: IDS[i], port: wifi ? "WiFi" : PORTS[i], transport: wifi ? "wifi" : "usb", size: panel.size.join("x"),
-      colors: panel.colors, panel: panel.id, pins: pins.join(","), board: h.board, wifi: board.wifi ? 1 : 0, fw: "1.0", net,
+      colors: panel.colors, panel: panel.id, pins: pins.join(","), board: h.board, wifi: board.wifi ? 1 : 0, fw: h.fw || "1.0", net,
       ssid: net === "sta" ? h.ssid || "" : "", online: net === "sta" ? onlineSecs(h.since) : -1,   // seconds connected
       ip: net === "sta" ? IPS[i] : net === "ap" ? "192.168.4.1" : "", fast: panel.fast ? 1 : 0, answer: "OK",
       nothingToInk: !!h.noData,   // "No data": connected, but nothing to show -> "Nothing to ink"
@@ -263,7 +273,8 @@ function stateNow(live = false) {
   });
   if (sim.oldFw) displays.push({ port: "/dev/ttyACM2", id: "", error: "No answer with chip ID (old firmware?)" });
   const disks = sim.disks.map((d, i) => toState(live ? liveDisk(d, i) : d));
-  return { host: sim.host || "SYSTEM", updated: timeOk ? Math.floor(Date.now() / 1000) : 0, timeText: timeOk ? sim.time : "--:--",
+  return { version: sim.scriptVer || "1.0",
+    host: sim.host || "SYSTEM", updated: timeOk ? Math.floor(Date.now() / 1000) : 0, timeText: timeOk ? sim.time : "--:--",
     disks, displays, system: systemNow(disks, live ? liveSys() : sim.sys) };
 }
 
@@ -303,6 +314,7 @@ function buildSys() {
   $("sys").replaceChildren(...SYS_FIELDS.map(([k, label, lo, hi]) => el("label", { class: "check" }, `${label} `,
     el("input", { type: "number", min: String(lo), max: String(hi), step: "any", value: sim.sys[k] >= 0 ? String(sim.sys[k]) : "",
       style: "width: 5.5em", oninput: e => { const v = e.target.value.trim(); sim.sys[k] = v === "" ? -1 : Number(v); update(); } }))),
+    el("span", { style: "flex-basis: 100%; height: 0" }),   // own line: when the server started, live values
     el("label", { class: "check" }, "Booted ",
       el("input", { type: "datetime-local", value: typeof sim.sys.boot === "string" ? sim.sys.boot : "",
         oninput: e => { sim.sys.boot = e.target.value; update(); } })),
@@ -329,7 +341,7 @@ const ui = InkSightsUI.start({
   root: $("app"),
   yellowPanels: true,   // also offer the colour panels with yellow
   offlineNoData: true,  // "Connected" off: the display shows "NO DATA" / "Check connection"
-  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights", version: "1.0" }),
+  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights", version: sim.appVer || "1.0", versionCheck: true }),
   save: async body => {
     const next = {};
     for (const [id, s] of Object.entries(body.displays)) {
@@ -362,6 +374,12 @@ function update(structure) {
 }
 
 // ------------------------------------------------------------ Simulation card
+// a version to choose: earlier, this one, a later one
+const SIM_VERSIONS = ["0.9", "1.0", "1.1"];
+function verSel(cur, onPick, label) {
+  return el("select", { "aria-label": label, onchange: e => onPick(e.target.value) },
+    ...SIM_VERSIONS.map(v => el("option", { value: v, selected: v === cur }, v)));
+}
 function simRadios(name, options, current, onPick) {
   return el("span", { class: "choices" }, ...options.map(([value, label]) => el("label", { class: "check" },
     el("input", { type: "radio", name, value: String(value), checked: value === current, onchange: () => onPick(value) }), label)));
@@ -396,11 +414,14 @@ function buildHw() {
       // what a board connected to a WiFi reports (WiFi page): network name and since when
       f("WiFi network", el("input", { type: "text", maxlength: "32", value: h.ssid || "", disabled: !board.wifi, autocomplete: "off", style: "width: 9em",
         "aria-label": `WiFi network of display ${IDS[i]}`, oninput: e => { h.ssid = e.target.value; update(); } })),
-      f("Connected since", el("input", { type: "datetime-local", value: h.since || "", disabled: !board.wifi,
-        "aria-label": `Connected since, display ${IDS[i]}`, oninput: e => { h.since = e.target.value; update(); } })),
+      el("span", { class: "sim-break" }),   // second line: firmware and the ticks
+      f("Firmware", verSel(h.fw || "1.0", v => { h.fw = v; update(true); }, `Firmware of display ${IDS[i]}`)),
       el("label", { class: "check" }, el("input", { type: "checkbox", checked: h.connected, onchange: e => { h.connected = e.target.checked; update(true); } }), "Connected"),
       el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!h.noData, onchange: e => { h.noData = e.target.checked; update(); } }), "No data"),
-      el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!h.splash, onchange: e => { h.splash = e.target.checked; update(); } }), "Start screen"));
+      el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!h.splash, onchange: e => { h.splash = e.target.checked; update(); } }), "Start screen"),
+      el("span", { class: "sim-break" }),   // own line: since when the board is connected to the WiFi
+      f("Connected since", el("input", { type: "datetime-local", value: h.since || "", disabled: !board.wifi,
+        "aria-label": `Connected since, display ${IDS[i]}`, oninput: e => { h.since = e.target.value; update(); } })));
   });
   $("hw").replaceChildren(...blocks);
 }
@@ -442,6 +463,10 @@ $("oldfw").replaceChildren(el("label", { class: "check" },
   el("input", { type: "checkbox", checked: sim.oldFw, onchange: e => { sim.oldFw = e.target.checked; update(); } }), "/dev/ttyACM2"));
 // a release one step after this installation (or after a skipped one): the notice at the top
 $("testUpdate").addEventListener("click", () => ui.testUpdate());
+// Versions: of the WebUI and inksights.sh here, of the firmware per display below
+$("versions-sim").replaceChildren(
+  el("label", { class: "check" }, "WebUI ", verSel(sim.appVer || "1.0", v => { sim.appVer = v; update(true); }, "Version of the WebUI")),
+  el("label", { class: "check" }, "Script ", verSel(sim.scriptVer || "1.0", v => { sim.scriptVer = v; update(true); }, "Version of the script")));
 $("paste").value = sim.paste;
 $("paste").addEventListener("input", e => { sim.paste = e.target.value; update(); });
 $("add").addEventListener("click", () => {

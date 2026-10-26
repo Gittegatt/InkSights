@@ -1,6 +1,6 @@
 /*
  * inksights-ui.js - the settings page, shared by the real page (index.html, data from the
- * NAS server) and the simulator (simulator/simulator.html, simulated data). Both call
+ * server) and the simulator (simulator/simulator.html, simulated data). Both call
  * InkSightsUI.start(backend) and look and behave the same; only the backend differs:
  *
  *   backend.load()        -> Promise of { state, config, interval, pagename, defaultPagename }
@@ -94,6 +94,7 @@
   const SERVER_RE = /^https?:\/\/[^\s|]{1,120}$/;
   const DEFAULT_WARN = 85;
   const DEFAULT_PAGE = 600;
+  const DEFAULT_TITLE = "InkSights";   // the title of the top line when none is set (user; was the host name)
   // a new display: header with the time left, the title in the middle, the uptime right; the pages
   // time, system, drives, network, WiFi (user)
   const NEW_LAYOUT = "CTU", NEW_PAGE_ORDER = "TSDNW";
@@ -195,14 +196,17 @@
         el("div", {},
           el("span", { class: "eyebrow" }, "YOUR SYSTEM METRICS AT A GLANCE"),
           el("h1", { id: "pagetitle" }, "InkSights"),
-          el("p", { class: "status", id: "status" }, "Loading …")),
+          el("p", { class: "status", id: "status" }, "Loading …"),
+          el("p", { class: "status versions", id: "versions" })),
         el("div", { class: "actions" },
           el("button", { class: "btn", id: "refresh", type: "button", onclick: doRefresh }, "Update now"),
           el("button", { class: "btn primary", id: "save", type: "button", disabled: true, onclick: doSave }, "Save"))),
       el("div", { class: "update", id: "update", role: "status", hidden: true }),
+      el("div", { class: "update warn", id: "vercheck", role: "status", hidden: true }),
       el("p", { class: "msg", id: "msg", role: "status", "aria-live": "polite" }),
       el("div", { id: "warnings", class: "displays" }),
-      el("section", { class: "displays", id: "displays", "aria-label": "Displays" }));
+      el("section", { class: "displays", id: "displays", "aria-label": "Displays" }),
+      el("section", { id: "about", "aria-label": "About InkSights", hidden: true }));
 
     function setMsg(text, kind = "") { const m = $("msg"); m.textContent = text; m.className = `msg ${kind}`; }
     // The instance name is one setting, shown in every card: keep all boxes in step
@@ -354,7 +358,7 @@
     }
     // the frame of a display from its settings and state st (state.json, or simulated live values)
     function buildFor(entry, st) {
-      const s0 = settingsFor(entry.id), title = (s0.name || st.host || "SYSTEM").slice(0, 12);
+      const s0 = settingsFor(entry.id), title = (s0.name || DEFAULT_TITLE).slice(0, 12);
       const s = boardOf(entry.live).wifi ? s0 : { ...s0, showWifi: 0 };   // a board without WiFi has no WiFi page
       return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st));
     }
@@ -408,7 +412,7 @@
       model.page = pages[id];
       model.mono = panel.colors === 2;
       model.yellow = !!panel.yellow;   // yellow third colour: black text on it
-      // WiFi page: the board shows its own WiFi; here what the NAS server last heard from it
+      // WiFi page: the board shows its own WiFi; here what the server last heard from it
       model.wifi = { net: live ? (live.transport === "wifi" ? "sta" : live.net || "off") : "off", ssid: (live && (live.ssid || hexText(live.ssidHex))) || s.wifi.ssid,
         ip: live ? live.ip || "" : "", ap: s.wifi.apSsid || DEFAULT_AP_SSID,
         online: live && Number.isInteger(live.online) && live.online >= 0 ? Math.floor(live.online / 60) : -1 };   // black/white panel: highlighted used/total inverted instead of in colour
@@ -624,7 +628,7 @@
       const via = live && live.transport === "wifi" ? "WiFi" : "USB";
       const meta = live
         ? [`ID ${id}`, live.transport === "wifi" ? `WiFi ${live.ip || ""}`.trim() : live.port, board.name,
-          live.fw ? `Firmware ${live.fw}` : "", live.answer ? `Answer: ${live.answer}` : "no answer to the last frame"]
+          live.fw ? el("span", { class: fwOff(live.fw) ? "warn" : "" }, `Firmware ${live.fw}`) : "", live.answer ? `Answer: ${live.answer}` : "no answer to the last frame"]
         : [`ID ${id}`, "not connected at the last update"];
 
       // WiFi (boards with WiFi): sent to the display over USB; passwords are never shown again
@@ -808,7 +812,7 @@
           el("div", { class: "form" },
             el("label", { class: "field wide boxed" },
               el("span", { class: "label" }, "Title"),
-              el("input", { type: "text", maxlength: "12", value: s.name, placeholder: state.host || "SYSTEM", autocomplete: "off", style: "max-width: 10em",
+              el("input", { type: "text", maxlength: "12", value: s.name, placeholder: DEFAULT_TITLE, autocomplete: "off", style: "max-width: 10em",
                 oninput: e => { s.name = e.target.value; setHeading(); redraw(); } })),
             el("div", { class: "field wide boxed" },
               el("div", { class: "choices header-sec" },
@@ -835,7 +839,7 @@
             el("span", { id: `pg-${id}` }),
             el("button", { class: "btn small", type: "button", "aria-label": "Next page", onclick: () => { pages[id] = (pages[id] || 0) + 1; drawPreview(entry); } }, "›"))),
         el("p", { class: "note", id: `msg-${id}`, role: "status" }),
-        el("div", { class: "meta" }, ...meta.filter(Boolean).map(t => el("span", {}, t))));
+        el("div", { class: "meta" }, ...meta.filter(Boolean).map(t => (typeof t === "string" ? el("span", {}, t) : t))));
       // Display: names, panel, rotation, rows, page turn, pins and the frame (the ID line stays in the display card)
       const displayCard = subCard("displayOpen", "Display", true, null,
         el("div", { class: "form" },
@@ -873,7 +877,7 @@
           el("pre", { id: `frame-${id}` })));
       if (wifiCard) wifiCard.classList.add("keep-on");   // its settings are not dimmed when the page is off
       // Time: a page with the time in big, below it weekday and date (each when ticked); the system
-      // time of the NAS server, counted on by the board, or (boards with WiFi) NTP in a time zone.
+      // time of the server, counted on by the board, or (boards with WiFi) NTP in a time zone.
       // The header always shows the system time.
       const ntpOk = board.wifi;
       const dateSel = el("select", { "aria-label": "Date format", disabled: !s.timeDate, onchange: e => { s.dateFmt = Number(e.target.value); redraw(); } },
@@ -1088,7 +1092,7 @@
     function updateStatus() {
       const st = $("status");
       if (!state.updated) {
-        st.textContent = "No data from the NAS server yet. Is the cron job running?";
+        st.textContent = "No data from the system yet. Is the script running?";
         st.className = "status warn";
         return;
       }
@@ -1114,12 +1118,16 @@
         if (!dirty) { config = data.config || {}; interval = data.interval || 10; pageName = data.pagename || ""; }
         defaultPageName = data.defaultPagename || defaultPageName;
         appProblem = typeof data.problem === "string" ? data.problem : "";   // the app cannot write its data folder
+        versionCheck = data.versionCheck === true;
+        const newVersion = typeof data.version === "string" && data.version !== appVersion;
+        if (newVersion) appVersion = data.version;   // before render: the cards compare the firmware with it
         applyPageName();
         render(force);
         syncPageName();
-        if (typeof data.version === "string" && data.version !== appVersion) { appVersion = data.version; checkUpdate(); }
+        if (newVersion) checkUpdate();
+        showVersions();
       } catch (e) {
-        $("status").textContent = "No connection to the app. Is it running on the NAS server?";
+        $("status").textContent = "No connection to the app. Is it running on the server?";
         $("status").className = "status warn";
       }
     }
@@ -1146,7 +1154,7 @@
     async function doRefresh() {
       try {
         await backend.refresh();
-        setMsg("Requested. The NAS server sends fresh data to all displays within a minute.", "ok");
+        setMsg("Requested. The system sends fresh data to all displays within a minute.", "ok");
       } catch (e) { setMsg(e.message, "warn"); }
     }
 
@@ -1162,6 +1170,74 @@
       for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
       return false;
     }
+    // Versions: the settings page (this app), inksights.sh (state.json "version") and the firmware of
+    // every display; all three belong together. Below the status line, and a notice for every one that
+    // differs from the settings page
+    // (simulator only so far: its load() data carry versionCheck)
+    let versionCheck = false;
+    const fwOff = fw => versionCheck && !!appVersion && !!fw && fw !== appVersion;
+    function showVersions() {
+      const line = $("versions"), box = $("vercheck");
+      if (!versionCheck || !appVersion) { line.replaceChildren(); box.hidden = true; return; }
+      const sv = typeof state.version === "string" ? state.version : "", ran = state.updated > 0;
+      const scriptOff = ran && sv !== appVersion;
+      const shown = displayList().filter(e => e.live && e.live.fw);
+      const fws = [...new Set(shown.map(e => e.live.fw))];
+      const part = (text, off) => el("span", { class: off ? "warn" : "" }, text);
+      const parts = [part(`WebUI ${appVersion}`, false),
+        part(`Script ${!ran ? "–" : sv || "unknown"}`, scriptOff)];
+      // the firmware always with the controllers it runs on, the same version together
+      for (const fw of fws)
+        parts.push(part(`Firmware ${fw} (${shown.filter(e => e.live.fw === fw).map(e => nameOf(e.id, settingsFor(e.id))).join(", ")})`, fwOff(fw)));
+      line.replaceChildren(...parts.flatMap((p, i) => (i ? [" · ", p] : [p])));
+      // the WebUI sets the version (it comes with the Docker app): an older part is updated to it, a newer
+      // one means the WebUI is behind
+      const notes = [];
+      if (scriptOff) notes.push(!sv ? `The script reports no version: update it to ${appVersion} (see Update in the README).`
+        : newer(sv, appVersion) ? `The script ${sv} is newer than the WebUI ${appVersion}: update the WebUI (see Update in the README).`
+        : `The script ${sv} is older than the WebUI ${appVersion}: update the script (see Update in the README).`);
+      for (const e of shown) if (fwOff(e.live.fw)) {
+        const who = nameOf(e.id, settingsFor(e.id));
+        notes.push(newer(e.live.fw, appVersion) ? `${who} runs firmware ${e.live.fw}, newer than the WebUI ${appVersion}: update the WebUI.`
+          : `${who} runs firmware ${e.live.fw}, older than the WebUI ${appVersion}: upload firmware ${appVersion}.`);
+      }
+      showAbout(sv, ran, shown);
+      box.hidden = !notes.length;
+      box.replaceChildren(el("div", { class: "notes" }, ...notes.map(n => el("span", {}, n))),
+        el("a", { class: "btn small", href: (latestRel && latestRel.url) || "https://github.com/Gittegatt/InkSights/releases/latest",
+          target: "_blank", rel: "noopener" }, "Latest release"));
+    }
+
+    // About: a card at the bottom like the others (folded by default): versions, project links,
+    // license and the libraries, support
+    const REPO = "https://github.com/Gittegatt/InkSights";
+    function showAbout(sv, ran, shown) {
+      const sec = $("about");
+      sec.hidden = !versionCheck;
+      if (!versionCheck) return;
+      const link = (href, text) => el("a", { class: "btn small", href, target: "_blank", rel: "noopener" }, text);
+      const frame = (label, ...kids) => el("div", { class: "field wide boxed" }, el("span", { class: "label" }, label), ...kids);
+      const row = (k, v, off) => [el("dt", {}, k), el("dd", { class: off ? "warn" : "" }, v)];
+      const open = sec.querySelector("details") ? sec.querySelector("details").open : pref("app", "aboutOpen", false);
+      sec.replaceChildren(el("article", { class: "card sub-card about" },
+        el("details", { class: "fold", open, ontoggle: e => setPref("app", "aboutOpen", e.target.open) },
+          el("summary", {}, `About · InkSights ${appVersion}`),
+          el("div", { class: "sub-body" },
+            el("div", { class: "form" },
+              frame("Versions", el("dl", { class: "about-list" },
+                ...row("WebUI", appVersion, false),
+                ...row("Script", !ran ? "–" : sv || "unknown", ran && sv !== appVersion),
+                ...shown.flatMap(e => row(`Firmware · ${nameOf(e.id, settingsFor(e.id))}`, e.live.fw, fwOff(e.live.fw))))),
+              frame("Project", el("div", { class: "choices" },
+                link(REPO, "GitHub"), link(`${REPO}/releases`, "Releases"), link(`${REPO}#readme`, "README"))),
+              frame("License", el("p", { class: "about-text" },
+                "InkSights is free software under the GNU General Public License version 3 (GPL-3.0). It uses GxEPD2 (GPL-3.0), ",
+                "the Adafruit GFX Library with its 5x7 font (BSD), Adafruit BusIO (MIT) and, on the SAMD21, FlashStorage (LGPL-2.1)."),
+                el("div", { class: "choices" }, link(`${REPO}/blob/main/LICENSE`, "License"))),
+              frame("Support", el("div", { class: "choices" },
+                link(REPO, "Star on GitHub"), link("https://ko-fi.com/gittegatt", "Ko-fi"), link("https://paypal.me/gittegatt", "PayPal"))))))));
+    }
+
     function showUpdate() {
       const box = $("update"), r = latestRel, skip = pref("app", "skipVersion", "");
       const on = !!r && !muted && !!appVersion && newer(r.version, appVersion) && (!skip || newer(r.version, skip));
@@ -1198,7 +1274,7 @@
     // not in it), file inksights-v<version>-<name>-<chip id>-<date>.json (the name only when one is set).
     // Import: the file is checked (format, then like a save by the app) and its settings go to this
     // display as unsaved changes, also from another board (a board that was replaced); the WiFi
-    // passwords stored on the NAS server stay.
+    // passwords stored on the server stay.
     const slug = v => String(v || "").toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
       .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
     function doExport(id) {

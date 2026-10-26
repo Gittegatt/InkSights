@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-inksights-web.py - settings page for InkSights (Docker app on the NAS server)
+inksights-web.py - settings page for InkSights (Docker app on the server)
 
 Lets you choose, per e-paper display, which disk types it shows, the spindown timer and
 its style, symbols, the percentage in the bar, rows per page, the disk order and which disks
 are shown, from which usage the bar is highlighted, the rotation, the automatic page turn,
 the panel type and the control pins, the title and a name, the system page and its network
-interface, the fast refresh (black/white panels), and for boards with WiFi the WiFi settings, plus how often the NAS
+interface, the fast refresh (black/white panels), and for boards with WiFi the WiFi settings, plus how often the
 server updates the displays. Runs inside a container and shares only one data
-folder with the NAS server:
+folder with the server:
 
   state.json            written by inksights.sh (disks, displays)
   inksights.conf        written here, read by inksights.sh
