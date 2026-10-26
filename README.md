@@ -379,8 +379,8 @@ a reboot): `sudo tail -f /var/run/inksights/inksights.log`. With the loop it als
 
 **Files in memory** (gone after a reboot) in `/var/run/inksights/`: `system.json` (the latest system values, also
 usable by other tools), `inksights.log` (the log), `counters` and `temps` (previous readings), `disks.cache`, `fast`,
-`frames/` (the frames of the WiFi displays, read by the settings page), `stamp` and `lock`. Displays on USB get their frame directly; nothing
-is written for them.
+`frames/` (the frames of the WiFi displays, read by the settings page), `live/`, `stamp` and `lock`. Displays on USB get their frame
+directly; only for one with fast refresh a copy goes to `live/` (without WiFi settings), for the live preview.
 
 ## 4. WiFi (optional)
 
@@ -457,7 +457,7 @@ display's last answer.
 | **Rotation** | 0°, 90°, 180°, 270° | Clockwise. 90° and 270° stand the display upright: device and used/total in the first line, the pool in its own line. |
 | **Rows per page** | Auto, 2–5 (6 on the 4.2″) | More rows fit more disks per page. Fewer rows: bigger bar, symbols and timer (readable from further away). |
 | **Auto page turn** | HH:MM:SS | 00:00:00 = always page 1. The display redraws at most every 3 minutes, so shorter times act like 00:03:00 (not with fast refresh). |
-| **Fast refresh** | Off, 2, 5, 10, 30 s | Only black/white panels. The display gets a new frame this often and redraws the changed parts; a full refresh on page turns and every 10 minutes against ghosting. Needs the loop (`-l`). |
+| **Fast refresh** | Off, 2, 5, 10, 30 s | Only black/white panels. The display gets a new frame this often and redraws the changed parts; a full refresh on page turns and every 10 minutes against ghosting. Needs the loop (`-l`). The preview follows the display just as often (live, the frame it was sent), except while settings are changed and not saved. |
 | **Display pins** | CS, D/C, Reset, Busy | Only the pins the board allows; Reset and Busy can be None. The board stores new pins and restarts once. |
 | **Frame** | – | What the display receives (over USB or WiFi). |
 | **Remove settings** | – | Only for displays that are not connected: forget their settings. |
@@ -471,6 +471,7 @@ The top line of the display.
 | **Ink** | tick | Shows the top line or not; its settings stay. Without it the rows get its room. "NO DATA" still shows it. |
 | **Title** | up to 12 characters | Empty = name of the NAS server (e.g. TRUENAS). |
 | **Invert colors** | On, Off | On: white top line with black text and a thin black line below it; highlighted places then black with white text. |
+| **Highlight color** | On, Off | Only with **Invert colors** on a colour panel: the highlighted places in the third colour (red or yellow) with white text, on yellow black text. |
 | **Left**, **Middle**, **Right** | Title, Pages, Uptime, Time, None | What stands where. Choosing what already stands in another place swaps the two. None = nothing there. Default: Title, Time, Pages. |
 | **Highlight** | tick, for each place | The place in the opposite colours: black text on a white box (with **Invert colors**: white on black). |
 
@@ -678,7 +679,7 @@ stored); a panel with fast refresh adds `fast=1`.
 
 | Line | Fields | Notes |
 |---|---|---|
-| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, timer, ring direction, symbols, details in the bar, fast refresh, uptime, uptime months, WiFi page, no data after, header layout, drive pages, network details, network symbols, drive temperatures, asleep, header inverted] | The last sixteen are optional: timer 0 badge / 1 ring; ring direction 0 clockwise / 1 counterclockwise; symbols 1 on / 0 off; details in the bar 0 none / 1 percentage / 2 used capacity; fast refresh in seconds, 0 = off; uptime in minutes after the full calendar months, -1 = none; full calendar months; WiFi page 0 off / 1 with symbols / 2 without; seconds without fresh data before "NO DATA", 0 = never; header left, middle, right as three letters: `T` title, `P` page number, `U` uptime, `C` time, `-` nothing, lower case = highlighted (default `TCP`, `---` = no top line); drive pages 1 on / 0 off (with no system or network page either: "Nothing to ink"); network pages: details in the bar 0 none / 1 percentage / 2 link speed, symbols 1 on / 0 off; drive temperatures 1 on / 0 off (the D lines then carry them); asleep hard disks 1 `STBY` / 0 `--`; top line 1 inverted (white) / 0 black. |
+| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, timer, ring direction, symbols, details in the bar, fast refresh, uptime, uptime months, WiFi page, no data after, header layout, drive pages, network details, network symbols, drive temperatures, asleep, header inverted, header colour] | The last seventeen are optional: timer 0 badge / 1 ring; ring direction 0 clockwise / 1 counterclockwise; symbols 1 on / 0 off; details in the bar 0 none / 1 percentage / 2 used capacity; fast refresh in seconds, 0 = off; uptime in minutes after the full calendar months, -1 = none; full calendar months; WiFi page 0 off / 1 with symbols / 2 without; seconds without fresh data before "NO DATA", 0 = never; header left, middle, right as three letters: `T` title, `P` page number, `U` uptime, `C` time, `-` nothing, lower case = highlighted (default `TCP`, `---` = no top line); drive pages 1 on / 0 off (with no system or network page either: "Nothing to ink"); network pages: details in the bar 0 none / 1 percentage / 2 link speed, symbols 1 on / 0 off; drive temperatures 1 on / 0 off (the D lines then carry them); asleep hard disks 1 `STBY` / 0 `--`; top line 1 inverted (white) / 0 black; inverted top line: highlighted places 1 in the third colour / 0 black. |
 | `D` | device, pool, used, total, percent, filled boxes, total boxes, state, seconds until spindown, timeout seconds [, °C] | °C only with drive temperatures on, -1 = unknown, -2 = asleep (older firmware shows `--`). The boxes are no longer drawn. Seconds until spindown -1 = timer not running. State: `A` spinning, `S` asleep, `N` SSD/NVMe, `?` unknown, `-` timer off (HDDs only). Percent may have one or two decimals (cut) for the text in the bar; -1 = no pool and nothing mounted (total = the size of the disk, or `-`). |
 | `S` | rows, CPU %, CPU °C, CPU W, RAM used MiB, ZFS cache MiB, RAM total MiB, interface, down KiB/s, up KiB/s, link Mb/s, NVMe °C,…, SSD °C,… | Only with the system page. Rows: `C` CPU, `R` RAM, `N` network, `V` NVMe, `S` SSD, `H` HDD (temperatures in the `T` line), `I` = symbols on, `W` = the interface is wireless, `D` / `L` = it is down / has no link. -1 = unknown, `-` = none; at most six temperatures each. |
 | `T` | HDD °C,… | After the `S` line, only with the HDD row and drive-temp-export running; -1 = unknown, -2 = asleep, at most six. |

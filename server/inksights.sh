@@ -36,7 +36,7 @@
 #
 # Frame format (one line per record, fields separated by '|'):
 #   #BEGIN
-#   H|<title>|<HH:MM>|<rows per page, 0 = auto>|<highlight from % used, 0 = never>|<quarter turns 0-3>|<page turn s, 0 = off>[|<timer 0 badge / 1 ring>|<ring direction 0 cw / 1 ccw>|<symbols 1 on / 0 off>|<details in the bar 0 none / 1 percentage / 2 used capacity>|<fast refresh s, 0 = off>|<uptime: minutes after the full months, -1 = page number>|<uptime: full calendar months>|<WiFi page 0 off / 1 symbols / 2 without>|<s without a fresh frame before "NO DATA", 0 = never>|<header left, middle, right: T title, P page, U uptime, C time, - nothing; lower case = highlighted; --- = no header>|<disk pages 1 on / 0 off>|<network details in the bar 0 none / 1 percentage / 2 link speed>|<network symbols 1 / 0>|<drive temperatures 1 on / 0 off>|<asleep hard disks 1 "STBY" / 0 "--">|<header inverted 1 / 0>]
+#   H|<title>|<HH:MM>|<rows per page, 0 = auto>|<highlight from % used, 0 = never>|<quarter turns 0-3>|<page turn s, 0 = off>[|<timer 0 badge / 1 ring>|<ring direction 0 cw / 1 ccw>|<symbols 1 on / 0 off>|<details in the bar 0 none / 1 percentage / 2 used capacity>|<fast refresh s, 0 = off>|<uptime: minutes after the full months, -1 = page number>|<uptime: full calendar months>|<WiFi page 0 off / 1 symbols / 2 without>|<s without a fresh frame before "NO DATA", 0 = never>|<header left, middle, right: T title, P page, U uptime, C time, - nothing; lower case = highlighted; --- = no header>|<disk pages 1 on / 0 off>|<network details in the bar 0 none / 1 percentage / 2 link speed>|<network symbols 1 / 0>|<drive temperatures 1 on / 0 off>|<asleep hard disks 1 "STBY" / 0 "--">|<header inverted 1 / 0>|<inverted header: highlighted places in the third colour 1 / 0>]
 #   D|<disk>|<pool>|<used>|<total>|<pct, with 1 or 2 decimals (cut) when set>|<idle boxes>|<boxes>|<state A/S/N/?/- (timer off, flash drives keep N)>|<s until spindown, -1 = unknown>|<timeout s>[|<°C, -1 = unknown, -2 = asleep: only with drive temperatures on>]
 #   S|<components>|<cpu %>|<cpu °C>|<cpu W>|<RAM used MiB>|<ZFS cache MiB>|<RAM total MiB>|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<NVMe °C,...>|<SSD °C,...>  (components may add H: HDD temperatures in a T line after it)
 #   T|<HDD °C,...>              (only with the HDD component and drive-temp-export running; -2 = asleep, -1 = unknown)
@@ -63,6 +63,8 @@
 #   disks.cache  disk data of the last full update (fast refreshes reuse it)
 #   fast         displays with fast refresh: <id> <seconds> <port or wifi> <last frame epoch>
 #   frames/      frames of the WiFi displays, read by the settings page (<id>.txt)
+#   live/        frames of the USB displays with fast refresh, only for the live preview of the
+#                settings page (<id>.txt, without WiFi settings)
 #   stamp, lock  time and signature of the last full update, one run at a time
 #   inksights.log  what the script did and problems (also on stderr); trimmed to the last
 #                  LOG_LINES lines, not written in a dry run
@@ -186,6 +188,7 @@ REFRESH_FILE="$DATA_DIR/refresh-request"
 REDRAW_FILE="$DATA_DIR/redraw-request"
 WIFI_DIR="$DATA_DIR/wifi"
 FRAMES_DIR="$RUN_DIR/frames"      # frames of the WiFi displays, in memory (written often)
+LIVE_DIR="$RUN_DIR/live"          # frames of the USB displays with fast refresh, for the live preview
 
 # -----------------------
 # One run at a time (cron starts us every minute, an update can take longer)
@@ -326,7 +329,7 @@ fi
 #   <id> <types> <boxes> <rows> <sort> <order> <warn> <rot> <page> <pins> <title>
 #   <style> <hidden> <name> <ssid> <password> <host> <server> <ap> <ap ssid> <ap password> <ap delay>
 #   <fast> <system> <network> <zfs> <pages> <system icons> <header> <panel> <wifi icons> <layout> <header on>
-#   <net sort> <net order> <net hidden> <net icons> <net bar> <drive temps> <stby> <header inverted>
+#   <net sort> <net order> <net hidden> <net icons> <net bar> <drive temps> <stby> <header inverted> <header color>
 #   types : hdd,ssd,nvme; - = none
 #   boxes : 0 = timer off, else on | rows : 0 = auto, 2 to 6 | sort : pool, uid, dev or manual
 #   order : uid,uid,... | warn : highlight from % used, 0 = never | rot : 0, 90, 180 or 270
@@ -356,8 +359,9 @@ fi
 #   drive temps : 1 = temperatures on the drive pages, 0 = off (default)
 #   stby : asleep hard disks show 1 = "STBY" / 0 = "--" (default)
 #   header inverted : 1 = white header with black text, 0 = black with white text (default)
+#   header color : inverted header: 1 = highlighted places in the third colour, 0 = black (default)
 # -----------------------
-declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV
+declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL
 IFLIST_RE='^[A-Za-z0-9._-]{1,15}(,[A-Za-z0-9._-]{1,15}){0,31}$'
 NAME_RE='^[A-Za-z0-9 ._+/-]{0,12}$'
 ORDER_RE='^[A-Za-z0-9._-]{1,40}(,[A-Za-z0-9._-]{1,40}){0,31}$'
@@ -392,12 +396,12 @@ layout_valid() {
 }
 
 if [[ -r "$CONF_FILE" ]]; then
-    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc; do
+    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc; do
         name="${name%$'\r'}"; wappass="${wappass%$'\r'}"; wapdelay="${wapdelay%$'\r'}"
         fastc="${fastc%$'\r'}"; sysc="${sysc%$'\r'}"; netc="${netc%$'\r'}"; zfsc="${zfsc%$'\r'}"; pagesc="${pagesc%$'\r'}"; sysiconc="${sysiconc%$'\r'}"; headerc="${headerc%$'\r'}"; panelc="${panelc%$'\r'}"
         layoutc="${layoutc%$'\r'}"; headonc="${headonc%$'\r'}"
         nsortc="${nsortc%$'\r'}"; norderc="${norderc%$'\r'}"; nhidec="${nhidec%$'\r'}"; niconc="${niconc%$'\r'}"
-        nbarc="${nbarc%$'\r'}"; dtempc="${dtempc%$'\r'}"; stbyc="${stbyc%$'\r'}"; headinvc="${headinvc%%[$'\t\r']*}"   # last column: also cut anything after it
+        nbarc="${nbarc%$'\r'}"; dtempc="${dtempc%$'\r'}"; stbyc="${stbyc%$'\r'}"; headinvc="${headinvc%$'\r'}"; headcolc="${headcolc%%[$'\t\r']*}"   # last column: also cut anything after it
         [[ "$id" =~ ^[0-9A-F]{8}$ ]] || continue
         [[ "$name" == "-" ]] && name=""
         [[ "$sysc" == "1" ]] && sysc="cpu,ram,net,nvme,ssd"
@@ -438,6 +442,7 @@ if [[ -r "$CONF_FILE" ]]; then
         [[ "$dtempc" == 1 ]] || dtempc=0   # temperatures on the drive pages
         [[ "$stbyc" == 1 ]] || stbyc=0     # asleep hard disks: 1 "STBY", 0 "--"
         [[ "$headinvc" == 1 ]] || headinvc=0   # header inverted: white with black text
+        [[ "$headcolc" == 1 && "$headinvc" == 1 ]] || headcolc=0   # inverted header: highlighted boxes in the third colour
         [[ "$netc" =~ $IFACE_RE && "$netc" != "-" ]] || netc=""
         # WiFi: all hex (or "-"), ap 0/1, ap delay 0-3600 s; only kept when complete and a network is set
         [[ -z "$wapdelay" ]] && wapdelay=30   # lines written before this column existed
@@ -472,6 +477,7 @@ if [[ -r "$CONF_FILE" ]]; then
         CFG_DRIVETEMP[$id]=$dtempc
         CFG_STBY[$id]=$stbyc
         CFG_HEADINV[$id]=$headinvc
+        CFG_HEADCOL[$id]=$headcolc
     done < "$CONF_FILE"
 fi
 
@@ -1073,9 +1079,9 @@ order_disks() {
 # -----------------------
 build_frame() {
     local title="$1" types=",$2," maxb="$3" rows="$4" warn="$7" turns=$(( ${8:-0} / 90 )) pagesec="${9:-$DEFAULT_PAGE}"
-    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}"
+    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}"
     local d steps idle tmo poll st remain tsec head i dt pct pdec u t
-    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0)
+    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0)
     order_disks "$5" "$6"
     local hm
     printf -v hm '%(%H:%M)T' -1
@@ -1092,10 +1098,10 @@ build_frame() {
     # speed, and symbols 1 on / 0 off; netp = "sort;order;hidden;icons;bar", "" = network pages off
     local -a np
     IFS=';' read -ra np <<< "$netp"
-    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$NODATA_SECS" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv")   # field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0
+    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$NODATA_SECS" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv" "$headcol")   # field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0, 24: its highlighted boxes in the third colour 1 / 0
     # header: uptime instead of the page number (minutes after the full months, months)
     [[ "$header" == 1 && "$UP_REST" =~ ^[0-9]+$ ]] && sv[5]=$UP_REST sv[6]=$UP_MONTHS
-    local n=16
+    local n=17
     while (( n > 0 )) && [[ "${sv[n-1]}" == "${defs[n-1]}" ]]; do n=$((n - 1)); done
     for (( i = 0; i < n; i++ )); do head+="|${sv[i]}"; done
     FRAME=("#BEGIN" "$head")
@@ -1167,7 +1173,7 @@ frame_for() {
         "${CFG_SORT[$id]:-pool}" "${CFG_ORDER[$id]:-}" "${CFG_WARN[$id]:-$DEFAULT_WARN}" "${CFG_ROT[$id]:-0}" \
         "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-}" "${CFG_HIDDEN[$id]:-}" \
         "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-1}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-0}" \
-        "${CFG_LAYOUT[$id]:-TCP}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-0}" "${CFG_HEADINV[$id]:-0}"
+        "${CFG_LAYOUT[$id]:-TCP}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-0}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}"
 }
 
 # Display with fast refresh: remember it (port or wifi) for the fast runs in between
@@ -1223,6 +1229,7 @@ update_display() {
     fi
 
     frame_for "$id" "$fastcap" "$devpins"
+    local live=("${FRAME[@]}")   # for the live preview: without "R" and WiFi settings
     # "Redraw now" for this display: R just before #END
     [[ -n "${REDRAW[$id]:-}" ]] && FRAME=("${FRAME[@]:0:${#FRAME[@]}-1}" "R" "#END")
     # WiFi settings (USB only); the copy for the web page and the log hides them
@@ -1256,6 +1263,15 @@ update_display() {
     fi
     USB_IDS[$id]=1
     note_fast "$id" "$fastcap" "$port"
+    # fast refresh: the frame for the live preview of the settings page (in memory)
+    if (( fastcap )) && [[ "${CFG_FAST[$id]:-0}" != 0 ]] && mkdir -p "$LIVE_DIR" && chmod 755 "$LIVE_DIR"; then
+        local tmp
+        tmp="$(mktemp "$LIVE_DIR/.frame.XXXXXX")" && {
+            printf '%s\n' "${live[@]}" > "$tmp"
+            chmod 644 "$tmp"
+            mv -f "$tmp" "$LIVE_DIR/$id.txt"
+        }
+    fi
     DISPLAYS_JSON+=("{\"port\": $(json_str "$port"), \"transport\": \"usb\", \"id\": \"$id\", \"size\": \"$size\", \"colors\": $colors, \"panel\": $devpanel, \"pins\": \"$devpins\", \"board\": \"$board\", \"wifi\": $wifi, \"fw\": \"$fw\", \"net\": \"$netst\", \"ip\": \"$ip\", \"ssidHex\": \"$ssidhex\", \"fast\": $fastcap, \"answer\": $(json_str "$answer"), \"frame\": $(json_str "$(printf '%s\n' "${shown[@]}")")}")
 }
 

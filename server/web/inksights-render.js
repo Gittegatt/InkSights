@@ -503,12 +503,14 @@
     // highlighted: a box in the text colour 2 px (4 px on the 4.2") wider than the text on each
     // side, the text in the header colour; "NO DATA": white box, text in the third colour (inverted
     // header: a box in the third colour, white text; there the boxes reach up to the top edge, so no
-    // white line stays above them, user)
-    const third = m.mono ? BK : RD, boxY = inv ? 0 : hy - hs;
+    // white line stays above them, user). Inverted header with H field 24 = 1: the highlighted boxes
+    // in the third colour too (text white, black on yellow; user)
+    const third = m.mono ? BK : RD, boxY = inv ? 0 : hy - hs, lit = inv && m.headCol === 1;
+    const onBox = third === RD ? onThird : WH;
     const put = (i, px, s) => {
       const nd = lay[i] === "N";
-      if (hi[i] || nd) fb.fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (inv ? third : WH) : fg);
-      fb.text(px, hy, s, nd ? (inv ? (third === RD ? onThird : WH) : third) : hi[i] ? bg : fg, hs);
+      if (hi[i] || nd) fb.fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (inv ? third : WH) : lit ? third : fg);
+      fb.text(px, hy, s, nd ? (inv ? onBox : third) : hi[i] ? (lit ? onBox : bg) : fg, hs);
     };
     if (m.noData) {
       const at = [lay.indexOf("P"), lay.indexOf("U")].find(i => i >= 0) ?? [1, 2, 0].find(i => lay[i] === "-") ?? 1;
@@ -1312,11 +1314,11 @@
     let rx = null, done = null;
     for (const raw of text.split("\n")) {
       const line = raw.replace(/\r/g, "").slice(0, 127);
-      if (line === "#BEGIN") { rx = { host: "", time: "", rows: 0, warn: L.WARN_PCT, timer: 0, ringDir: 0, icons: 1, pctBar: 0, fast: 0, uptime: -1, upMonths: 0, wifiPage: 0, wifiIcons: true, netBar: 0, netIcons: 1, driveTemp: 0, stby: 0, headInv: 0, disks: [], nets: [], sys: null, page: 0 }; continue; }
+      if (line === "#BEGIN") { rx = { host: "", time: "", rows: 0, warn: L.WARN_PCT, timer: 0, ringDir: 0, icons: 1, pctBar: 0, fast: 0, uptime: -1, upMonths: 0, wifiPage: 0, wifiIcons: true, netBar: 0, netIcons: 1, driveTemp: 0, stby: 0, headInv: 0, headCol: 0, disks: [], nets: [], sys: null, page: 0 }; continue; }
       if (!rx) continue;
       if (line === "#END") { done = rx; rx = null; continue; }
       if (line.startsWith("H|")) {
-        const f = splitFields(line, 23);
+        const f = splitFields(line, 24);
         if (f.length >= 3) {
           rx.host = f[1].slice(0, 16); rx.time = f[2].slice(0, 5);
           rx.rows = f.length >= 4 ? clamp(atoi(f[3]), 0, 6) : 0;
@@ -1340,6 +1342,7 @@
           rx.driveTemp = f.length >= 21 && f[20] === "1" ? 1 : 0;      // temperatures in the drive rows
           rx.stby = f.length >= 22 && f[21] === "1" ? 1 : 0;          // asleep hard disks: 1 "STBY", 0 "--"
           rx.headInv = f.length >= 23 && f[22] === "1" ? 1 : 0;       // header inverted: white with black text
+          rx.headCol = f.length >= 24 && f[23] === "1" ? 1 : 0;       // inverted header: highlighted boxes in the third colour
         }
       } else if (line.startsWith("S|")) {
         // system page: components (C R N V S) | cpu % | cpu °C | cpu W | RAM used MiB | ZFS cache MiB |
@@ -1442,8 +1445,9 @@
       s.netBar || 0, s.netIcons === 0 ? 0 : 1,   // H fields 19, 20: network pages, details in the bar and symbols
       s.driveTemp === 1 ? 1 : 0,   // H field 21: temperatures in the drive rows
       s.stby === 1 ? 1 : 0,   // H field 22: asleep hard disks "STBY" instead of "--"
-      s.headInv === 1 ? 1 : 0];   // H field 23: header inverted
-    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0];
+      s.headInv === 1 ? 1 : 0,   // H field 23: header inverted
+      s.headInv === 1 && s.headCol === 1 ? 1 : 0];   // H field 24: inverted header, highlighted boxes in the third colour
+    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0];
     while (extra.length && extra[extra.length - 1] === defaults[extra.length - 1]) extra.pop();
     const head = [`H|${title}|${time}|${s.rows || 0}|${s.warn ?? L.WARN_PCT}|${Math.trunc((s.rot || 0) / 90)}|${s.page ?? 600}`, ...extra].join("|");
     const lines = ["#BEGIN", head];

@@ -20,6 +20,7 @@ folder with the NAS server:
 It also reads, from the run folder of inksights.sh (--run, mounted read-only; in memory):
 
   frames/<id>.txt       frames for the WiFi displays, written by inksights.sh
+  live/<id>.txt         frames of the USB displays with fast refresh (live preview, GET /api/live)
 
 Standard library only.
 """
@@ -65,7 +66,7 @@ MAX_NETS = 32                          # interfaces in the order and hidden list
 NET_SORTS = ("name", "manual")
 NET_BARS = (0, 1, 2)                   # details in the bar of the network pages: none, percentage of the link, link speed
 SYS_PARTS = ("cpu", "ram", "net", "nvme", "ssd", "hdd")       # system page components (rows); none = no system page
-CONF_COLS = 41
+CONF_COLS = 42
 PANELS = (1, 2, 3, 4, 5)              # panel types (GDEW0213Z16, GDEH0213Z19, GDEY0213Z98, GDEY0213B74, GDEY042T81)
 # Header layout: what stands left, in the middle and right; T title, P page number, U uptime,
 # C time, - nothing; lower case = that place highlighted; each of T, P, U, C at most once
@@ -120,6 +121,7 @@ MAX_BODY = 64 * 1024
 MAX_DISPLAYS = 32
 WIFI_DIR = "wifi"
 FRAMES_DIR = "frames"
+LIVE_DIR = "live"   # frames of the USB displays with fast refresh (live preview only)
 
 WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC = {
@@ -209,6 +211,7 @@ def read_conf(path):
                     "driveTemp": 1 if parts[38] == "1" else 0,
                     "stby": 1 if parts[39] == "1" else 0,
                     "headInv": 1 if parts[40] == "1" else 0,
+                    "headCol": 1 if parts[41] == "1" else 0,   # inverted header: highlighted boxes in the third colour
                     "panel": int(parts[29]) if parts[29] in ("1", "2", "3", "4", "5") else None,
                     "wifiIcons": 0 if parts[30] == "0" else 1,
                     # missing (earlier version): title, time, then the page number or the uptime
@@ -277,7 +280,7 @@ def validate(displays, old_conf=None):
         sysp = [p for p in SYS_PARTS if p in sysp]
         show = {}
         for key, default in (("showSys", 1), ("showDisks", 1), ("showWifi", 0), ("wifiIcons", 1), ("sysIcons", 1), ("showHeader", 1),
-                             ("showNet", 0), ("netIcons", 1), ("driveTemp", 0), ("stby", 0), ("headInv", 0)):
+                             ("showNet", 0), ("netIcons", 1), ("driveTemp", 0), ("stby", 0), ("headInv", 0), ("headCol", 0)):
             v = s.get(key, default)
             if v not in (0, 1) or isinstance(v, bool):
                 raise SettingsError(f"Display {did}: invalid {key}.")
@@ -382,7 +385,7 @@ def write_conf(path, conf, interval, page_name=""):
         "# id<TAB>types<TAB>boxes<TAB>rows<TAB>sort<TAB>order<TAB>warn<TAB>rot<TAB>page<TAB>pins<TAB>title"
         "<TAB>style<TAB>hidden<TAB>name<TAB>ssid<TAB>password<TAB>host<TAB>server<TAB>ap<TAB>ap ssid<TAB>ap password<TAB>ap delay"
         "<TAB>fast<TAB>system<TAB>network<TAB>zfs<TAB>pages<TAB>system icons<TAB>header<TAB>panel<TAB>wifi icons<TAB>layout<TAB>header on"
-        "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted",
+        "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted<TAB>header color",
         "#   '-' = empty. boxes 0 = timer off, rows 0 = auto, warn = highlight from % used (0 = never),",
         "#   rot = degrees clockwise (0, 90, 180, 270), page = seconds between page turns (0 = off),",
         "#   pins = cs,dc,rst,busy (rst/busy -1 = none, '-' = keep the pins of the display),",
@@ -404,6 +407,7 @@ def write_conf(path, conf, interval, page_name=""):
         "#   net icons = symbols 1 = on / 0 = off, net bar = details in the bar 0 none / 1 percentage / 2 link speed,",
         "#   drive temps = temperatures on the drive pages 1 = on / 0 = off, stby = asleep hard disks 1 = STBY / 0 = --,",
         "#   header inverted = 1 white header with black text / 0 black with white text",
+        "#   header color = inverted header: 1 highlighted places in the third colour / 0 black",
     ]
     for did, s in sorted(conf.items()):
         order = ",".join(s["order"]) or "-"
@@ -426,7 +430,7 @@ def write_conf(path, conf, interval, page_name=""):
                                 s.get("layout") if layout_ok(s.get("layout")) else DEFAULT_LAYOUT,
                                 str(s.get("showHeader", 1)), s.get("netSort", "name"),
                                 ",".join(s.get("netOrder") or []) or "-", ",".join(s.get("netHidden") or []) or "-",
-                                str(s.get("netIcons", 1)), str(s.get("netBar", 0)), str(s.get("driveTemp", 0)), str(s.get("stby", 0)), str(s.get("headInv", 0))]))
+                                str(s.get("netIcons", 1)), str(s.get("netBar", 0)), str(s.get("driveTemp", 0)), str(s.get("stby", 0)), str(s.get("headInv", 0)), str(s.get("headCol", 0))]))
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".conf.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
@@ -512,6 +516,27 @@ def wifi_frame(data_dir, run_dir, query):
             frame = frame.replace("#END", "R\n#END", 1)
             os.unlink(redraw)
     return frame, 200
+
+
+def live_frame(run_dir, query):
+    """GET /api/live: the latest frame of a display with fast refresh, for the live preview.
+    Only reads (the run folder of inksights.sh): {"frame": text, "age": seconds}, frame null if none"""
+    did = parse_qs(query).get("id", [""])[0]
+    if not ID_RE.match(did):
+        return {"frame": None, "age": -1}
+    best = None
+    for sub in (FRAMES_DIR, LIVE_DIR):   # WiFi displays, USB displays
+        path = os.path.join(run_dir, sub, did + ".txt")
+        try:
+            mtime = os.path.getmtime(path)
+            if best is None or mtime > best[0]:
+                with open(path, encoding="utf-8") as f:
+                    best = (mtime, f.read(16384))
+        except OSError:
+            pass
+    if best is None:
+        return {"frame": None, "age": -1}
+    return {"frame": best[1], "age": max(0, int(time.time() - best[0]))}
 
 
 REDRAW_LOCK = threading.Lock()
@@ -623,6 +648,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.log_message("cannot write to %s: %s", data_dir, e)
                 return self._send(500, b"", "text/plain")
             self._send(code, (frame or "").encode("utf-8"), "text/plain; charset=utf-8")
+        elif path == "/api/live":
+            self._json(200, live_frame(self.server.run_dir, self.path.split("?", 1)[1] if "?" in self.path else ""))
         else:
             self._json(404, {"error": "Not found"})
 

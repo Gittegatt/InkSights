@@ -42,7 +42,7 @@
  *
  * Protocol (one line per record, fields separated by '|'):
  *   #BEGIN
- *   H|<title>|<HH:MM>|<rows>|<warn>|<rot>|<page>[|<timer>|<ringdir>|<icons>|<pct>|<fast>|<uptime>|<months>|<wifi>|<nodata>|<layout>|<disks>|<netbar>|<neticons>|<temps>|<stby>|<headinv>]
+ *   H|<title>|<HH:MM>|<rows>|<warn>|<rot>|<page>[|<timer>|<ringdir>|<icons>|<pct>|<fast>|<uptime>|<months>|<wifi>|<nodata>|<layout>|<disks>|<netbar>|<neticons>|<temps>|<stby>|<headinv>|<headcol>]
  *     rows   : 2 to 6 (6 only on the 4.2"), 0/missing = automatic
  *     warn   : % used from which bar and used/total are highlighted (third colour, or inverted
  *              on black/white panels); 0 = never, missing = WARN_PCT
@@ -77,6 +77,8 @@
  *              in the drive rows and the HDD row of the system page
  *     headinv: (23rd field) header 1 = inverted (white with black text and a black line at the
  *              bottom, highlighted places black with white text), 0 = black with white text (default)
+ *     headcol: (24th field) inverted header: 1 = the highlighted places in the third colour (white
+ *              text), 0 = black (default)
  *   N|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<wireless 1/0>|<state U / L / D>
  *                              (optional, at most 8) network pages after the disk pages, one row per
  *                              interface like the network row of the system page: WiFi symbol when
@@ -282,6 +284,7 @@ struct Head {
   uint8_t  driveTemp;// temperatures in the drive rows 1 on / 0 off
   uint8_t  stby;     // asleep hard disks: 1 "STBY", 0 "--"
   uint8_t  headInv;  // header 1 = inverted (white with black text), 0 = black with white text
+  uint8_t  headCol;  // inverted header: 1 = highlighted places in the third colour, 0 = black
 };
 
 // System page from the S line (memset before filling: the change detection hashes the raw bytes)
@@ -387,7 +390,7 @@ Disk    rxDisks[MAX_DISKS];    // what is being received
 uint8_t diskCount  = 0;
 uint8_t rxCount    = 0;
 bool    rxActive   = false;
-const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0 };
+const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0 };
 Head    head   = HEAD_DEFAULT;
 Head    rxHead = HEAD_DEFAULT;
 SysInfo sys;                   // system page shown
@@ -2004,12 +2007,14 @@ void drawHeader(int16_t W, bool wide) {
   // highlighted: a box in the text colour 2 px (4 px on the 4.2") wider than the text on each
   // side, the text in the header colour; "NO DATA": white box, text in the third colour (inverted
   // header: a box in the third colour, white text; there the boxes reach up to the top edge, so no
-  // white line stays above them, user)
+  // white line stays above them, user). Inverted header with headcol: the highlighted boxes in the
+  // third colour too, white text (user)
   const int16_t boxY = inv ? 0 : hy - hs;
+  const bool col = inv && head.headCol == 1;
   auto put = [&](uint8_t i, int16_t px, const char* s) {
     const bool nd = item[i] == 'N';
-    if (lit[i] || nd) epd->fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (inv ? RD : WH) : fg);
-    printAt(px, hy, s, nd ? (inv ? WH : RD) : lit[i] ? bg : fg, hs);
+    if (lit[i] || nd) epd->fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (inv ? RD : WH) : col ? RD : fg);
+    printAt(px, hy, s, nd ? (inv ? WH : RD) : lit[i] ? (col ? WH : bg) : fg, hs);
   };
   int16_t x[3] = { 0, 0, 0 };
   if (fixed(item[0])) x[0] = hx;
@@ -2625,7 +2630,7 @@ void parseSys(char* line) {
 
 void commitFrame() {
   // settings field by field (the struct may contain padding bytes)
-  const uint32_t hv[14] = { (uint32_t)rxHead.headInv << 25 | (uint32_t)rxHead.stby << 24 | (uint32_t)rxHead.driveTemp << 16 | (uint32_t)rxHead.netBar << 8 | rxHead.netIcons, rxCount, rxHead.rows, rxHead.warn, rxHead.rot, rxHead.timer, rxHead.ringDir,
+  const uint32_t hv[14] = { (uint32_t)rxHead.headCol << 26 | (uint32_t)rxHead.headInv << 25 | (uint32_t)rxHead.stby << 24 | (uint32_t)rxHead.driveTemp << 16 | (uint32_t)rxHead.netBar << 8 | rxHead.netIcons, rxCount, rxHead.rows, rxHead.warn, rxHead.rot, rxHead.timer, rxHead.ringDir,
                             rxHead.icons, rxHead.pctBar, rxHead.fast, rxHead.page, (uint32_t)rxHead.uptime,
                             rxHead.upMonths,
                             (uint32_t)rxHead.diskPages << 24 | (uint32_t)rxHead.layout[0] << 16 |
@@ -2736,8 +2741,8 @@ void handleLine(char* line) {
     rxActive = false;
     commitFrame();
   } else if (line[0] == 'H' && line[1] == '|') {
-    char* f[23];
-    const uint8_t n = splitFields(line, f, 23);
+    char* f[24];
+    const uint8_t n = splitFields(line, f, 24);
     if (n >= 3) {
       copyStr(rxHost, f[1], sizeof(rxHost));
       copyStr(rxTime, f[2], sizeof(rxTime));
@@ -2764,6 +2769,7 @@ void handleLine(char* line) {
       rxHead.driveTemp = n >= 21 && strcmp(f[20], "1") == 0 ? 1 : 0;  // temperatures in the drive rows
       rxHead.stby = n >= 22 && strcmp(f[21], "1") == 0 ? 1 : 0;       // asleep hard disks "STBY"
       rxHead.headInv = n >= 23 && strcmp(f[22], "1") == 0 ? 1 : 0;    // header inverted
+      rxHead.headCol = n >= 24 && strcmp(f[23], "1") == 0 ? 1 : 0;    // inverted header: highlighted places in colour
     }
   } else if (line[0] == 'D' && line[1] == '|') {
     parseDisk(line);

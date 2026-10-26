@@ -8,6 +8,8 @@
  *   backend.refresh()     -> Promise ("Update now")
  *   backend.redraw(id)    -> Promise ("Redraw now")
  *   backend.pollMs        -> reload the state this often (0 = never)
+ *   backend.live(id)      -> Promise of { frame, age }: the latest frame of a display with fast
+ *                            refresh (live preview as often as it refreshes; optional)
  *   backend.frameOverride(id) -> frame text to show instead of the settings (simulator: pasted frame)
  *   backend.serverAddress -> address of this page as a display reaches it (WiFi settings)
  *   backend.titleSuffix   -> appended to the browser tab title
@@ -191,7 +193,7 @@
       // one (earlier version) as before: title, time, then the page number or the uptime
       if (!EPD.layoutOk(s.layout)) s.layout = s.headerUp === 1 ? "TCU" : EPD.DEFAULT_LAYOUT;
       // a new display: header and system page (all components) on, disk and WiFi pages off
-      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 0], ["barCap", 0], ["zfs", 1], ["showSys", 1], ["showDisks", 0], ["sysIcons", 1], ["showWifi", 0], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 0], ["netIcons", 1], ["driveTemp", 0], ["stby", 0], ["headInv", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 0], ["barCap", 0], ["zfs", 1], ["showSys", 1], ["showDisks", 0], ["sysIcons", 1], ["showWifi", 0], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 0], ["netIcons", 1], ["driveTemp", 0], ["stby", 0], ["headInv", 0], ["headCol", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
       if (![0, 1, 2].includes(s.pctDec)) s.pctDec = 0;   // decimals of the percentage in the drive bars
       // network pages: details in the bar 0 none / 1 percentage / 2 link speed, order by name or custom, hidden interfaces
       if (![0, 1, 2].includes(s.netBar)) s.netBar = 0;
@@ -258,10 +260,35 @@
     }
 
     // ---------------------------------------------------------- preview
+    // Live preview: a display with fast refresh gets the frame it was last sent, as often as it
+    // refreshes; not while settings are changed and not saved (the preview then shows them)
+    const liveFrames = {}, liveAsked = {}, liveBusy = {};
+    const fastSecs = entry => (entry.live && entry.live.fast ? settingsFor(entry.id).fast : 0);
+    function liveText(entry) {
+      const f = fastSecs(entry), lf = liveFrames[entry.id];
+      return !dirty && f && lf && Date.now() - lf.at <= Math.max(30, 5 * f) * 1000 ? lf.text : null;
+    }
+    function pollLive() {
+      for (const entry of displayList()) {
+        const id = entry.id, f = fastSecs(entry);
+        if (!f || liveBusy[id] || Date.now() - (liveAsked[id] || 0) < f * 1000 - 200) continue;
+        liveAsked[id] = Date.now();
+        liveBusy[id] = true;
+        backend.live(id).then(r => {
+          if (!r || typeof r.frame !== "string") return;
+          const old = liveFrames[id];
+          liveFrames[id] = { text: r.frame, at: Date.now() - Math.max(0, r.age || 0) * 1000 };
+          if (!dirty && (!old || old.text !== r.frame)) drawPreview(entry);
+        }).catch(() => { /* next time */ }).finally(() => { liveBusy[id] = false; });
+      }
+    }
+
     function frameText(entry) {
       const s = settingsFor(entry.id);
       const override = backend.frameOverride ? backend.frameOverride(entry.id) : null;
       if (override != null) return { text: override, override: true };
+      const lt = liveText(entry);
+      if (lt != null) return { text: lt, override: false };
       const title = (s.name || state.host || "SYSTEM").slice(0, 12);
       const fast = panelOf(entry.live, s).fast;
       return { text: EPD.buildFrame(state.disks || [], s, title, state.timeText || hhmm(state.updated), state.system || null, fast, interval), override: false };
@@ -657,6 +684,9 @@
         litBox[i].disabled = c === "-";
       });
       syncLayout();
+      // inverted header: the highlighted places in the third colour (only panels with one)
+      const colBox = field("Highlight color", radios("headcol", [[1, "On"], [0, "Off"]], s.headCol, v => { s.headCol = v; }));
+      setDisabled(colBox, !s.headInv || panel.colors === 2);
       const headerCard = subCard("headerOpen", "Header", true, "showHeader",
         el("fieldset", { class: `set-${id}` },
           el("div", { class: "form" },
@@ -664,7 +694,8 @@
               el("span", { class: "label" }, "Title"),
               el("input", { type: "text", maxlength: "12", value: s.name, placeholder: state.host || "SYSTEM", autocomplete: "off", style: "max-width: 10em",
                 oninput: e => { s.name = e.target.value; setHeading(); redraw(); } })),
-            field("Invert colors", radios("headinv", [[1, "On"], [0, "Off"]], s.headInv, v => { s.headInv = v; })),
+            field("Invert colors", radios("headinv", [[1, "On"], [0, "Off"]], s.headInv, v => { s.headInv = v; setDisabled(colBox, !v || panel.colors === 2); })),
+            colBox,
             el("div", { class: "field wide" },
               el("div", { class: "choices header-places" }, ...places.map((place, i) => el("div", { class: "field" },
                 el("span", { class: "label" }, place), layoutSel[i],
@@ -841,6 +872,7 @@
     new ResizeObserver(() => drawAll()).observe($("displays"));
     load(true);
     if (backend.pollMs) setInterval(() => load(false), backend.pollMs);
+    if (backend.live) setInterval(pollLive, 500);
 
     // frames: what every display would get right now (simulator: "Send to display" over USB)
     return { reload: force => load(force), redrawPreviews: drawAll,
