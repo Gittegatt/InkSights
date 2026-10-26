@@ -86,6 +86,29 @@
   const REFRESH = [[2, "2 s"], [5, "5 s"], [10, "10 s"], [30, "30 s"], [60, "1 min"], [180, "3 min"], [300, "5 min"], [600, "10 min"],
     [900, "15 min"], [1800, "30 min"], [3600, "1 h"], [5400, "1.5 h"], [7200, "2 h"], [10800, "3 h"], [14400, "4 h"]];
   const DEFAULT_REFRESH = 600;
+  // Time page with NTP (boards with WiFi): common time zones with their POSIX rule (daylight saving
+  // included) for the board; the preview takes the zone name
+  const ZONES = [["UTC", "UTC0"], ["Europe/London", "GMT0BST,M3.5.0/1,M10.5.0"], ["Europe/Dublin", "GMT0IST,M3.5.0/1,M10.5.0"],
+    ["Europe/Lisbon", "WET0WEST,M3.5.0/1,M10.5.0"], ["Europe/Berlin", "CET-1CEST,M3.5.0,M10.5.0/3"], ["Europe/Amsterdam", "CET-1CEST,M3.5.0,M10.5.0/3"],
+    ["Europe/Brussels", "CET-1CEST,M3.5.0,M10.5.0/3"], ["Europe/Paris", "CET-1CEST,M3.5.0,M10.5.0/3"], ["Europe/Zurich", "CET-1CEST,M3.5.0,M10.5.0/3"],
+    ["Europe/Vienna", "CET-1CEST,M3.5.0,M10.5.0/3"], ["Europe/Rome", "CET-1CEST,M3.5.0,M10.5.0/3"], ["Europe/Madrid", "CET-1CEST,M3.5.0,M10.5.0/3"],
+    ["Europe/Copenhagen", "CET-1CEST,M3.5.0,M10.5.0/3"], ["Europe/Oslo", "CET-1CEST,M3.5.0,M10.5.0/3"], ["Europe/Stockholm", "CET-1CEST,M3.5.0,M10.5.0/3"],
+    ["Europe/Warsaw", "CET-1CEST,M3.5.0,M10.5.0/3"], ["Europe/Prague", "CET-1CEST,M3.5.0,M10.5.0/3"], ["Europe/Budapest", "CET-1CEST,M3.5.0,M10.5.0/3"],
+    ["Europe/Helsinki", "EET-2EEST,M3.5.0/3,M10.5.0/4"], ["Europe/Athens", "EET-2EEST,M3.5.0/3,M10.5.0/4"], ["Europe/Istanbul", "<+03>-3"],
+    ["Europe/Moscow", "MSK-3"], ["Africa/Lagos", "WAT-1"], ["Africa/Johannesburg", "SAST-2"], ["Africa/Cairo", "EET-2EEST,M4.5.5/0,M10.5.4/24"],
+    ["Africa/Nairobi", "EAT-3"], ["Asia/Jerusalem", "IST-2IDT,M3.4.4/26,M10.5.0"], ["Asia/Dubai", "<+04>-4"], ["Asia/Kolkata", "IST-5:30"],
+    ["Asia/Bangkok", "<+07>-7"], ["Asia/Singapore", "<+08>-8"], ["Asia/Hong_Kong", "HKT-8"], ["Asia/Shanghai", "CST-8"], ["Asia/Seoul", "KST-9"],
+    ["Asia/Tokyo", "JST-9"], ["Australia/Perth", "AWST-8"], ["Australia/Adelaide", "ACST-9:30ACDT,M10.1.0,M4.1.0/3"], ["Australia/Brisbane", "AEST-10"],
+    ["Australia/Sydney", "AEST-10AEDT,M10.1.0,M4.1.0/3"], ["Pacific/Auckland", "NZST-12NZDT,M9.5.0,M4.1.0/3"], ["Pacific/Honolulu", "HST10"],
+    ["America/Anchorage", "AKST9AKDT,M3.2.0,M11.1.0"], ["America/Los_Angeles", "PST8PDT,M3.2.0,M11.1.0"], ["America/Phoenix", "MST7"],
+    ["America/Denver", "MST7MDT,M3.2.0,M11.1.0"], ["America/Chicago", "CST6CDT,M3.2.0,M11.1.0"], ["America/Mexico_City", "CST6"],
+    ["America/New_York", "EST5EDT,M3.2.0,M11.1.0"], ["America/Toronto", "EST5EDT,M3.2.0,M11.1.0"], ["America/Halifax", "AST4ADT,M3.2.0,M11.1.0"],
+    ["America/St_Johns", "NST3:30NDT,M3.2.0,M11.1.0"], ["America/Sao_Paulo", "<-03>3"], ["America/Argentina/Buenos_Aires", "<-03>3"]];
+  const NTP_SERVERS = ["pool.ntp.org", "0.pool.ntp.org", "1.pool.ntp.org", "2.pool.ntp.org", "3.pool.ntp.org"];
+  const NTP_RE = /^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$/;
+  const DATE_FORMATS = [[0, "26 Oct 2026"], [1, "2026-10-26"], [2, "10/26/2026"], [3, "26.10.2026"]];
+  // the zone of this browser when it is in the list, else UTC
+  const homeZone = (() => { try { const z = Intl.DateTimeFormat().resolvedOptions().timeZone; return ZONES.some(([n]) => n === z) ? z : "UTC"; } catch (e) { return "UTC"; } })();
   const refreshMins = s => Math.max(1, Math.floor(s.refresh / 60));   // a refresh under a minute counts as 1 minute
   const IFACE_RE = /^(?!-$)[A-Za-z0-9._-]{1,15}$/;
   const PREFS = "inksights-ui";   // folded sections; per browser only
@@ -200,7 +223,12 @@
       // one (earlier version) as before: title, time, then the page number or the uptime
       if (!EPD.layoutOk(s.layout)) s.layout = s.headerUp === 1 ? "TCU" : EPD.DEFAULT_LAYOUT;
       // a new display: header and system page (all components) on, disk and WiFi pages off
-      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 0], ["barCap", 0], ["zfs", 1], ["showSys", 1], ["showDisks", 0], ["sysIcons", 1], ["showWifi", 0], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 0], ["netIcons", 1], ["driveTemp", 0], ["stby", 0], ["headInv", 0], ["headCol", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 0], ["barCap", 0], ["zfs", 1], ["showSys", 1], ["showDisks", 0], ["sysIcons", 1], ["showWifi", 0], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 0], ["netIcons", 1], ["driveTemp", 0], ["stby", 0], ["headInv", 0], ["headCol", 0], ["timeFmt", 0], ["ampm", 1], ["showTime", 0], ["timeDate", 1], ["timeWday", 1], ["ntp", 0], ["inkSplash", 1], ["inkNothing", 1], ["inkNoData", 1], ["lineTop", 1], ["lineBottom", 1]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      if (!EPD.orderOk(s.pageOrder)) s.pageOrder = EPD.PAGE_ORDER;   // the page order: S system, D drives, N network, T time, W WiFi
+      if (![0, 1, 2, 3].includes(s.dateFmt)) s.dateFmt = 0;   // time page: 26 Oct 2026, ISO, US, German
+      if (typeof s.ntpServer !== "string" || !NTP_RE.test(s.ntpServer)) s.ntpServer = NTP_SERVERS[0];
+      if (!ZONES.some(([n]) => n === s.tz)) s.tz = homeZone;
+      s.tzPosix = ZONES.find(([n]) => n === s.tz)[1];
       if (![0, 1, 2].includes(s.pctDec)) s.pctDec = 0;   // decimals of the percentage in the drive bars
       // network pages: details in the bar 0 none / 1 percentage / 2 link speed, order by name or custom, hidden interfaces
       if (![0, 1, 2].includes(s.netBar)) s.netBar = 0;
@@ -247,6 +275,7 @@
         const s = settingsFor(id), who = s.dname.trim() || s.name || id, w = s.wifi;
         if (!NAME_RE.test(s.name)) out.push(`${who}: title max. 12 characters, only letters, digits, spaces and . _ - + /`);
         if (s.dname.length > 32) out.push(`${who}: name max. 32 characters.`);
+        if (s.ntp && !NTP_RE.test(s.ntpServer)) out.push(`${who}: NTP server like pool.ntp.org.`);
         if (!Number.isInteger(s.warn) || s.warn < 0 || s.warn > 100) out.push(`${who}: highlight threshold must be between 1 and 100 %.`);
         if (s.page < 0) out.push(`${who}: page turn must be a time like 00:10:00 (max. 24:00:00).`);
         const used = (s.pins || []).filter(p => p !== PIN_NONE);
@@ -308,7 +337,25 @@
     // the frame of a display from its settings and state st (state.json, or simulated live values)
     function buildFor(entry, st) {
       const s = settingsFor(entry.id), title = (s.name || st.host || "SYSTEM").slice(0, 12);
-      return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s));
+      return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st));
+    }
+    // date and time of the data YYYYMMDDHHMMSS: the day of the update, the time it shows
+    function dataStamp(st) {
+      const d = st.updated ? new Date(st.updated * 1000) : new Date(), p = n => String(n).padStart(2, "0");
+      const hm = /^(\d\d):(\d\d)$/.exec(st.timeText || "");
+      return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${hm ? hm[1] + hm[2] + "00" : p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds())}`;
+    }
+    // what the time page shows now: with NTP (a board with WiFi) the time in its zone, else the
+    // time of the data counted on like the board does
+    function clockNow(model, live, s) {
+      if (model.clock.ntp && boardOf(live).wifi) {
+        try {
+          const f = new Intl.DateTimeFormat("en-US", { timeZone: s.tz, year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", hourCycle: "h23", weekday: "short" });
+          const o = Object.fromEntries(f.formatToParts(new Date()).map(x => [x.type, x.value]));
+          return { y: +o.year, mo: +o.month, d: +o.day, h: +o.hour % 24, mi: +o.minute, wd: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(o.weekday) };
+        } catch (e) { /* unknown zone: the time of the data */ }
+      }
+      return EPD.clockParts(model.clock.dt, state.updated ? Date.now() / 1000 - state.updated : 0);
     }
 
     function drawPreview(entry) {
@@ -335,8 +382,9 @@
         return;
       }
       // simulator "No data": connected, but nothing to show -> the "Nothing to ink" screen
-      if (live && live.nothingToInk) { model.sys = null; model.nets = []; model.disks = []; model.diskPages = 0; model.wifiPage = 0; }
-      const pc = EPD.pageCount(model.disks.length, h, model.rows, w, !!model.sys, !!model.wifiPage, model.layout !== "---", model.nets.length);
+      if (live && live.nothingToInk) { model.sys = null; model.nets = []; model.disks = []; model.diskPages = 0; model.wifiPage = 0; model.clock = null; }
+      if (model.clock) model.now = clockNow(model, live, s);
+      const pc = EPD.pageCount(model.disks.length, h, model.rows, w, !!model.sys, !!model.wifiPage, model.layout !== "---", model.nets.length, !!model.clock);
       pages[id] = (((pages[id] || 0) % pc) + pc) % pc;
       model.page = pages[id];
       model.mono = panel.colors === 2;
@@ -346,9 +394,9 @@
         ip: live ? live.ip || "" : "", ap: s.wifi.apSsid || DEFAULT_AP_SSID,
         online: live && Number.isInteger(live.online) && live.online >= 0 ? Math.floor(live.online / 60) : -1 };   // black/white panel: highlighted used/total inverted instead of in colour
       // no fresh data for too long; in the simulator also a display that is not connected ("Connected" off)
-      model.noData = live ? !!live.noData : !!backend.offlineNoData;
+      model.noData = (live ? !!live.noData : !!backend.offlineNoData) && s.inkNoData !== 0;   // Advanced Ink: "Check connection" off
       if (override) { model.timer = s.timer; model.ringDir = s.ringDir; model.icons = s.icons; model.pctBar = s.pctBar ? (s.barCap ? 2 : 1) : 0; }
-      if (live && live.splash) {   // the board's start screen, before the first data (simulator: "Start screen")
+      if (live && live.splash && s.inkSplash !== 0) {   // the board's start screen, before the first data (simulator: "Start screen"; Advanced Ink)
         const [sw, sh] = panelSize(panel, 0), sfb = new EPD.Fb(sw, sh), board = boardOf(live);
         const pins = String(live.pins || "").split(",").map(Number);
         const net = live.transport === "wifi" ? "sta" : live.net || "off";
@@ -364,8 +412,8 @@
       }
       EPD.drawScreen(fb, model);
       paint(canvas, fb, w, h, panel.yellow);
-      const what = [model.sys ? "system" : "", model.disks.length || (!model.sys && !model.wifiPage && !model.nets.length) ? `${model.disks.length} drives` : "",
-        model.nets.length ? `${model.nets.length} network` : "", model.wifiPage ? "WiFi" : ""].filter(Boolean).join(", ");
+      const what = [model.sys ? "system" : "", model.disks.length || (!model.sys && !model.wifiPage && !model.clock && !model.nets.length) ? `${model.disks.length} drives` : "",
+        model.nets.length ? `${model.nets.length} network` : "", model.wifiPage ? "WiFi" : "", model.clock ? "time" : ""].filter(Boolean).join(", ");
       $(`pg-${id}`).textContent = `Page ${model.page + 1}/${pc} · ${what}`;
       msg.textContent = "";
       msg.className = "note";
@@ -516,6 +564,9 @@
       const zfsBox = el("div", { class: "choices" }, el("span", { class: "check" }, "ZFS RAM cache"),
         radios("zfs", [[1, "On"], [0, "Off"]], s.zfs, v => { s.zfs = v; }));
       const setDisabled = (box, off) => box.querySelectorAll("input").forEach(i => { i.disabled = off; });
+      // 12 hours: AM / PM shown or not (Display card)
+      const ampmBox = field("AM/PM", radios("ampm", [[1, "On"], [0, "Off"]], s.ampm, v => { s.ampm = v; }));
+      setDisabled(ampmBox, !s.timeFmt);
       setDisabled(zfsBox, !s.sys.includes("ram"));
       // Asleep hard disks: "--" or "STBY" in the drive rows and the HDD row, one setting offered in
       // the Drives and the System card, so picking it in one card ticks it in the other
@@ -573,7 +624,14 @@
         const t = el("span", {}, nameOf(id, s));
         titles.push(t);
         const card = el("article", { class: `card sub-card${show && !s[show] ? " off" : ""}`, "aria-label": `${title} of display ${id}` },
-          el("details", { class: "fold", open: pref(id, key, openByDefault), ontoggle: e => setPref(id, key, e.target.open) },
+          el("details", { class: "fold", open: pref(id, key, openByDefault), ontoggle: e => {
+            // (also fired when a card is built open: then nothing changed)
+            const opened = e.target.open && !pref(id, key, openByDefault);
+            setPref(id, key, e.target.open);
+            // Advanced Ink, Auto collapse: opening a card folds the other open cards of this display
+            if (opened && pref(id, "autoFold", 1)) for (const d of card.parentElement?.querySelectorAll(".sub-card > details.fold[open]") || [])
+              if (d !== e.target) d.open = false;
+          } },
             el("summary", {}, `${title} · `, t), el("div", { class: "sub-body" }, ...content)));
         if (show) card.append(el("label", { class: "check page-toggle" },
           el("input", { type: "checkbox", checked: !!s[show], "aria-label": `Show the ${title.toLowerCase()} on the display`, onchange: e => {
@@ -706,6 +764,11 @@
       // inverted header: the highlighted places in the third colour (only panels with one)
       const colBox = field("Highlight color", radios("headcol", [[1, "On"], [0, "Off"]], s.headCol, v => { s.headCol = v; }));
       setDisabled(colBox, !s.headInv || panel.colors === 2);
+      // inverted header: the lines at its top and bottom
+      const topBox = field("Line top", radios("linetop", [[1, "On"], [0, "Off"]], s.lineTop, v => { s.lineTop = v; }));
+      const botBox = field("Line bottom", radios("linebottom", [[1, "On"], [0, "Off"]], s.lineBottom, v => { s.lineBottom = v; }));
+      setDisabled(topBox, !s.headInv);
+      setDisabled(botBox, !s.headInv);
       const headerCard = subCard("headerOpen", "Header", true, "showHeader",
         el("fieldset", { class: `set-${id}` },
           el("div", { class: "form" },
@@ -713,8 +776,11 @@
               el("span", { class: "label" }, "Title"),
               el("input", { type: "text", maxlength: "12", value: s.name, placeholder: state.host || "SYSTEM", autocomplete: "off", style: "max-width: 10em",
                 oninput: e => { s.name = e.target.value; setHeading(); redraw(); } })),
-            field("Invert colors", radios("headinv", [[1, "On"], [0, "Off"]], s.headInv, v => { s.headInv = v; setDisabled(colBox, !v || panel.colors === 2); })),
+            field("Invert colors", radios("headinv", [[1, "On"], [0, "Off"]], s.headInv, v => {
+              s.headInv = v; setDisabled(colBox, !v || panel.colors === 2); setDisabled(topBox, !v); setDisabled(botBox, !v); })),
             colBox,
+            topBox,
+            botBox,
             el("div", { class: "field wide" },
               el("div", { class: "choices header-places" }, ...places.map((place, i) => el("div", { class: "field" },
                 el("span", { class: "label" }, place), layoutSel[i],
@@ -746,6 +812,10 @@
             el("span", { class: "label" }, "Instance name"),
             el("input", { type: "text", class: "pagename", maxlength: "32", value: pageName, placeholder: defaultPageName, autocomplete: "off", style: "max-width: 14em",
               oninput: e => { pageName = e.target.value; applyPageName(); syncPageName(e.target); changed(); } })),
+          // 12 or 24 hours: the time in the header and on the time page
+          el("div", { class: "field wide boxed" }, el("div", { class: "choices" },
+            field("Time format", radios("timefmt", [[0, "24h"], [1, "12h"]], s.timeFmt, v => { s.timeFmt = v; setDisabled(ampmBox, !v); })),
+            ampmBox)),
           // framed: Panel over the full width, then Rotation | Title, Rows per page | Auto page turn
           el("div", { class: "group wide" },
             el("div", { class: "field wide" }, el("span", { class: "label" }, "Panel"),
@@ -766,13 +836,108 @@
           el("summary", {}, `Frame (data received via ${via})`),
           el("pre", { id: `frame-${id}` })));
       if (wifiCard) wifiCard.classList.add("keep-on");   // its settings are not dimmed when the page is off
-      // Backup: the settings of this display as a JSON file, and back (also from another board)
-      const backupCard = subCard("backupOpen", "Backup", false, null,
-        el("div", { class: "choices" },
-          el("button", { class: "btn", type: "button", onclick: () => doExport(id) }, "Export"),
-          el("button", { class: "btn", type: "button", onclick: () => $(`import-${id}`).click() }, "Import"),
-          el("input", { type: "file", id: `import-${id}`, accept: ".json,application/json", hidden: true, onchange: e => doImport(id, e.target.files[0]) })));
-      return { main, subs: [displayCard, headerCard, sysCard, disksCard, netCard, ...(wifiCard ? [wifiCard] : []), backupCard] };
+      // Time: a page with the time in big, below it weekday and date (each when ticked); the system
+      // time of the NAS server, counted on by the board, or (boards with WiFi) NTP in a time zone.
+      // The header always shows the system time.
+      const ntpOk = board.wifi;
+      const dateSel = el("select", { "aria-label": "Date format", disabled: !s.timeDate, onchange: e => { s.dateFmt = Number(e.target.value); redraw(); } },
+        ...DATE_FORMATS.map(([v, l]) => el("option", { value: String(v), selected: v === s.dateFmt }, l)));
+      const ntpIn = el("input", { type: "text", list: `ntp-${id}`, maxlength: "40", value: s.ntpServer, autocomplete: "off", style: "max-width: 14em",
+        "aria-label": "NTP server", disabled: !(ntpOk && s.ntp), oninput: e => { s.ntpServer = e.target.value.trim(); changed(); } });
+      const tzSel = el("select", { "aria-label": "Time zone", disabled: !(ntpOk && s.ntp), onchange: e => {
+        s.tz = e.target.value; s.tzPosix = ZONES.find(([n]) => n === s.tz)[1]; redraw(); } },
+        ...ZONES.map(([n]) => el("option", { value: n, selected: n === s.tz }, n.replace(/_/g, " "))));
+      const ntpBox = field("Use NTP", radios("ntp", [[1, "On"], [0, "Off"]], s.ntp, v => { s.ntp = v; ntpIn.disabled = tzSel.disabled = !v; }));
+      if (!ntpOk) setDisabled(ntpBox, true);   // no WiFi: always the system time
+      const timeCard = subCard("timeOpen", "Time", false, "showTime",
+        el("div", { class: "form" },
+          field("Show", el("div", { class: "choices" },
+            el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!s.timeDate, onchange: e => {
+              s.timeDate = e.target.checked ? 1 : 0; dateSel.disabled = !s.timeDate; redraw(); } }), "Date"),
+            el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!s.timeWday, onchange: e => {
+              s.timeWday = e.target.checked ? 1 : 0; redraw(); } }), "Weekday"))),
+          field("Date format", dateSel),
+          ntpBox,
+          el("label", { class: "field" }, el("span", { class: "label" }, "NTP server"), ntpIn,
+            el("datalist", { id: `ntp-${id}` }, ...NTP_SERVERS.map(n => el("option", { value: n })))),
+          el("label", { class: "field" }, el("span", { class: "label" }, "Time zone"), tzSel)));
+      // Advanced Ink: the start screen, "Nothing to ink" and "Check connection" each shown when needed or
+      // never (the board keeps the start screen setting for the next power-up)
+      const screenTick = (key, label) => el("label", { class: "check" },
+        el("input", { type: "checkbox", checked: s[key] !== 0, onchange: e => { s[key] = e.target.checked ? 1 : 0; redraw(); } }), label);
+      // and the backup: the settings of this display as a JSON file, and back (also from another board)
+      const advCard = subCard("advOpen", "Advanced Ink", false, null,
+        el("div", { class: "form" },
+          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Screens"),
+            el("div", { class: "choices" }, screenTick("inkSplash", "Start screen"), screenTick("inkNothing", "Nothing to ink"), screenTick("inkNoData", "No connection"))),
+          // remembered in this browser, like which cards are folded (no need to save)
+          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Bar behaviour"),
+            el("div", { class: "choices" }, el("label", { class: "check" },
+              el("input", { type: "checkbox", checked: !!pref(id, "autoFold", 1), onchange: e => setPref(id, "autoFold", e.target.checked ? 1 : 0) }), "Auto collapse"))),
+          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Backup"),
+            el("div", { class: "choices" },
+              el("button", { class: "btn", type: "button", onclick: () => doExport(id) }, "Export"),
+              el("button", { class: "btn", type: "button", onclick: () => $(`import-${id}`).click() }, "Import"),
+              el("input", { type: "file", id: `import-${id}`, accept: ".json,application/json", hidden: true, onchange: e => doImport(id, e.target.files[0]) })))));
+      // System, Drives, Network, Time and WiFi move with their grip (dragged, or the arrow keys on it);
+      // their order is the order of the pages on the display (H field 28). Display, Header and
+      // Advanced Ink stay where they are.
+      const movable = { S: sysCard, D: disksCard, N: netCard, T: timeCard, W: wifiCard };
+      const takeOrder = c => {
+        let o = [...c.parentElement.querySelectorAll(".sub-card[data-page]")].map(x => x.dataset.page).join("");
+        // a page without a card here (WiFi on a board without WiFi) keeps its place
+        [...s.pageOrder].forEach((k, i) => { if (!o.includes(k)) o = o.slice(0, i) + k + o.slice(i); });
+        if (o !== s.pageOrder) { s.pageOrder = o; pages[id] = 0; redraw(); }
+      };
+      const grip = c => {
+        const g = el("button", { class: "grip", type: "button", "aria-label": "Move this card",
+          onkeydown: e => {
+            if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+            e.preventDefault();
+            const to = e.key === "ArrowUp" ? c.previousElementSibling : c.nextElementSibling;
+            if (!to?.dataset.page) return;
+            if (e.key === "ArrowUp") to.before(c); else to.after(c);
+            g.focus();
+            evenOut();
+            takeOrder(c);
+          },
+          // the moves and the release are taken from the whole window: moving the card in the page
+          // ends a pointer capture on the grip, so the grip itself would miss the release
+          onpointerdown: e => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            const id0 = e.pointerId;
+            // past the middle of a neighbour: the card takes its place
+            const move = ev => {
+              if (ev.pointerId !== id0) return;
+              for (const o of c.parentElement.querySelectorAll(".sub-card[data-page]")) {
+                if (o === c) continue;
+                const r = o.getBoundingClientRect(), mid = r.top + r.height / 2;
+                const below = c.compareDocumentPosition(o) & Node.DOCUMENT_POSITION_FOLLOWING;
+                if (below ? ev.clientY > mid : ev.clientY < mid) {   // one step per move: the cards have moved
+                  if (below) o.after(c); else o.before(c);
+                  evenOut();
+                  return;
+                }
+              }
+            };
+            const end = ev => {
+              if (ev.pointerId !== id0) return;
+              window.removeEventListener("pointermove", move);
+              window.removeEventListener("pointerup", end);
+              window.removeEventListener("pointercancel", end);
+              c.classList.remove("dragging");
+              takeOrder(c);
+            };
+            window.addEventListener("pointermove", move);
+            window.addEventListener("pointerup", end);
+            window.addEventListener("pointercancel", end);
+            c.classList.add("dragging");
+          } });
+        return g;
+      };
+      for (const [k, c] of Object.entries(movable)) if (c) { c.dataset.page = k; c.append(grip(c)); }
+      return { main, subs: [displayCard, headerCard, ...[...s.pageOrder].map(k => movable[k]).filter(Boolean), advCard] };
     }
 
     function render(force) {
@@ -987,6 +1152,8 @@
     load(true);
     if (backend.pollMs) setInterval(() => load(false), backend.pollMs);
     if (backend.live) setInterval(pollLive, 500);
+    // a time page in a preview: drawn again as the minutes go on
+    setInterval(() => { if (displayList().some(e => settingsFor(e.id).showTime === 1)) drawAll(); }, 20000);
 
     // frames: what every display would get right now (simulator: "Send to display" over USB);
     // frameFor: the frame of one display from another state (simulator: live values)

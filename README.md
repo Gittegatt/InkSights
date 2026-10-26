@@ -439,10 +439,15 @@ page and the simulator are then online at `https://<user>.github.io/<repository>
 ## 5. The settings page
 
 Open **http://&lt;server&gt;:8099**. Every display appears with a live preview of what it will show, and below it its own
-foldable cards **Display**, **Header**, **System**, **Drives**, **Network**, (boards with WiFi) **WiFi** and **Backup**. A new
+foldable cards **Display**, **Header**, **System**, **Drives**, **Network**, **Time**, (boards with WiFi) **WiFi** and **Advanced Ink**. A new
 display starts with the header and the system page; switch the drive pages on in its Drives card. Change settings,
 *Save*, and the NAS server applies them within a minute. The page itself shows no explanations, to keep it tidy; they
 are here. Which cards are folded is remembered per browser.
+
+**Order of the pages:** the cards **System**, **Drives**, **Network**, **Time** and **WiFi** have a grip (two lines
+left of **Ink**). Drag a card by it up or down, or click the grip and use the arrow keys. The order of these cards is
+the order of the pages on the display (default: system, drives, network, time, WiFi); *Save* applies it.
+**Display**, **Header** and **Advanced Ink** stay in their place.
 
 <img src="examples/example_09_settings_page.png" alt="The settings page with two displays: live previews, the Display cards open, the other cards folded" width="100%">
 
@@ -455,7 +460,7 @@ are here. Which cards are folded is remembered per browser.
   **Download** opens the release page, **Mute** hides it until the page is opened again, **Skip version** hides it
   until a newer version is released.
 
-**Backup** (the last card of each display): **Export** saves the settings of this display as a JSON file
+**Backup** (in the Advanced Ink card of each display): **Export** saves the settings of this display as a JSON file
 `inksights-v<version>-<name>-<chip id>-<date>.json` (e.g. `inksights-v1.0-living-room-1a2b3c4d-2026-10-26.json`; the name
 only when the display has one), with the InkSights version it was made with. WiFi passwords are not in it: they never reach the
 page. **Import** reads such a file into this display, also one of another board (e.g. after replacing a board, which
@@ -475,6 +480,7 @@ display's last answer.
 |---|---|---|
 | **Display name** | up to 32 characters | Name of the display on this page (card heading). Empty = the title, else "Display <ID>". |
 | **Instance name** | up to 32 characters | One setting for the whole page, shown in every card: name in the page header and browser tab (empty = InkSights). The name on the display's start screen is `PRODUCT_NAME` at the top of the `.ino`. |
+| **Time format** | 24h, 12h | The time in the top line and on the time page. With 12h, **AM/PM** On shows `1:37PM` (top line) and `1:37 PM` (time page), Off only `1:37`. |
 | **Panel** | the panel types ([Panels](#panels)) | By the name on the flat cable; next to it the board. The board saves it and restarts with it (over USB with the next update, over WiFi with its next fetch). Preview, rows and fast refresh follow it. |
 | **Rotation** | 0°, 90°, 180°, 270° | Clockwise. 90° and 270° stand the display upright: device and used/total in the first line, the pool in its own line. |
 | **Rows per page** | Auto, 2–5 (6 on the 4.2″) | More rows fit more disks per page. Fewer rows: bigger bar, symbols and timer (readable from further away). |
@@ -492,8 +498,9 @@ The top line of the display.
 |---|---|---|
 | **Ink** | tick | Shows the top line or not; its settings stay. Without it the rows get its room. "NO DATA" still shows it. |
 | **Title** | up to 12 characters | Empty = name of the NAS server (e.g. TRUENAS). |
-| **Invert colors** | On, Off | On: white top line with black text and a thin black line below it; highlighted places then black with white text. |
+| **Invert colors** | On, Off | On: white top line with black text and thin black lines above and below it; highlighted places then black with white text. |
 | **Highlight color** | On, Off | Only with **Invert colors** on a colour panel: the highlighted places in the third colour (red or yellow) with white text, on yellow black text. |
+| **Line top**, **Line bottom** | On, Off | Only with **Invert colors**: the thin black line at the top edge and below the top line (both on by default). |
 | **Left**, **Middle**, **Right** | Title, Pages, Uptime, Time, None | What stands where. Choosing what already stands in another place swaps the two. None = nothing there. Default: Title, Time, Pages. |
 | **Highlight** | tick, for each place | The place in the opposite colours: black text on a white box (with **Invert colors**: white on black). |
 
@@ -555,6 +562,23 @@ switched off shows **down**, one without a connection (no cable, or WiFi not con
 in the place of the bar. The same goes for the network row of the system page. Virtual interfaces (Docker, VMs)
 are left out.
 
+### Time card
+
+A page with the time in big, below it the weekday and the date (each when ticked); it comes after the network
+pages. **Ink** switches it on or off.
+
+| Setting | Options | Notes |
+|---|---|---|
+| **Show** | Date, Weekday | Below the time, the weekday short (`Mon`). |
+| **Date format** | 26 Oct 2026, 2026-10-26, 10/26/2026, 26.10.2026 | Only with Date. |
+| **Use NTP** | On, Off | Off (default): the local time of the NAS server, which comes with every update; the board counts on by itself, so the time stays right between updates. On (boards with WiFi only): the board sets its clock from the NTP server itself. |
+| **NTP server** | e.g. `pool.ntp.org`, `0.pool.ntp.org` … `3.pool.ntp.org` | Only with NTP. |
+| **Time zone** | about 50 common zones | Only with NTP; summer time included. |
+
+The time in the top line always is the time of the last update from the NAS server. A black/white panel redraws
+the time page every minute (without flashing); a colour panel redraws at most every 3 minutes, so its clock moves on
+in steps of 3 minutes.
+
 ### WiFi card
 
 Boards with WiFi only: network, password, settings page, host name, setup access point on/off, access point after (s),
@@ -566,6 +590,18 @@ access point name and password. See [4. WiFi](#4-wifi-optional).
 | **Icons** | On, Off | Symbol at the left of each row. |
 
 The WiFi page is shown in the preview so far; the firmware does not draw it yet.
+
+### Advanced Ink card
+
+**Screens**: which of the three special screens a display shows when they apply (all ticked by default). Below
+them **Bar behaviour** and the **Backup** of the display's settings (see above).
+
+| Setting | Notes |
+|---|---|
+| **Start screen** | Off: after power-up the board draws nothing, the panel keeps its last picture until the first data arrive. The board stores this setting, so it applies from the next power-up on. A board with WiFi whose time page uses NTP also stores the clock: it then shows the time right after power-up, even without the NAS server (once NTP has the time). |
+| **Nothing to ink** | Off: with every page switched off the display shows only its top line. |
+| **No connection** | Off: without fresh data the display goes on showing its pages (and turning them) instead of NO DATA and Check connection. |
+| **Auto collapse** (Bar behaviour) | On (default): opening a card of this display folds its other cards, so only one is open at a time. Remembered in this browser (not in the backup), no need to save. |
 
 ### Simulator
 
@@ -712,9 +748,10 @@ stored); a panel with fast refresh adds `fast=1`.
 
 | Line | Fields | Notes |
 |---|---|---|
-| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, timer, ring direction, symbols, details in the bar, fast refresh, uptime, uptime months, WiFi page, no data after, header layout, drive pages, network details, network symbols, drive temperatures, asleep, header inverted, header colour] | The last seventeen are optional: timer 0 badge / 1 ring; ring direction 0 clockwise / 1 counterclockwise; symbols 1 on / 0 off; details in the bar 0 none / 1 percentage / 2 used capacity; fast refresh in seconds, 0 = off; uptime in minutes after the full calendar months, -1 = none; full calendar months; WiFi page 0 off / 1 with symbols / 2 without; seconds without fresh data before "NO DATA", 0 = never; header left, middle, right as three letters: `T` title, `P` page number, `U` uptime, `C` time, `-` nothing, lower case = highlighted (default `TCP`, `---` = no top line); drive pages 1 on / 0 off (with no system or network page either: "Nothing to ink"); network pages: details in the bar 0 none / 1 percentage / 2 link speed, symbols 1 on / 0 off; drive temperatures 1 on / 0 off (the D lines then carry them); asleep hard disks 1 `STBY` / 0 `--`; top line 1 inverted (white) / 0 black; inverted top line: highlighted places 1 in the third colour / 0 black. |
+| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, timer, ring direction, symbols, details in the bar, fast refresh, uptime, uptime months, WiFi page, no data after, header layout, drive pages, network details, network symbols, drive temperatures, asleep, header inverted, header colour, time format, screens, header lines, page order] | The last twenty-one are optional: timer 0 badge / 1 ring; ring direction 0 clockwise / 1 counterclockwise; symbols 1 on / 0 off; details in the bar 0 none / 1 percentage / 2 used capacity; fast refresh in seconds, 0 = off; uptime in minutes after the full calendar months, -1 = none; full calendar months; WiFi page 0 off / 1 with symbols / 2 without; seconds without fresh data before "NO DATA", 0 = never; header left, middle, right as three letters: `T` title, `P` page number, `U` uptime, `C` time, `-` nothing, lower case = highlighted (default `TCP`, `---` = no top line); drive pages 1 on / 0 off (with no system or network page either: "Nothing to ink"); network pages: details in the bar 0 none / 1 percentage / 2 link speed, symbols 1 on / 0 off; drive temperatures 1 on / 0 off (the D lines then carry them); asleep hard disks 1 `STBY` / 0 `--`; top line 1 inverted (white) / 0 black; inverted top line: highlighted places 1 in the third colour / 0 black; time format 0 24 hours / 1 12 hours with AM/PM / 2 12 hours without; screens shown when needed 1 start screen + 2 Nothing to ink + 4 Check connection (default 7); inverted top line: lines 1 at the top + 2 at the bottom (default 3); page order: `S` system, `D` drives, `N` network, `T` time, `W` WiFi, each once (default `SDNTW`). |
 | `D` | device, pool, used, total, percent, filled boxes, total boxes, state, seconds until spindown, timeout seconds [, °C] | °C only with drive temperatures on, -1 = unknown, -2 = asleep (older firmware shows `--`). The boxes are no longer drawn. Seconds until spindown -1 = timer not running. State: `A` spinning, `S` asleep, `N` SSD/NVMe, `?` unknown, `-` timer off (HDDs only). Percent may have one or two decimals (cut) for the text in the bar; -1 = no pool and nothing mounted (total = the size of the disk, or `-`). |
 | `S` | rows, CPU %, CPU °C, CPU W, RAM used MiB, ZFS cache MiB, RAM total MiB, interface, down KiB/s, up KiB/s, link Mb/s, NVMe °C,…, SSD °C,… | Only with the system page. Rows: `C` CPU, `R` RAM, `N` network, `V` NVMe, `S` SSD, `H` HDD (temperatures in the `T` line), `I` = symbols on, `W` = the interface is wireless, `D` / `L` = it is down / has no link. -1 = unknown, `-` = none; at most six temperatures each. |
+| `C` | local date and time `YYYYMMDDHHMMSS`, date 1/0, weekday 1/0, date format 0–3, NTP 1/0, NTP server, POSIX time zone | Only with the time page (the last page); without NTP the board counts on from the date and time; server and zone `-` without NTP. |
 | `T` | HDD °C,… | After the `S` line, only with the HDD row and drive-temp-export running; -1 = unknown, -2 = asleep, at most six. |
 | `N` | interface, down KiB/s, up KiB/s, link Mb/s, wireless 1/0, state | Only with the network pages, one per interface, at most 8. State: `U` up, `L` no link, `D` down. |
 | `P` | CS, D/C, Reset, Busy [, panel] | Only when pins or the panel type are set on the settings page. Pin numbers of the board (D numbers on the SAMD21, GPIO numbers on the ESP32 boards). New values → store and restart. |

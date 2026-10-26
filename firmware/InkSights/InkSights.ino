@@ -42,7 +42,7 @@
  *
  * Protocol (one line per record, fields separated by '|'):
  *   #BEGIN
- *   H|<title>|<HH:MM>|<rows>|<warn>|<rot>|<page>[|<timer>|<ringdir>|<icons>|<pct>|<fast>|<uptime>|<months>|<wifi>|<nodata>|<layout>|<disks>|<netbar>|<neticons>|<temps>|<stby>|<headinv>|<headcol>]
+ *   H|<title>|<HH:MM>|<rows>|<warn>|<rot>|<page>[|<timer>|<ringdir>|<icons>|<pct>|<fast>|<uptime>|<months>|<wifi>|<nodata>|<layout>|<disks>|<netbar>|<neticons>|<temps>|<stby>|<headinv>|<headcol>|<timefmt>|<screens>|<lines>|<order>]
  *     rows   : 2 to 6 (6 only on the 4.2"), 0/missing = automatic
  *     warn   : % used from which bar and used/total are highlighted (third colour, or inverted
  *              on black/white panels); 0 = never, missing = WARN_PCT
@@ -79,6 +79,21 @@
  *              bottom, highlighted places black with white text), 0 = black with white text (default)
  *     headcol: (24th field) inverted header: 1 = the highlighted places in the third colour (white
  *              text), 0 = black (default)
+ *     timefmt: (25th field) 0 = 24 hours (default), 1 = 12 hours with AM/PM, 2 = 12 hours without
+ *              (the time in the header and on the time page)
+ *     screens: (26th field) screens shown when needed: 1 start screen, 2 "Nothing to ink", 4 "NO DATA /
+ *              Check connection" added up, default 7 (all). Off: no start screen after power-up (the
+ *              panel keeps its last picture; the board stores this), only the header instead of
+ *              "Nothing to ink", the pages go on instead of "Check connection".
+ *     lines  : (27th field) inverted header: 1 line at the top, 2 at the bottom added up, default 3
+ *     order  : (28th field) order of the pages: S system, D drives, N network, T time, W WiFi, each
+ *              once, default SDNTW
+ *   C|<YYYYMMDDHHMMSS>|<date 1/0>|<weekday 1/0>|<date format 0-3>|<ntp 1/0>|<ntp server or ->|<POSIX zone or ->
+ *                              (optional) the time page, the last page: the time in big, below it
+ *                              weekday and date (0: 26 Oct 2026, 1: 2026-10-26, 2: 10/26/2026,
+ *                              3: 26.10.2026). The local time of the NAS server, counted on by the
+ *                              board; with ntp (boards with WiFi) its own clock from that server in
+ *                              that time zone. The header always shows the time of the frame.
  *   N|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<wireless 1/0>|<state U / L / D>
  *                              (optional, at most 8) network pages after the disk pages, one row per
  *                              interface like the network row of the system page: WiFi symbol when
@@ -285,6 +300,29 @@ struct Head {
   uint8_t  stby;     // asleep hard disks: 1 "STBY", 0 "--"
   uint8_t  headInv;  // header 1 = inverted (white with black text), 0 = black with white text
   uint8_t  headCol;  // inverted header: 1 = highlighted places in the third colour, 0 = black
+  uint8_t  timeFmt;  // 0 = 24 hours, 1 = 12 hours with AM/PM, 2 = 12 hours without
+  uint8_t  screens;  // shown when needed: 1 start screen, 2 "Nothing to ink", 4 "Check connection"
+  uint8_t  headLines;// inverted header: 1 line at the top, 2 at the bottom
+  char     order[6]; // order of the pages: S system, D drives, N network, T time, W WiFi
+};
+
+// Kept in flash: whether the start screen is shown after power-up (Advanced Ink)
+struct ScreenStore {
+  uint32_t magic;
+  uint8_t  screens;
+};
+
+// The time page from the C line (memset before filling: hashed, without the date and time)
+struct ClockCfg {
+  bool    on;
+  uint8_t date, wday, dfmt, ntp;   // date, weekday shown; date format 0-3; NTP (boards with WiFi)
+  char    server[41];
+  char    tz[49];                  // POSIX time zone for NTP
+};
+// A point in time on the time page; weekday 0 = Sunday
+struct ClockNow {
+  int16_t y;
+  uint8_t mo, d, h, mi, wd;
 };
 
 // System page from the S line (memset before filling: the change detection hashes the raw bytes)
@@ -329,6 +367,7 @@ struct NetConfig {
 const uint32_t PIN_MAGIC = 0x45504432;  // "EPD2": pin numbers of the board (older test builds kept XIAO D numbers)
 #if defined(ARDUINO_ARCH_SAMD)
 FlashStorage(pinStore, PinConfig);
+FlashStorage(screenStore, ScreenStore);
 #else
 Preferences prefs;
 #endif
@@ -390,7 +429,7 @@ Disk    rxDisks[MAX_DISKS];    // what is being received
 uint8_t diskCount  = 0;
 uint8_t rxCount    = 0;
 bool    rxActive   = false;
-const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0 };
+const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0, 0, 7, 3, "SDNTW" };
 Head    head   = HEAD_DEFAULT;
 Head    rxHead = HEAD_DEFAULT;
 SysInfo sys;                   // system page shown
@@ -407,6 +446,19 @@ char hostName[17] = "";
 char timeStr[6]   = "--:--";
 char rxHost[17]   = "";
 char rxTime[6]    = "";
+ClockCfg clockCfg;              // time page shown (on = false: none)
+ClockCfg rxClock;               // being received
+char     rxClockDt[15] = "";    // its date and time YYYYMMDDHHMMSS
+int32_t  sysDays = 0, sysSecs = 0;   // the local time of the NAS server at sysAtMs: days since 1970, seconds of the day
+uint32_t sysAtMs = 0;
+bool     sysClockSet = false;
+uint32_t shownClockMin = 0xFFFFFFFFUL;   // minute shown on the time page
+#if HAS_WIFI
+char     ntpApplied[92] = "";   // server and zone the clock was set up with
+ClockCfg savedClock;            // the clock kept in flash for running without the NAS server
+#endif
+const uint32_t SCREEN_MAGIC = 0x494E4B53;   // "INKS"
+uint8_t  savedScreens = 7;      // Advanced Ink as kept in flash (start screen after power-up)
 
 // One protocol line; the W line with the hex encoded WiFi settings needs the long buffer
 #if HAS_WIFI
@@ -593,12 +645,44 @@ uint8_t rowsPerPage() {
 
 int16_t rowHeight() { return rowsArea() / rowsPerPage(); }
 
-// Pages: the system page (S line) first, then the disk pages and the network pages (N lines, as
-// many rows per page as the disk pages); without disks the others are the only pages
-uint8_t pageCount() {
+// Pages: the system page (S line), the disk pages, the network pages (N lines, as many rows per
+// page as the disk pages) and the time page (C line), in the order of H field 28 (the WiFi page is
+// not drawn by the firmware yet); without disks the others are the only pages
+uint8_t pagesOf(char kind) {
   const uint8_t rows = rowsPerPage();
-  return (sys.on ? 1 : 0) + (netCount + rows - 1) / rows +
-         (diskCount == 0 ? (sys.on || netCount ? 0 : 1) : (diskCount + rows - 1) / rows);
+  switch (kind) {
+    case 'S': return sys.on ? 1 : 0;
+    case 'N': return (netCount + rows - 1) / rows;
+    case 'T': return clockCfg.on ? 1 : 0;
+    case 'D': return diskCount == 0 ? (sys.on || netCount || clockCfg.on ? 0 : 1) : (diskCount + rows - 1) / rows;
+    default:  return 0;
+  }
+}
+
+uint8_t pageCount() { return pagesOf('S') + pagesOf('D') + pagesOf('N') + pagesOf('T'); }
+
+// Page p in that order: its kind, idx = the page within its kind
+char pageAt(uint8_t p, uint8_t& idx) {
+  for (const char* k = head.order; *k; k++) {
+    const uint8_t n = pagesOf(*k);
+    if (p < n) { idx = p; return *k; }
+    p -= n;
+  }
+  idx = 0;
+  return 'D';
+}
+
+// Page order: S, D, N, T and W each once
+bool orderValid(const char* s) {
+  if (strlen(s) != 5) return false;
+  for (const char* k = "SDNTW"; *k; k++) if (!strchr(s, *k)) return false;
+  return true;
+}
+
+// The time page is on the panel or about to be drawn
+bool clockPageNow() {
+  uint8_t idx;
+  return dataReceived && clockCfg.on && !noDataShown && pageAt(page, idx) == 'T';
 }
 
 // Fast refresh switched on by the NAS server and possible on this panel
@@ -621,11 +705,12 @@ bool headerOn() { return noDataShown || strcmp(head.layout, "---") != 0; }
 // shows "NO DATA" in the header and "Check connection" instead of the pages, until data comes again.
 // Over WiFi the settings page keeps handing out the last frame when the script stops, so only a
 // frame that differs (its time changes every minute) counts as fresh.
-bool noDataNow() { return dataReceived && head.noData > 0 && millis() - lastFreshMs >= head.noData * 1000UL; }
+bool noDataNow() { return dataReceived && head.noData > 0 && (head.screens & 4) && millis() - lastFreshMs >= head.noData * 1000UL; }
 
 bool canRefreshNow() {
   if (!refreshed || screenIsSplash || forceRedraw) return true;
-  const uint32_t minMs = fastMode() ? head.fast * 1000UL - 500 : MIN_REFRESH_MS;   // a little early is fine
+  // the time page of a black/white panel: every minute (partial refresh, no flashing)
+  const uint32_t minMs = fastMode() ? head.fast * 1000UL - 500 : fastPanel && clockPageNow() ? 50000UL : MIN_REFRESH_MS;   // a little early is fine
   return millis() - lastRefreshMs >= minMs;
 }
 
@@ -1992,7 +2077,8 @@ void drawHeader(int16_t W, bool wide) {
   const uint16_t bg = inv ? WH : BK, fg = inv ? BK : WH;
   const int16_t HH = headerH(W, epd->height());
   epd->fillRect(0, 0, W, HH, bg);
-  if (inv) epd->fillRect(0, HH - 1, W, 1, BK);
+  if (inv && (head.headLines & 1)) epd->fillRect(0, 0, W, 1, BK);        // line at the top
+  if (inv && (head.headLines & 2)) epd->fillRect(0, HH - 1, W, 1, BK);   // line at the bottom
   char lay[4];
   bool lit[3];
   for (uint8_t i = 0; i < 3; i++) { lay[i] = toupper(head.layout[i]); lit[i] = islower(head.layout[i]); }
@@ -2008,7 +2094,9 @@ void drawHeader(int16_t W, bool wide) {
   const uint8_t pages = pageCount();
   char pg[8] = "", up[16] = "";
   if (pages > 1) snprintf(pg, sizeof(pg), "%u/%u", page + 1, pages);
-  auto txt = [&](char k) -> const char* { return k == 'C' ? timeStr : k == 'P' ? pg : k == 'N' ? "NO DATA" : k == 'U' ? up : ""; };
+  char tm[8];
+  headTime(tm, sizeof(tm));
+  auto txt = [&](char k) -> const char* { return k == 'C' ? tm : k == 'P' ? pg : k == 'N' ? "NO DATA" : k == 'U' ? up : ""; };
   if (strchr(lay, 'U') && head.uptime >= 0) {   // as many units as fit beside the others and 5 characters of the title
     int16_t room = W - 2 * hx - (hasT ? keep - hs + gap : 0);
     for (uint8_t i = 0; i < 3; i++) if (strchr("CPN", lay[i]) && txt(lay[i])[0]) room -= textW(txt(lay[i])) * hs + gap;
@@ -2423,6 +2511,220 @@ void msgArt(bool noData, int16_t W, int16_t H, int16_t HH, bool wide, const char
   gh = as ? ah * as + 3 * ms : 0;
 }
 
+// ---------------------------------------------------------------- time page
+// Days since 1970-01-01 of a date, and back (proleptic Gregorian calendar)
+int32_t daysFromCivil(int32_t y, uint8_t m, uint8_t d) {
+  y -= m <= 2;
+  const int32_t era = (y >= 0 ? y : y - 399) / 400;
+  const uint32_t yoe = (uint32_t)(y - era * 400);
+  const uint32_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  const uint32_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + (int32_t)doe - 719468;
+}
+void civilFromDays(int32_t z, int16_t& y, uint8_t& m, uint8_t& d) {
+  z += 719468;
+  const int32_t era = (z >= 0 ? z : z - 146096) / 146097;
+  const uint32_t doe = (uint32_t)(z - era * 146097);
+  const uint32_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  const uint32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  const uint32_t mp = (5 * doy + 2) / 153;
+  d = (uint8_t)(doy - (153 * mp + 2) / 5 + 1);
+  m = (uint8_t)(mp < 10 ? mp + 3 : mp - 9);
+  y = (int16_t)((int32_t)yoe + era * 400 + (m <= 2));
+}
+
+// The C line's date and time YYYYMMDDHHMMSS as the system clock (local time of the NAS server)
+bool setSysClock(const char* dt) {
+  if (strlen(dt) != 14) return false;
+  for (uint8_t i = 0; i < 14; i++) if (!isdigit((unsigned char)dt[i])) return false;
+  auto num = [&](uint8_t at, uint8_t len) { int32_t v = 0; for (uint8_t i = 0; i < len; i++) v = v * 10 + (dt[at + i] - '0'); return v; };
+  const int32_t y = num(0, 4), mo = num(4, 2), d = num(6, 2), h = num(8, 2), mi = num(10, 2), s = num(12, 2);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) return false;
+  sysDays = daysFromCivil(y, (uint8_t)mo, (uint8_t)d);
+  sysSecs = h * 3600 + mi * 60 + s;
+  sysClockSet = true;
+  return true;
+}
+
+#if HAS_WIFI
+// NTP for the time page: set up again whenever server or zone change (WiFi boards; SNTP keeps the clock)
+void applyNtp() {
+  if (!clockCfg.on || !clockCfg.ntp || !clockCfg.server[0] || !clockCfg.tz[0]) return;
+  char key[sizeof(ntpApplied)];
+  snprintf(key, sizeof(key), "%s|%s", clockCfg.server, clockCfg.tz);
+  if (strcmp(key, ntpApplied) == 0) return;
+  configTzTime(clockCfg.tz, clockCfg.server);
+  copyStr(ntpApplied, key, sizeof(ntpApplied));
+}
+#endif
+
+// The time to show: with NTP (synced) the board's clock, else the system time counted on
+bool clockNow(ClockNow& t) {
+#if HAS_WIFI
+  if (clockCfg.ntp && ntpApplied[0]) {
+    struct tm tm;
+    if (getLocalTime(&tm, 0) && tm.tm_year >= 120) {
+      t = { (int16_t)(tm.tm_year + 1900), (uint8_t)(tm.tm_mon + 1), (uint8_t)tm.tm_mday, (uint8_t)tm.tm_hour, (uint8_t)tm.tm_min, (uint8_t)tm.tm_wday };
+      return true;
+    }
+  }
+#endif
+  if (!sysClockSet) return false;
+  const int64_t s = (int64_t)sysDays * 86400 + sysSecs + (int64_t)((millis() - sysAtMs) / 1000UL);
+  const int32_t days = (int32_t)(s / 86400), r = (int32_t)(s % 86400);
+  civilFromDays(days, t.y, t.mo, t.d);
+  t.h = (uint8_t)(r / 3600);
+  t.mi = (uint8_t)(r / 60 % 60);
+  t.wd = (uint8_t)(((days % 7) + 11) % 7);   // 1970-01-01 was a Thursday
+  return true;
+}
+uint32_t clockMinute(const ClockNow& t) { return ((uint32_t)t.y * 400 + t.mo * 32 + t.d) * 1440UL + t.h * 60 + t.mi; }
+
+const char* const MONTHS[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+const char* const WDAYS[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+
+// The header time "HH:MM" of the frame in the chosen format (12 hours: "1:37PM" or "1:37")
+void headTime(char* out, size_t n) {
+  int h, m;
+  ClockNow c;
+  if (sscanf(timeStr, "%d:%d", &h, &m) != 2) {   // no frame yet (the kept clock): the time of the board's clock
+    if (!clockNow(c)) { copyStr(out, timeStr, n); return; }
+    h = c.h; m = c.mi;
+  }
+  if (head.timeFmt == 0) { snprintf(out, n, "%02d:%02d", h, m); return; }
+  snprintf(out, n, "%d:%02d%s", h % 12 ? h % 12 : 12, m, head.timeFmt == 1 ? (h < 12 ? "AM" : "PM") : "");
+}
+
+// The time page: the time as big as fits, in the middle; below it weekday and date (each when
+// shown) in a quarter of its size; AM / PM on the baseline in a third (like drawClockPage() in
+// inksights-render.js)
+void drawClockPage(int16_t HH) {
+  const int16_t W = epd->width(), H = epd->height();
+  ClockNow t;
+  if (!clockNow(t)) { printAt((W - textW("--:--") * 2) / 2, HH + (H - HH - 14) / 2, "--:--", BK, 2); return; }
+  shownClockMin = clockMinute(t);
+  char main[8], ampm[3] = "", date[16] = "", sub[24] = "";
+  if (head.timeFmt) {
+    snprintf(main, sizeof(main), "%u:%02u", t.h % 12 ? t.h % 12 : 12, t.mi);
+    if (head.timeFmt == 1) copyStr(ampm, t.h < 12 ? "AM" : "PM", sizeof(ampm));
+  } else {
+    snprintf(main, sizeof(main), "%02u:%02u", t.h, t.mi);
+  }
+  if (clockCfg.date) {
+    if (clockCfg.dfmt == 1)      snprintf(date, sizeof(date), "%d-%02u-%02u", t.y, t.mo, t.d);
+    else if (clockCfg.dfmt == 2) snprintf(date, sizeof(date), "%02u/%02u/%d", t.mo, t.d, t.y);
+    else if (clockCfg.dfmt == 3) snprintf(date, sizeof(date), "%02u.%02u.%d", t.d, t.mo, t.y);
+    else                         snprintf(date, sizeof(date), "%u %s %d", t.d, MONTHS[t.mo - 1], t.y);
+  }
+  snprintf(sub, sizeof(sub), "%s%s%s", clockCfg.wday ? WDAYS[t.wd] : "", clockCfg.wday && date[0] ? " " : "", date);
+  const bool hasSub = sub[0] != '\0';
+  auto partW = [&](int16_t z) { return (int16_t)(textW(main) * z + (ampm[0] ? z + textW(ampm) * imax(1, z / 3) : 0)); };
+  auto partH = [&](int16_t z) { const int16_t dz = imax(1, z / 4); return (int16_t)(7 * z + (hasSub ? 3 * dz + 7 * dz : 0)); };
+  int16_t z = 1;
+  while (z < 40 && partW(z + 1) <= W - 8 && partH(z + 1) <= H - HH - 8) z++;
+  const int16_t az = imax(1, z / 3);
+  int16_t dz = imax(1, z / 4);
+  while (hasSub && dz > 1 && textW(sub) * dz > W - 8) dz--;
+  const int16_t h = 7 * z + (hasSub ? 3 * dz + 7 * dz : 0), w = partW(z);
+  const int16_t top = HH + (H - HH - h) / 2, x = (W - w) / 2;
+  printAt(x, top, main, BK, z);
+  if (ampm[0]) printAt(x + textW(main) * z + z, top + 7 * z - 7 * az, ampm, BK, az);   // AM / PM on the baseline
+  if (hasSub) printAt((W - textW(sub) * dz) / 2, top + 7 * z + 3 * dz, sub, BK, dz);
+}
+
+// C|<YYYYMMDDHHMMSS>|<date>|<weekday>|<date format>|<ntp>|<server>|<zone>
+void parseClock(char* line) {
+  char* f[8];
+  const uint8_t n = splitFields(line, f, 8);
+  if (n < 5) return;
+  memset(&rxClock, 0, sizeof(rxClock));
+  rxClock.on   = true;
+  copyStr(rxClockDt, f[1], sizeof(rxClockDt));
+  rxClock.date = strcmp(f[2], "1") == 0;
+  rxClock.wday = strcmp(f[3], "1") == 0;
+  rxClock.dfmt = constrain(atoi(f[4]), 0, 3);
+  rxClock.ntp  = n >= 8 && strcmp(f[5], "1") == 0 && strcmp(f[6], "-") != 0 && strcmp(f[7], "-") != 0;
+  if (rxClock.ntp) {
+    copyStr(rxClock.server, f[6], sizeof(rxClock.server));
+    copyStr(rxClock.tz, f[7], sizeof(rxClock.tz));
+  }
+}
+
+// ---------------------------------------------------------------- Advanced Ink
+// After power-up: the start screen (default), or nothing (the panel keeps its last picture); on WiFi
+// boards with a kept time page with NTP the clock instead, so the board also works without the NAS
+// server (it draws once NTP has the time)
+void loadPowerUp() {
+  ScreenStore st;
+#if defined(ARDUINO_ARCH_SAMD)
+  st = screenStore.read();
+#else
+  prefs.begin("inksights", true);
+  st.magic = prefs.getUInt("scrMagic", 0);
+  st.screens = prefs.getUChar("screens", 7);
+  prefs.end();
+#endif
+  savedScreens = st.magic == SCREEN_MAGIC && st.screens <= 7 ? st.screens : 7;
+#if HAS_WIFI
+  // the kept clock (always read, so it is known when it has to be removed again)
+  Head keptHead;
+  prefs.begin("inksights", true);
+  const bool kept = prefs.getBytesLength("clockCfg") == sizeof(ClockCfg) && prefs.getBytesLength("clockHead") == sizeof(Head);
+  if (kept) {
+    prefs.getBytes("clockCfg", &savedClock, sizeof(savedClock));
+    prefs.getBytes("clockHead", &keptHead, sizeof(keptHead));
+  }
+  if (!(savedScreens & 1) && kept && savedClock.on && savedClock.ntp) prefs.getString("clockHost", hostName, sizeof(hostName));
+  prefs.end();
+  if (!kept) memset(&savedClock, 0, sizeof(savedClock));
+#endif
+  if (savedScreens & 1) { pending = true; return; }   // draw the start screen
+#if HAS_WIFI
+  if (kept && savedClock.on && savedClock.ntp) {
+    clockCfg = savedClock;
+    head = keptHead;
+    diskCount = 0; netCount = 0; sys.on = false; page = 0;
+    dataReceived = true;   // as if a frame with only the time page had come; redrawn when NTP has the time
+    lastFreshMs = millis();
+    applyNtp();
+  }
+#endif
+}
+
+// Keep what the next power-up needs, only when it changed (spares the flash)
+void keepForPowerUp() {
+  if ((head.screens & 1) != (savedScreens & 1)) {
+    savedScreens = head.screens;
+#if defined(ARDUINO_ARCH_SAMD)
+    const ScreenStore st = { SCREEN_MAGIC, savedScreens };
+    screenStore.write(st);
+#else
+    prefs.begin("inksights", false);
+    prefs.putUInt("scrMagic", SCREEN_MAGIC);
+    prefs.putUChar("screens", savedScreens);
+    prefs.end();
+#endif
+  }
+#if HAS_WIFI
+  const bool clockKeep = clockCfg.on && clockCfg.ntp;
+  if (clockKeep ? memcmp(&clockCfg, &savedClock, sizeof(clockCfg)) != 0 : savedClock.on) {
+    prefs.begin("inksights", false);
+    if (clockKeep) {
+      prefs.putBytes("clockCfg", &clockCfg, sizeof(clockCfg));
+      prefs.putBytes("clockHead", &head, sizeof(head));
+      prefs.putString("clockHost", hostName);
+      savedClock = clockCfg;
+    } else {
+      prefs.remove("clockCfg");
+      prefs.remove("clockHead");
+      prefs.remove("clockHost");
+      memset(&savedClock, 0, sizeof(savedClock));
+    }
+    prefs.end();
+  }
+#endif
+}
+
 void drawScreen() {
   const int16_t W = epd->width(), H = epd->height();
   epd->fillScreen(WH);
@@ -2441,7 +2743,9 @@ void drawScreen() {
   // screens share one block as high as the taller of the two, centred in the rest: the text at its
   // bottom and the picture standing on the text, so text and picture bottom are at the same height
   // on both screens (user)
-  if (noDataShown || (!sys.on && !netCount && diskCount == 0 && head.diskPages == 0)) {
+  const bool nothing = !sys.on && !netCount && !clockCfg.on && diskCount == 0 && head.diskPages == 0;
+  if (nothing && !noDataShown && !(head.screens & 2)) return;   // Advanced Ink: "Nothing to ink" off = only the header
+  if (noDataShown || nothing) {
     const char* msg; const uint8_t* art; const int16_t* red; uint8_t ms; int16_t aw, ah, as, gh;
     // always below the room of a header, also when the header is off ("Check connection" brings it
     // back), so both screens match there too (user)
@@ -2455,13 +2759,11 @@ void drawScreen() {
     printAt((W - textW(msg) * ms) / 2, ty, msg, BK, ms);
     return;
   }
-  if (sys.on && page == 0) { drawSystem(HH, wide, stacked); return; }
-  // network pages after the disk pages
-  {
-    const uint8_t per = rowsPerPage(), dp = (diskCount + per - 1) / per;
-    const int16_t np = (int16_t)page - (sys.on ? 1 : 0) - dp;
-    if (netCount && np >= 0) { drawNetPage(np, HH, wide, stacked); return; }
-  }
+  uint8_t idx;
+  const char kind = pageAt(page, idx);
+  if (kind == 'S') { drawSystem(HH, wide, stacked); return; }
+  if (kind == 'T') { drawClockPage(HH); return; }
+  if (kind == 'N') { drawNetPage(idx, HH, wide, stacked); return; }
   if (diskCount == 0) { printAt(hx, HH + 6, "No drives", BK, hs); return; }
 
   const uint8_t rows = rowsPerPage();
@@ -2504,7 +2806,7 @@ void drawScreen() {
   lay.greyToRim = !big && icon == 17;                     // checkerboard up to the rim
   lay.greyWider = !big && icon == 11;                     // checkerboard one pixel wider
 
-  const uint8_t first = (page - (sys.on ? 1 : 0)) * rows;   // the system page comes first
+  const uint8_t first = idx * rows;
   for (uint8_t i = 0; i < rows && first + i < diskCount; i++)
     drawDisk(disks[first + i], HH + 2 + i * rowH + lay.rowDy, lay);
 }
@@ -2513,7 +2815,7 @@ void drawScreen() {
 // the whole screen (no flashing); full again on page turns, "Redraw now" and every FULL_REFRESH_MS
 void refresh() {
   epd->setRotation(currentRotation());
-  const bool fast = fastMode();
+  const bool fast = fastMode() || (fastPanel && clockPageNow());
   const bool full = !fast || !refreshed || screenIsSplash || forceRedraw || page != shownPage ||
                     millis() - lastFullMs >= FULL_REFRESH_MS;
   noDataShown = noDataNow();
@@ -2649,8 +2951,8 @@ void commitFrame() {
                             rxHead.upMonths,
                             (uint32_t)rxHead.diskPages << 24 | (uint32_t)rxHead.layout[0] << 16 |
                             (uint32_t)rxHead.layout[1] << 8 | rxHead.layout[2] };
-  const uint32_t h = fnv1a(rxNets, sizeof(NetIf) * rxNetCount,
-                     fnv1a(&rxSys, sizeof(rxSys), fnv1a(rxDisks, sizeof(Disk) * rxCount, fnv1a(hv, sizeof(hv)))));
+  const uint32_t h = fnv1a(&rxClock, sizeof(rxClock), fnv1a(&rxHead.timeFmt, 3, fnv1a(rxHead.order, 5, fnv1a(rxNets, sizeof(NetIf) * rxNetCount,
+                     fnv1a(&rxSys, sizeof(rxSys), fnv1a(rxDisks, sizeof(Disk) * rxCount, fnv1a(hv, sizeof(hv))))))));
   const bool first = !dataReceived;
   const uint32_t fh = fnv1a(rxTime, strlen(rxTime), h);   // with the time: still the same frame?
   if (first || fh != freshHash) lastFreshMs = millis();
@@ -2659,6 +2961,12 @@ void commitFrame() {
   memcpy(disks, rxDisks, sizeof(Disk) * rxCount);
   diskCount = rxCount;
   sys       = rxSys;
+  clockCfg  = rxClock;
+  if (rxClock.on && setSysClock(rxClockDt)) sysAtMs = millis();   // the board counts on from here
+#if HAS_WIFI
+  applyNtp();
+#endif
+  keepForPowerUp();
   memcpy(nets, rxNets, sizeof(NetIf) * rxNetCount);
   netCount  = rxNetCount;
   head      = rxHead;
@@ -2745,6 +3053,8 @@ void handleLine(char* line) {
     rxCount  = 0;
     rxHead   = HEAD_DEFAULT;
     memset(&rxSys, 0, sizeof(rxSys));   // no system page unless an S line comes
+    memset(&rxClock, 0, sizeof(rxClock));   // no time page unless a C line comes
+    rxClockDt[0] = '\0';
     rxNetCount = 0;                      // no network pages unless N lines come
     rxPinsGiven = false;
     rxRedraw = false;
@@ -2755,8 +3065,8 @@ void handleLine(char* line) {
     rxActive = false;
     commitFrame();
   } else if (line[0] == 'H' && line[1] == '|') {
-    char* f[24];
-    const uint8_t n = splitFields(line, f, 24);
+    char* f[28];
+    const uint8_t n = splitFields(line, f, 28);
     if (n >= 3) {
       copyStr(rxHost, f[1], sizeof(rxHost));
       copyStr(rxTime, f[2], sizeof(rxTime));
@@ -2784,6 +3094,10 @@ void handleLine(char* line) {
       rxHead.stby = n >= 22 && strcmp(f[21], "1") == 0 ? 1 : 0;       // asleep hard disks "STBY"
       rxHead.headInv = n >= 23 && strcmp(f[22], "1") == 0 ? 1 : 0;    // header inverted
       rxHead.headCol = n >= 24 && strcmp(f[23], "1") == 0 ? 1 : 0;    // inverted header: highlighted places in colour
+      rxHead.timeFmt = n >= 25 ? constrain(atoi(f[24]), 0, 2) : 0;    // 12 hours: 1 with AM/PM, 2 without
+      rxHead.screens = n >= 26 ? constrain(atoi(f[25]), 0, 7) : 7;    // Advanced Ink: screens shown when needed
+      rxHead.headLines = n >= 27 ? constrain(atoi(f[26]), 0, 3) : 3;  // inverted header: lines top / bottom
+      copyStr(rxHead.order, n >= 28 && orderValid(f[27]) ? f[27] : "SDNTW", sizeof(rxHead.order));   // page order
     }
   } else if (line[0] == 'D' && line[1] == '|') {
     parseDisk(line);
@@ -2791,6 +3105,8 @@ void handleLine(char* line) {
     parseSys(line + 2);
   } else if (line[0] == 'N' && line[1] == '|') {
     parseNet(line + 2);
+  } else if (line[0] == 'C' && line[1] == '|') {
+    parseClock(line);
   } else if (line[0] == 'T' && line[1] == '|') {
     if (rxSys.on) rxSys.nHdd = sysTemps(line + 2, rxSys.hdd);   // HDD temperatures of the system page
   } else if (strcmp(line, "R") == 0) {
@@ -2844,7 +3160,7 @@ void setup() {
   web.begin();
   epd->epd2.setBusyCallback(whileBusy);   // the setup page answers while the panel draws
 #endif
-  pending = true;                 // draw the start screen
+  loadPowerUp();                  // Advanced Ink: start screen, or (WiFi boards) the kept clock
 }
 
 void loop() {
@@ -2881,6 +3197,12 @@ void loop() {
       millis() - lastPageMs >= head.page * 1000UL) {
     turnPage = true;
     pending  = true;
+  }
+
+  // the time page: redraw when the minute changes
+  if (clockPageNow() && !pending) {
+    ClockNow t;
+    if (clockNow(t) && clockMinute(t) != shownClockMin) pending = true;
   }
 
   if (pending && canRefreshNow()) {

@@ -93,13 +93,67 @@
     return Math.trunc(area / (tall || L.ROW_H_AUTO));
   };
   const rowHeight = (h, wanted = 0, w = 0, head = true) => Math.trunc(rowsArea(h, w, head) / rowsPerPage(h, wanted, w, head));
-  // Pages: the system page (S line) first, then the disk pages, the network pages (nets = N lines,
-  // as many rows per page as the disk pages) and the WiFi page (H field 15); without disks the
-  // others are the only pages
-  const pageCount = (n, h, wanted = 0, w = 0, sys = false, wifi = false, head = true, nets = 0) => {
+  // Pages: the system page (S line), the disk pages, the network pages (nets = N lines, as many rows
+  // per page as the disk pages), the time page (C line) and the WiFi page (H field 15), in the order
+  // of H field 28; without disks the others are the only pages
+  const pageCounts = (n, h, wanted = 0, w = 0, sys = false, wifi = false, head = true, nets = 0, clock = false) => {
     const per = rowsPerPage(h, wanted, w, head);
-    return (sys ? 1 : 0) + (wifi ? 1 : 0) + Math.ceil(nets / per) + (n === 0 ? (sys || wifi || nets ? 0 : 1) : Math.ceil(n / per));
+    const c = { S: sys ? 1 : 0, N: Math.ceil(nets / per), T: clock ? 1 : 0, W: wifi ? 1 : 0 };
+    c.D = n === 0 ? (sys || wifi || nets || clock ? 0 : 1) : Math.ceil(n / per);
+    return c;
   };
+  const pageCount = (...a) => Object.values(pageCounts(...a)).reduce((x, y) => x + y, 0);
+  // the page order (H field 28): S system, D drives, N network, T time, W WiFi, each once
+  const PAGE_ORDER = "SDNTW";
+  const orderOk = o => typeof o === "string" && o.length === 5 && [...PAGE_ORDER].every(k => o.includes(k));
+  // page p in that order: [kind, index within its kind]
+  function pageAt(p, order, counts) {
+    for (const k of orderOk(order) ? order : PAGE_ORDER) { if (p < counts[k]) return [k, p]; p -= counts[k]; }
+    return ["D", 0];
+  }
+
+  // ------------------------------------------------------------ time
+  // 12 or 24 hours (H field 25); the time page (C line) with date and weekday in one of four formats
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const WDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const two = n => String(n).padStart(2, "0");
+  // hours and minutes as the main text and AM/PM ("" for 24 hours)
+  const clockText = (h, mi, h12) => (h12 ? { main: `${h % 12 || 12}:${two(mi)}`, ampm: h < 12 ? "AM" : "PM" } : { main: `${two(h)}:${two(mi)}`, ampm: "" });
+  // the header time "HH:MM" of the frame in the chosen format: fmt 0 24 hours, 1 12 hours with AM/PM
+  // ("1:37PM"), 2 12 hours without ("1:37")
+  function headTime(hhmm, fmt) {
+    const m = /^(\d\d):(\d\d)$/.exec(hhmm || "");
+    if (!m || !fmt) return hhmm;
+    const c = clockText(Number(m[1]), Number(m[2]), true);
+    return c.main + (fmt === 1 ? c.ampm : "");
+  }
+  // 0: 26 Oct 2026, 1: 2026-10-26, 2: 10/26/2026, 3: 26.10.2026
+  const dateText = (t, fmt) => [`${t.d} ${MONTHS[t.mo - 1]} ${t.y}`, `${t.y}-${two(t.mo)}-${two(t.d)}`, `${two(t.mo)}/${two(t.d)}/${t.y}`, `${two(t.d)}.${two(t.mo)}.${t.y}`][fmt] || "";
+  // "YYYYMMDDHHMMSS" (+ seconds) -> { y, mo, d, h, mi, wd }; weekday 0 = Sunday
+  function clockParts(dt, plus = 0) {
+    const m = /^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)$/.exec(dt || "");
+    if (!m) return null;
+    const t = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) + Math.max(0, plus) * 1000);
+    return { y: t.getUTCFullYear(), mo: t.getUTCMonth() + 1, d: t.getUTCDate(), h: t.getUTCHours(), mi: t.getUTCMinutes(), wd: t.getUTCDay() };
+  }
+  // The time page: the time as big as fits, in the middle; below it the weekday and the date
+  // (each when ticked) in a third of its size; t = { y, mo, d, h, mi, wd }
+  function drawClockPage(fb, c, t, fmt, HH) {
+    const W = fb.w, H = fb.h;
+    if (!t) { const z = 2; fb.text(Math.trunc((W - textW("--:--") * z) / 2), HH + Math.trunc((H - HH - 7 * z) / 2), "--:--", BK, z); return; }
+    const { main, ampm: ap } = clockText(t.h, t.mi, fmt > 0), ampm = fmt === 1 ? ap : "";
+    const sub = [c.wday ? WDAYS[t.wd] : "", c.date ? dateText(t, c.dfmt) : ""].filter(Boolean).join(" ");
+    const parts = z => { const az = Math.max(1, Math.trunc(z / 3)), dz = Math.max(1, Math.trunc(z / 4));
+      return { az, dz, w: textW(main) * z + (ampm ? z + textW(ampm) * az : 0), h: 7 * z + (sub ? 3 * dz + 7 * dz : 0) }; };
+    let z = 1;
+    while (z < 40) { const p = parts(z + 1); if (p.w > W - 8 || p.h > H - HH - 8) break; z++; }
+    let { az, dz, w, h } = parts(z);
+    while (sub && dz > 1 && textW(sub) * dz > W - 8) { dz--; h = 7 * z + 3 * dz + 7 * dz; }
+    const top = HH + Math.trunc((H - HH - h) / 2), x = Math.trunc((W - w) / 2);
+    fb.text(x, top, main, BK, z);
+    if (ampm) fb.text(x + textW(main) * z + z, top + 7 * z - 7 * az, ampm, BK, az);   // AM / PM on the baseline
+    if (sub) fb.text(Math.trunc((W - textW(sub) * dz) / 2), top + 7 * z + 3 * dz, sub, BK, dz);
+  }
 
   function fillRaster(fb, x, y, w, h) {
     for (let py = y; py < y + h; py++)
@@ -497,7 +551,10 @@
     // inverted (H field 23): white with black text and a black line at the bottom
     const inv = m.headInv === 1, bg = inv ? WH : BK, fg = inv ? BK : WH, HH = headerH(W, fb.h);
     fb.fillRect(0, 0, W, HH, bg);
-    if (inv) fb.fillRect(0, HH - 1, W, 1, BK);
+    // inverted: lines at the top and the bottom of the header (H field 27: 1 top, 2 bottom; default both)
+    const lines = m.headLines ?? 3;
+    if (inv && lines & 1) fb.fillRect(0, 0, W, 1, BK);
+    if (inv && lines & 2) fb.fillRect(0, HH - 1, W, 1, BK);
     const given = layoutOk(m.layout) ? m.layout : DEFAULT_LAYOUT;
     const lay = [...given.toUpperCase()], hi = [...given].map(c => c >= "a" && c <= "z");
     // highlighted: a box in the text colour 2 px (4 px on the 4.2") wider than the text on each
@@ -520,7 +577,7 @@
       lay[at] = "N";
     }
     const hasT = lay.includes("T"), keep = hasT ? Math.min(m.host.length, 5) * 6 * hs : 0;
-    const text = { C: m.time, P: pages > 1 ? `${m.page + 1}/${pages}` : "", N: "NO DATA", U: "" };
+    const text = { C: headTime(m.time, m.timeFmt), P: pages > 1 ? `${m.page + 1}/${pages}` : "", N: "NO DATA", U: "" };
     if (lay.includes("U") && m.uptime >= 0) {   // as many units as fit beside the others and 5 characters of the title
       let room = W - 2 * hx - (hasT ? keep - hs + gap : 0);
       for (const k of lay) if ("CPN".includes(k) && k !== "-" && text[k]) room -= textW(text[k]) * hs + gap;
@@ -977,7 +1034,8 @@
     const wide = isBig(W, fb.h), hs = wide ? 2 : 1, HH = headerH(W, fb.h, head), hx = wide ? 4 : 2;
     const stacked = W < fb.h;   // upright: device | used/total, the pool in a second line
     const nets = m.nets || [];
-    const pages = pageCount(m.disks.length, fb.h, wanted, W, !!m.sys, !!m.wifiPage, head, nets.length);
+    const counts = pageCounts(m.disks.length, fb.h, wanted, W, !!m.sys, !!m.wifiPage, head, nets.length, !!m.clock);
+    const pages = Object.values(counts).reduce((x, y) => x + y, 0);
     drawHeader(fb, m, pages, wide);
     // "Check connection" (the time stays: when the last data came), or "Nothing to ink" when every
     // page is switched off (no system page, no network or WiFi page, disk pages off), with its picture
@@ -985,7 +1043,10 @@
     // rest: the text at its bottom and the picture standing on the text, so text and picture bottom
     // are at the same height on both screens (user); always below the room of a header, also when the
     // header is off ("Check connection" brings it back), so both screens match there too (user)
-    const nothing = !m.sys && !m.wifiPage && !nets.length && m.disks.length === 0 && m.diskPages === 0;
+    const nothing = !m.sys && !m.wifiPage && !m.clock && !nets.length && m.disks.length === 0 && m.diskPages === 0;
+    // Advanced Ink: "Nothing to ink" switched off = only the top line ("Check connection" off: the
+    // pages go on, m.noData stays false)
+    if (nothing && !m.noData && !((m.screens ?? 7) & 2)) return;
     if (m.noData || nothing) {
       const MH = headerH(W, fb.h), L = msgArt(m.noData, W, fb.h, MH, wide), O = msgArt(!m.noData, W, fb.h, MH, wide);
       const bh = Math.max(L.gh + 7 * L.ms, O.gh + 7 * O.ms), ty = MH + Math.trunc((fb.h - MH - bh) / 2) + bh - 7 * L.ms;
@@ -993,13 +1054,15 @@
       fb.text(Math.trunc((W - textW(L.msg) * L.ms) / 2), ty, L.msg, BK, L.ms);
       return;
     }
-    if (m.sys && m.page === 0) { m.sys.stby = m.stby === 1; drawSystem(fb, m.sys, HH, wide, stacked); return; }
-    if (m.wifiPage && m.page === pages - 1) { drawWifi(fb, m.wifi || {}, HH, wide, stacked, m.wifiIcons); return; }
-    const rows = rowsPerPage(fb.h, wanted, W, head), rowH = rowHeight(fb.h, wanted, W, head), first = (m.page - (m.sys ? 1 : 0)) * rows;
-    // network pages after the disk pages, every page sized for as many rows as the fullest one
-    const np = m.page - (m.sys ? 1 : 0) - Math.ceil(m.disks.length / rows);
-    if (nets.length && np >= 0) {
-      const part = nets.slice(np * rows, np * rows + rows).map(n => netRow(n, m.netBar || 0));
+    const [kind, idx] = pageAt(m.page, m.order, counts);
+    if (kind === "S") { m.sys.stby = m.stby === 1; drawSystem(fb, m.sys, HH, wide, stacked); return; }
+    if (kind === "W") { drawWifi(fb, m.wifi || {}, HH, wide, stacked, m.wifiIcons); return; }
+    // the time page (m.now: the time to show, else the time of the frame)
+    if (kind === "T") { drawClockPage(fb, m.clock, m.now || clockParts(m.clock.dt), m.timeFmt, HH); return; }
+    const rows = rowsPerPage(fb.h, wanted, W, head), rowH = rowHeight(fb.h, wanted, W, head), first = idx * rows;
+    // network pages, every page sized for as many rows as the fullest one
+    if (kind === "N") {
+      const part = nets.slice(idx * rows, idx * rows + rows).map(n => netRow(n, m.netBar || 0));
       drawRows(fb, part, HH, wide, stacked, m.netIcons !== 0, false, Math.min(nets.length, rows));
       return;
     }
@@ -1327,11 +1390,11 @@
     let rx = null, done = null;
     for (const raw of text.split("\n")) {
       const line = raw.replace(/\r/g, "").slice(0, 127);
-      if (line === "#BEGIN") { rx = { host: "", time: "", rows: 0, warn: L.WARN_PCT, timer: 0, ringDir: 0, icons: 1, pctBar: 0, fast: 0, uptime: -1, upMonths: 0, wifiPage: 0, wifiIcons: true, netBar: 0, netIcons: 1, driveTemp: 0, stby: 0, headInv: 0, headCol: 0, disks: [], nets: [], sys: null, page: 0 }; continue; }
+      if (line === "#BEGIN") { rx = { host: "", time: "", rows: 0, warn: L.WARN_PCT, timer: 0, ringDir: 0, icons: 1, pctBar: 0, fast: 0, uptime: -1, upMonths: 0, wifiPage: 0, wifiIcons: true, netBar: 0, netIcons: 1, driveTemp: 0, stby: 0, headInv: 0, headCol: 0, timeFmt: 0, screens: 7, headLines: 3, order: PAGE_ORDER, clock: null, disks: [], nets: [], sys: null, page: 0 }; continue; }
       if (!rx) continue;
       if (line === "#END") { done = rx; rx = null; continue; }
       if (line.startsWith("H|")) {
-        const f = splitFields(line, 24);
+        const f = splitFields(line, 28);
         if (f.length >= 3) {
           rx.host = f[1].slice(0, 16); rx.time = f[2].slice(0, 5);
           rx.rows = f.length >= 4 ? clamp(atoi(f[3]), 0, 6) : 0;
@@ -1356,6 +1419,10 @@
           rx.stby = f.length >= 22 && f[21] === "1" ? 1 : 0;          // asleep hard disks: 1 "STBY", 0 "--"
           rx.headInv = f.length >= 23 && f[22] === "1" ? 1 : 0;       // header inverted: white with black text
           rx.headCol = f.length >= 24 && f[23] === "1" ? 1 : 0;       // inverted header: highlighted boxes in the third colour
+          rx.timeFmt = f.length >= 25 && (f[24] === "1" || f[24] === "2") ? Number(f[24]) : 0;   // 12 hours: 1 with AM/PM, 2 without
+          rx.screens = f.length >= 26 && /^[0-7]$/.test(f[25]) ? Number(f[25]) : 7;   // shown: 1 start screen, 2 "Nothing to ink", 4 "Check connection"
+          rx.headLines = f.length >= 27 && /^[0-3]$/.test(f[26]) ? Number(f[26]) : 3;   // inverted header: 1 line at the top, 2 at the bottom
+          rx.order = f.length >= 28 && orderOk(f[27]) ? f[27] : PAGE_ORDER;   // the page order
         }
       } else if (line.startsWith("S|")) {
         // system page: components (C R N V S) | cpu % | cpu °C | cpu W | RAM used MiB | ZFS cache MiB |
@@ -1373,6 +1440,11 @@
           ramTotal: num(7, 2147483647), iface: f[8] === "-" ? "" : f[8].replace(/[^A-Za-z0-9._-]/g, "").slice(0, 15),
           rx: num(9, 2147483647), tx: num(10, 2147483647), link: num(11, 1000000), nvme: tl(f[12]), ssd: tl(f[13]),
         };
+      } else if (line.startsWith("C|")) {
+        // time page: C|<local date and time YYYYMMDDHHMMSS>|<date 1/0>|<weekday 1/0>|<date format 0-3>|<NTP 1/0>|<NTP server>|<POSIX time zone>
+        const f = splitFields(line, 8);
+        if (f.length >= 5) rx.clock = { dt: /^\d{14}$/.test(f[1]) ? f[1] : "", date: f[2] === "1" ? 1 : 0, wday: f[3] === "1" ? 1 : 0,
+          dfmt: clamp(atoi(f[4]), 0, 3), ntp: f[5] === "1" ? 1 : 0, server: f[6] && f[6] !== "-" ? f[6] : "", tz: f[7] && f[7] !== "-" ? f[7] : "" };
       } else if (line.startsWith("N|")) {
         // network pages: interface | down KiB/s | up KiB/s | link Mb/s | wireless 1/0 | state U up / L no link / D down
         const f = splitFields(line, 7);
@@ -1445,7 +1517,8 @@
   // system: state.system (inksights.sh), for the system page (s.sys = components: cpu, ram, net,
   // nvme, ssd; none = no system page; s.net = interface,
   // "" = the one with the default route; s.zfs = 0: ZFS cache hidden). fast: the panel can do fast refreshes (s.fast seconds).
-  function buildFrame(disks, s, title, time, system = null, fast = false, interval = 0) {
+  // dt: local date and time of the data YYYYMMDDHHMMSS for the time page (missing: today at time)
+  function buildFrame(disks, s, title, time, system = null, fast = false, interval = 0, dt = "") {
     // H field 17: header layout, "---" = header switched off (s.showHeader 0, the layout stays);
     // H fields 13 and 14: uptime (when the header shows it) as minutes after the full calendar
     // months, and the months; -1 = none
@@ -1459,11 +1532,21 @@
       s.driveTemp === 1 ? 1 : 0,   // H field 21: temperatures in the drive rows
       s.stby === 1 ? 1 : 0,   // H field 22: asleep hard disks "STBY" instead of "--"
       s.headInv === 1 ? 1 : 0,   // H field 23: header inverted
-      s.headInv === 1 && s.headCol === 1 ? 1 : 0];   // H field 24: inverted header, highlighted boxes in the third colour
-    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0];
+      s.headInv === 1 && s.headCol === 1 ? 1 : 0,   // H field 24: inverted header, highlighted boxes in the third colour
+      s.timeFmt === 1 ? (s.ampm === 0 ? 2 : 1) : 0,   // H field 25: 0 24 hours, 12 hours 1 with AM/PM, 2 without
+      (s.inkSplash === 0 ? 0 : 1) | (s.inkNothing === 0 ? 0 : 2) | (s.inkNoData === 0 ? 0 : 4),   // H field 26: screens shown (Advanced Ink)
+      (s.lineTop === 0 ? 0 : 1) | (s.lineBottom === 0 ? 0 : 2),   // H field 27: inverted header, lines at the top / bottom
+      orderOk(s.pageOrder) ? s.pageOrder : PAGE_ORDER];   // H field 28: the page order
+    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 3, PAGE_ORDER];
     while (extra.length && extra[extra.length - 1] === defaults[extra.length - 1]) extra.pop();
     const head = [`H|${title}|${time}|${s.rows || 0}|${s.warn ?? L.WARN_PCT}|${Math.trunc((s.rot || 0) / 90)}|${s.page ?? 600}`, ...extra].join("|");
     const lines = ["#BEGIN", head];
+    if (s.showTime === 1) {   // the time page: date and time of the data, what it shows, NTP (WiFi boards)
+      let when = /^\d{14}$/.test(dt) ? dt : "";
+      if (!when) { const n = new Date(), hm = /^(\d\d):(\d\d)$/.exec(time || ""); when = `${n.getFullYear()}${two(n.getMonth() + 1)}${two(n.getDate())}${hm ? hm[1] + hm[2] : two(n.getHours()) + two(n.getMinutes())}00`; }
+      const ntp = s.ntp === 1 && s.ntpServer && s.tzPosix;
+      lines.push(["C", when, s.timeDate === 0 ? 0 : 1, s.timeWday === 0 ? 0 : 1, s.dateFmt || 0, ntp ? 1 : 0, ntp ? s.ntpServer : "-", ntp ? s.tzPosix : "-"].join("|"));
+    }
     const hidden = new Set(s.hidden || []);
     const dec = s.pctBar && !s.barCap ? s.pctDec || 0 : 0;   // decimals, only while the percentage stands in the bar
     for (const d of s.showDisks === 0 ? [] : orderDisks(disks, s)) {   // disk pages switched off: no disks
@@ -1549,5 +1632,5 @@
   }
 
 
-  window.EPD = { WH, BK, RD, Fb, DEFAULT_LAYOUT, layoutOk, orderNets, drawScreen, drawSplash, parseFrame, buildFrame, noDataSecs, systemLine, uptimeSplit, orderDisks, pageCount, rowsPerPage, hsize, blit };
+  window.EPD = { WH, BK, RD, Fb, clockParts, DEFAULT_LAYOUT, PAGE_ORDER, orderOk, layoutOk, orderNets, drawScreen, drawSplash, parseFrame, buildFrame, noDataSecs, systemLine, uptimeSplit, orderDisks, pageCount, rowsPerPage, hsize, blit };
 })();

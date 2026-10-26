@@ -71,7 +71,11 @@ MAX_NETS = 32                          # interfaces in the order and hidden list
 NET_SORTS = ("name", "manual")
 NET_BARS = (0, 1, 2)                   # details in the bar of the network pages: none, percentage of the link, link speed
 SYS_PARTS = ("cpu", "ram", "net", "nvme", "ssd", "hdd")       # system page components (rows); none = no system page
-CONF_COLS = 43
+CONF_COLS = 57
+# Time page: NTP server (boards with WiFi), time zone name and its POSIX rule for the board
+NTP_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$")
+TZ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_+/-]{0,39}$")
+TZPOSIX_RE = re.compile(r"^[A-Za-z<][A-Za-z0-9<>+,./:-]{0,47}$")
 PANELS = (1, 2, 3, 4, 5)              # panel types (GDEW0213Z16, GDEH0213Z19, GDEY0213Z98, GDEY0213B74, GDEY042T81)
 # Header layout: what stands left, in the middle and right; T title, P page number, U uptime,
 # C time, - nothing; lower case = that place highlighted; each of T, P, U, C at most once
@@ -82,6 +86,15 @@ LAYOUT_RE = re.compile(r"^[TPUCtpuc-]{3}$")
 
 def layout_ok(v):
     return isinstance(v, str) and bool(LAYOUT_RE.match(v)) and all(v.upper().count(c) <= 1 for c in "TPUC")
+
+
+# Order of the pages on the display: S system, D drives, N network, T time, W WiFi, each once
+# (like order_valid in inksights.sh)
+DEFAULT_PAGE_ORDER = "SDNTW"
+
+
+def page_order_ok(v):
+    return isinstance(v, str) and len(v) == 5 and sorted(v) == sorted(DEFAULT_PAGE_ORDER)
 
 
 def iface_list(text):
@@ -207,6 +220,7 @@ def read_conf(path):
                     "showSys": 0 if parts[26] not in ("-", "") and "system" not in parts[26].split(",") else 1,
                     "showDisks": 0 if parts[26] not in ("-", "") and "disks" not in parts[26].split(",") else 1,
                     "showWifi": 1 if "wifi" in parts[26].split(",") else 0,
+                    "showTime": 1 if "time" in parts[26].split(",") else 0,
                     "sysIcons": 0 if parts[27] == "0" else 1,
                     "showHeader": 0 if parts[32] == "0" else 1,
                     "showNet": 1 if "network" in parts[26].split(",") else 0,
@@ -219,6 +233,24 @@ def read_conf(path):
                     "stby": 1 if parts[39] == "1" else 0,
                     "headInv": 1 if parts[40] == "1" else 0,
                     "headCol": 1 if parts[41] == "1" else 0,   # inverted header: highlighted boxes in the third colour
+                    # time: 12 hours (header and time page); time page: date, weekday, date format, NTP
+                    "timeFmt": 1 if parts[43] in ("1", "2") else 0,
+                    "ampm": 0 if parts[43] == "2" else 1,   # 12 hours without AM/PM
+                    "timeDate": 0 if parts[44] == "0" else 1,
+                    "timeWday": 0 if parts[45] == "0" else 1,
+                    "dateFmt": int(parts[46]) if parts[46] in ("0", "1", "2", "3") else 0,
+                    "ntp": 1 if parts[47] == "1" else 0,
+                    "ntpServer": parts[48] if NTP_RE.match(parts[48]) else "pool.ntp.org",
+                    "tz": parts[49] if TZ_RE.match(parts[49]) else "UTC",
+                    "tzPosix": parts[50] if TZPOSIX_RE.match(parts[50]) else "UTC0",
+                    # Advanced Ink: screens shown when needed (1) or never (0)
+                    "inkSplash": 0 if parts[51] == "0" else 1,
+                    "inkNothing": 0 if parts[52] == "0" else 1,
+                    "inkNoData": 0 if parts[53] == "0" else 1,
+                    # inverted header: lines at the top and the bottom
+                    "lineTop": 0 if parts[54] == "0" else 1,
+                    "lineBottom": 0 if parts[55] == "0" else 1,
+                    "pageOrder": parts[56] if page_order_ok(parts[56]) else DEFAULT_PAGE_ORDER,
                     "panel": int(parts[29]) if parts[29] in ("1", "2", "3", "4", "5") else None,
                     "wifiIcons": 0 if parts[30] == "0" else 1,
                     # missing (earlier version): title, time, then the page number or the uptime
@@ -297,7 +329,9 @@ def validate(displays, old_conf=None):
         sysp = [p for p in SYS_PARTS if p in sysp]
         show = {}
         for key, default in (("showSys", 1), ("showDisks", 1), ("showWifi", 0), ("wifiIcons", 1), ("sysIcons", 1), ("showHeader", 1),
-                             ("showNet", 0), ("netIcons", 1), ("driveTemp", 0), ("stby", 0), ("headInv", 0), ("headCol", 0)):
+                             ("showNet", 0), ("netIcons", 1), ("driveTemp", 0), ("stby", 0), ("headInv", 0), ("headCol", 0),
+                             ("showTime", 0), ("timeFmt", 0), ("ampm", 1), ("timeDate", 1), ("timeWday", 1), ("ntp", 0),
+                             ("inkSplash", 1), ("inkNothing", 1), ("inkNoData", 1), ("lineTop", 1), ("lineBottom", 1)):
             v = s.get(key, default)
             if v not in (0, 1) or isinstance(v, bool):
                 raise SettingsError(f"Display {did}: invalid {key}.")
@@ -305,6 +339,19 @@ def validate(displays, old_conf=None):
         refresh = s.get("refresh", DEFAULT_REFRESH)
         if not is_int(refresh) or refresh not in REFRESH:
             raise SettingsError(f"Display {did}: invalid refresh.")
+        date_fmt = s.get("dateFmt", 0)
+        if not is_int(date_fmt) or not 0 <= date_fmt <= 3:
+            raise SettingsError(f"Display {did}: invalid date format.")
+        ntp_server, tz, tz_posix = s.get("ntpServer", "pool.ntp.org"), s.get("tz", "UTC"), s.get("tzPosix", "UTC0")
+        if not isinstance(ntp_server, str) or not NTP_RE.match(ntp_server):
+            raise SettingsError(f"Display {did}: NTP server like pool.ntp.org.")
+        if not isinstance(tz, str) or not TZ_RE.match(tz) or not isinstance(tz_posix, str) or not TZPOSIX_RE.match(tz_posix):
+            raise SettingsError(f"Display {did}: invalid time zone.")
+        show.update(dateFmt=date_fmt, ntpServer=ntp_server, tz=tz, tzPosix=tz_posix)
+        page_order = s.get("pageOrder", DEFAULT_PAGE_ORDER)
+        if not page_order_ok(page_order):
+            raise SettingsError(f"Display {did}: invalid page order.")
+        show["pageOrder"] = page_order
         fast = refresh if refresh < 60 else 0   # under a minute: fast refresh
         zfs = s.get("zfs", 1)
         if zfs not in (0, 1) or isinstance(zfs, bool):
@@ -403,7 +450,9 @@ def write_conf(path, conf, interval, page_name=""):
         "# id<TAB>types<TAB>boxes<TAB>rows<TAB>sort<TAB>order<TAB>warn<TAB>rot<TAB>page<TAB>pins<TAB>title"
         "<TAB>style<TAB>hidden<TAB>name<TAB>ssid<TAB>password<TAB>host<TAB>server<TAB>ap<TAB>ap ssid<TAB>ap password<TAB>ap delay"
         "<TAB>fast<TAB>system<TAB>network<TAB>zfs<TAB>pages<TAB>system icons<TAB>header<TAB>panel<TAB>wifi icons<TAB>layout<TAB>header on"
-        "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted<TAB>header color<TAB>refresh",
+        "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted<TAB>header color<TAB>refresh"
+        "<TAB>time format<TAB>date<TAB>weekday<TAB>date format<TAB>ntp<TAB>ntp server<TAB>time zone<TAB>posix time zone"
+        "<TAB>start screen<TAB>nothing to ink<TAB>no connection<TAB>line top<TAB>line bottom<TAB>page order",
         "#   '-' = empty. boxes 0 = timer off, rows 0 = auto, warn = highlight from % used (0 = never),",
         "#   rot = degrees clockwise (0, 90, 180, 270), page = seconds between page turns (0 = off),",
         "#   pins = cs,dc,rst,busy (rst/busy -1 = none, '-' = keep the pins of the display),",
@@ -415,7 +464,7 @@ def write_conf(path, conf, interval, page_name=""):
         "#   ('-' = no system page; types '-' = only the system page),",
         "#   network = interface for the system page ('-' = the one with the default route),",
         "#   zfs = ZFS cache on the system page 1 = shown / 0 = hidden,",
-        "#   pages = pages switched on: system,disks,wifi (the settings below a page stay when it is off),",
+        "#   pages = pages switched on: system,disks,network,time,wifi (the settings below a page stay when it is off),",
         "#   system icons = symbols on the system page 1 = on / 0 = off, header = 1 the layout shows the uptime,",
         "#   panel = panel type 1-5 (1 GDEW0213Z16, 2 GDEH0213Z19, 3 GDEY0213Z98, 4 GDEY0213B74, 5 GDEY042T81;",
         "#   '-' = keep the panel type of the display), wifi icons = symbols on the WiFi page 1 = on / 0 = off,",
@@ -426,7 +475,12 @@ def write_conf(path, conf, interval, page_name=""):
         "#   drive temps = temperatures on the drive pages 1 = on / 0 = off, stby = asleep hard disks 1 = STBY / 0 = --,",
         "#   header inverted = 1 white header with black text / 0 black with white text",
         "#   header color = inverted header: 1 highlighted places in the third colour / 0 black,",
-        "#   refresh = seconds between updates of this display (under 60 = fast refresh, black/white panels only)",
+        "#   refresh = seconds between updates of this display (under 60 = fast refresh, black/white panels only),",
+        "#   time format = 0 24 hours / 1 12 hours with AM/PM / 2 without; time page (pages: time): date, weekday 1/0, date format 0 26 Oct 2026 /",
+        "#   1 2026-10-26 / 2 10/26/2026 / 3 26.10.2026, ntp 1/0 (boards with WiFi), ntp server, time zone and its POSIX rule,",
+        "#   start screen, nothing to ink, no connection = 1 shown when needed (default) / 0 never (Advanced Ink),",
+        "#   line top, line bottom = lines of the inverted header 1 on (default) / 0 off,",
+        "#   page order = S system, D drives, N network, T time, W WiFi, each once (default SDNTW)",
     ]
     for did, s in sorted(conf.items()):
         order = ",".join(s["order"]) or "-"
@@ -441,7 +495,7 @@ def write_conf(path, conf, interval, page_name=""):
                                 str(s["warn"]), str(s["rot"]), str(s["page"]), pins, s["name"] or "-",
                                 style, hidden, s.get("dname") or "-", *wifi,
                                 str(s.get("fast", 0)), ",".join(s.get("sys") or []) or "-", s.get("net") or "-", str(s.get("zfs", 1)),
-                                ",".join(p for p, k, d in (("system", "showSys", 1), ("disks", "showDisks", 1), ("network", "showNet", 0), ("wifi", "showWifi", 0))
+                                ",".join(p for p, k, d in (("system", "showSys", 1), ("disks", "showDisks", 1), ("network", "showNet", 0), ("time", "showTime", 0), ("wifi", "showWifi", 0))
                                          if s.get(k, d)) or "-",
                                 str(s.get("sysIcons", 1)),
                                 "1" if layout_ok(s.get("layout")) and "U" in s["layout"].upper() else "0",
@@ -450,7 +504,12 @@ def write_conf(path, conf, interval, page_name=""):
                                 str(s.get("showHeader", 1)), s.get("netSort", "name"),
                                 ",".join(s.get("netOrder") or []) or "-", ",".join(s.get("netHidden") or []) or "-",
                                 str(s.get("netIcons", 1)), str(s.get("netBar", 0)), str(s.get("driveTemp", 0)), str(s.get("stby", 0)), str(s.get("headInv", 0)), str(s.get("headCol", 0)),
-                                str(s.get("refresh", DEFAULT_REFRESH))]))
+                                str(s.get("refresh", DEFAULT_REFRESH)),
+                                str(2 if s.get("timeFmt") == 1 and s.get("ampm", 1) == 0 else s.get("timeFmt", 0)), str(s.get("timeDate", 1)), str(s.get("timeWday", 1)), str(s.get("dateFmt", 0)),
+                                str(s.get("ntp", 0)), s.get("ntpServer") or "pool.ntp.org", s.get("tz") or "UTC", s.get("tzPosix") or "UTC0",
+                                str(s.get("inkSplash", 1)), str(s.get("inkNothing", 1)), str(s.get("inkNoData", 1)),
+                                str(s.get("lineTop", 1)), str(s.get("lineBottom", 1)),
+                                s.get("pageOrder") if page_order_ok(s.get("pageOrder")) else DEFAULT_PAGE_ORDER]))
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".conf.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
