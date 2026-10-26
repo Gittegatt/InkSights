@@ -6,7 +6,7 @@ Shows the drive status of a system on small e-paper displays, typically a server
 a system page with CPU, RAM, network and drive temperatures. Every display hangs on its own small board, plugged
 into the server via USB or (boards with WiFi) running anywhere in reach of the WiFi. All settings are made on a small web page.
 
-![System page on a 2.13″ display: CPU, RAM, network and drive temperatures](examples/example_02_2-13_system_page.png)
+<img src="examples/example_08_2-13_system_page_red_header.png" alt="System page on a 2.13″ display with a red top line: CPU, RAM, network and drive temperatures" width="400">
 
 More pictures: [examples](examples/)
 
@@ -52,6 +52,8 @@ Per drive one row:
 - **Temperature** of each drive (optional), `--` or `STBY` for a hard disk that is asleep
 - **Spindown timer** for hard disks at the right end of the bar: a **badge** with the time left (MM:SS, "SLEEP" when
   asleep) or a **ring** that shrinks until spindown (dotted when asleep)
+
+<img src="examples/example_04_4-2_drives_pages_yellow.png" alt="Drive page on a 4.2″ display with yellow as third colour: symbols, pools, bars with the used capacity, temperatures and spindown rings" width="400">
 
 The top line shows the title (default: name of the NAS server), the time and the page number; the uptime instead or
 as well, any order, highlighted or not, white on black or inverted, or no top line at all (see [Header card](#header-card)).
@@ -388,6 +390,8 @@ directly; only for one with fast refresh a copy goes to `live/` (without WiFi se
 
 Boards with WiFi work over USB without any WiFi setup. To run a display over WiFi (it then only needs power):
 
+<img src="examples/example_01_4-2_access_point.png" alt="Start screen of a 4.2″ display: no WiFi set up yet, so the board has opened its setup access point and shows its password" width="400">
+
 1. **Set up the WiFi**, either
    - **on the settings page** while the board is plugged into the NAS server: open its **WiFi** card, enter the WiFi
      network, password and the address of the settings page (e.g. `http://192.168.1.10:8099`), *Save*. The settings
@@ -435,10 +439,12 @@ page and the simulator are then online at `https://<user>.github.io/<repository>
 ## 5. The settings page
 
 Open **http://&lt;server&gt;:8099**. Every display appears with a live preview of what it will show, and below it its own
-foldable cards **Display**, **Header**, **System**, **Drives**, **Network** and (boards with WiFi) **WiFi**. A new display starts
-with the header and the system page; switch the drive pages on in its Drives card. Change settings, *Save*, and
-the NAS server applies them within a minute. The page itself shows no explanations, to keep it tidy; they are here.
-Which cards are folded is remembered per browser.
+foldable cards **Display**, **Header**, **System**, **Drives**, **Network**, (boards with WiFi) **WiFi** and **Backup**. A new
+display starts with the header and the system page; switch the drive pages on in its Drives card. Change settings,
+*Save*, and the NAS server applies them within a minute. The page itself shows no explanations, to keep it tidy; they
+are here. Which cards are folded is remembered per browser.
+
+<img src="examples/example_09_settings_page.png" alt="The settings page with two displays: live previews, the Display cards open, the other cards folded" width="100%">
 
 **At the top of the page** (for all displays):
 
@@ -530,6 +536,8 @@ The top line of the display.
 | **Order and visibility by** | Pool, UID, Device, Custom (▲▼) | The tick next to each disk shows or hides it on this display. Names like sda can change after a reboot, so Pool, UID and Custom use the serial number (UID); Device orders by name. |
 
 ### Network card
+
+<img src="examples/example_05_4-2_network_page.png" alt="Network page on a 4.2″ display: download, upload and link speed per interface" width="400">
 
 Pages with one row per network interface, after the drive pages, as many rows per page as the drive pages.
 
@@ -657,6 +665,13 @@ SSD and NVMe temperatures do not need it.
   or the uptime stands, and **Check connection** in the middle below a picture of the empty table, and stops turning pages. The time at the top right
   stays: that is when the last data came. With the next fresh data the pages come back. Reasons: the board is
   unplugged or the NAS server is off, the script or the settings page does not run, or a WiFi board lost its WiFi.
+
+  <img src="examples/example_10_2-13_portrait_no_connection.png" alt="A 2.13″ display upright without fresh data: NO DATA in the top line, Check connection below the empty table" width="244">
+
+- **Nothing to ink.** With every page of a display switched off (no system, drive, network or WiFi page), it shows
+  **Nothing to ink** below a picture of three people at a table, so it never looks broken.
+
+  <img src="examples/example_11_4-2_nothing_to_ink.png" alt="A 4.2″ display with every page switched off: Nothing to ink below three people at a table" width="400">
 - **Refresh in seconds and minutes:** a display on seconds gets fresh system values and timers that often; its
   drives and pools come from the full updates, at least once a minute while such a display is there.
 - **The app is isolated.** It has no USB access and no rights on the NAS server; it only shares the data folder with

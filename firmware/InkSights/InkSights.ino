@@ -1895,7 +1895,7 @@ void drawSplash() {
   printAt(verX, hy, line, WH, u);
   printClipped(hx, hy, PRODUCT_NAME, (verX - CW - hx) / CW, WH, u);  // cut before the version
 
-  const int16_t lh = 7 * u, waitY = H - 2 * u - lh, avail = waitY - 4 * u - HH;   // room between the header and the waiting line
+  const int16_t lh = 7 * u, avail = H - 6 * u - lh - HH;   // room for the name and the lines (their sizes)
 #if HAS_WIFI
   const uint8_t lines = 4 + 1 + (apActive ? 1 : 0);
 #else
@@ -1907,12 +1907,32 @@ void drawSplash() {
   int16_t z = 3 * u;
   while (z > 1 && (7 * z + 6 * u + blockH > avail || textW(PRODUCT_NAME) * z + logoW(z) > W - 2 * hx)) z--;
   const int16_t gap = iclamp(avail - 7 * z - blockH - 4 * u, 2 * u, 12 * u), group = 7 * z + gap + blockH;
-  const int16_t ty = HH + imax(2 * u, (avail - group) / 2);
+  // the texts of the lines (the last one decides how far the text reaches down)
+  const int16_t x = hx + 7 * CW, maxC = (W - x) / CW;  // value column
+  char cs[4], dc[4], rst[4], busy[4], pinLine[40];
+  pinText(cs, sizeof(cs), pins.cs);
+  pinText(dc, sizeof(dc), pins.dc);
+  pinText(rst,  sizeof(rst),  pins.rst);
+  pinText(busy, sizeof(busy), pins.busy);
+  snprintf(pinLine, sizeof(pinLine), "CS%s DC%s RST%s BUSY%s", cs, dc, rst, busy);
+#if HAS_WIFI
+  netLine(netShown, sizeof(netShown));
+  char keyLine[48] = "";
+  if (apActive) snprintf(keyLine, sizeof(keyLine), "Key %s", net.apPass.c_str());   // how to set it up: the access point password
+  const char* last = apActive ? keyLine : netShown;
+#else
+  const char* last = pinLine;
+#endif
+  // g, j, p, q, y , ; reach one font pixel below the line (the waiting line always has them)
+  auto descends = [](const char* t, int16_t n) { for (int16_t i = 0; i < n && t[i]; i++) if (strchr("gjpqy,;", t[i])) return true; return false; };
+  const int16_t down = descends(last, imin(maxC, 39)) ? u : 0;
+  // the waiting line as far from the last line above it as from the bottom edge, as seen (user);
+  // the rest of the room goes above the name
+  const int16_t freeRoom = H - HH - (group + down) - (lh + u), g = freeRoom / 3, ty = HH + freeRoom - 2 * g, waitY = H - g - u - lh;
   const int16_t nx = (W - textW(PRODUCT_NAME) * z - logoW(z)) / 2;   // logo bars + name, centred together
   drawLogo(nx, ty + 7 * z, z);
   printAt(nx + logoW(z), ty, PRODUCT_NAME, BK, z);
 
-  const int16_t x = hx + 7 * CW;  // value column
   int16_t y = ty + 7 * z + gap;
   printAt(hx, y, "ID", BK, u);
   printAt(x, y, chipId, BK, u);
@@ -1925,24 +1945,14 @@ void drawSplash() {
   snprintf(line, sizeof(line), "%s %s", panelInfo().name, hasColor ? "b/w/color" : "b/w");
   printAt(x, y, line, BK, u);
   y += pitch;
-  char cs[4], dc[4], rst[4], busy[4];
-  pinText(cs, sizeof(cs), pins.cs);
-  pinText(dc, sizeof(dc), pins.dc);
-  pinText(rst,  sizeof(rst),  pins.rst);
-  pinText(busy, sizeof(busy), pins.busy);
   printAt(hx, y, PIN_TITLE, BK, u);
-  snprintf(line, sizeof(line), "CS%s DC%s RST%s BUSY%s", cs, dc, rst, busy);
-  printClipped(x, y, line, (W - x) / CW, BK, u);
+  printClipped(x, y, pinLine, maxC, BK, u);
 
 #if HAS_WIFI
   y += pitch;
   printAt(hx, y, "WiFi", BK, u);
-  netLine(netShown, sizeof(netShown));
-  printClipped(x, y, netShown, (W - x) / CW, BK, u);
-  if (apActive) {   // how to set it up: the access point password
-    snprintf(line, sizeof(line), "Key %s", net.apPass.c_str());
-    printClipped(x, y + pitch, line, (W - x) / CW, BK, u);
-  }
+  printClipped(x, y, netShown, maxC, BK, u);
+  if (apActive) printClipped(x, y + pitch, keyLine, maxC, BK, u);
 #endif
 
   printAt(hx, waitY, "Waiting for data from system ...", BK, u);

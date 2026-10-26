@@ -507,10 +507,13 @@
     // in the third colour too (text white, black on yellow; user)
     const third = m.mono ? BK : RD, boxY = inv ? 0 : hy - hs, lit = inv && m.headCol === 1;
     const onBox = third === RD ? onThird : WH;
+    // "NO DATA" on a yellow panel: a yellow box with black text in the black header too (yellow
+    // text on white is hard to read; user)
+    const ndBox = inv || m.yellow;
     const put = (i, px, s) => {
       const nd = lay[i] === "N";
-      if (hi[i] || nd) fb.fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (inv ? third : WH) : lit ? third : fg);
-      fb.text(px, hy, s, nd ? (inv ? onBox : third) : hi[i] ? (lit ? onBox : bg) : fg, hs);
+      if (hi[i] || nd) fb.fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (ndBox ? third : WH) : lit ? third : fg);
+      fb.text(px, hy, s, nd ? (ndBox ? onBox : third) : hi[i] ? (lit ? onBox : bg) : fg, hs);
     };
     if (m.noData) {
       const at = [lay.indexOf("P"), lay.indexOf("U")].find(i => i >= 0) ?? [1, 2, 0].find(i => lay[i] === "-") ?? 1;
@@ -572,7 +575,7 @@
     const ver = `v${s.fw}`, verX = W - hx - textW(ver) * u;
     fb.text(verX, hy, ver, WH, u);
     clip(hx, hy, s.product, Math.trunc((verX - CW - hx) / CW), WH);   // cut before the version
-    const lh = 7 * u, waitY = H - 2 * u - lh, avail = waitY - 4 * u - HH;   // room between the header and the waiting line
+    const lh = 7 * u, avail = H - 6 * u - lh - HH;   // room for the name and the lines (their sizes)
     const lines = 4 + (s.wifi != null ? 1 : 0) + (s.wifi != null && s.key ? 1 : 0);
     let pitch = 11 * u;
     while (pitch > 9 * u && 7 * 2 * u + 6 * u + (lines - 1) * pitch + lh > avail) pitch--;
@@ -580,11 +583,19 @@
     let z = 3 * u;
     while (z > 1 && (7 * z + 6 * u + blockH > avail || textW(s.product) * z + logoW(z) > W - 2 * hx)) z--;
     const gap = clamp(avail - 7 * z - blockH - 4 * u, 2 * u, 12 * u), group = 7 * z + gap + blockH;
-    const ty = HH + Math.max(2 * u, Math.trunc((avail - group) / 2));
+    // the texts of the lines (the last one decides how far the text reaches down)
+    const x = hx + 7 * CW, maxC = Math.trunc((W - x) / CW);   // value column
+    const pin = p => (p < 0 ? "-" : String(p));
+    const pinLine = `CS${pin(s.pins[0])} DC${pin(s.pins[1])} RST${pin(s.pins[2])} BUSY${pin(s.pins[3])}`;
+    const last = s.wifi == null ? pinLine : s.key ? `Key ${s.key}` : s.wifi;
+    // g, j, p, q, y , ; reach one font pixel below the line (the waiting line always has them)
+    const down = /[gjpqy,;]/.test(last.slice(0, Math.min(39, maxC))) ? u : 0;
+    // the waiting line as far from the last line above it as from the bottom edge, as seen (user);
+    // the rest of the room goes above the name
+    const free = H - HH - (group + down) - (lh + u), g = Math.trunc(free / 3), ty = HH + free - 2 * g, waitY = H - g - u - lh;
     const nx = Math.trunc((W - textW(s.product) * z - logoW(z)) / 2);   // logo bars + name, centred together
     drawLogo(fb, nx, ty + 7 * z, z);
     fb.text(nx + logoW(z), ty, s.product, BK, z);
-    const x = hx + 7 * CW;   // value column
     let y = ty + 7 * z + gap;
     fb.text(hx, y, "ID", BK, u);
     fb.text(x, y, s.id, BK, u);
@@ -596,14 +607,13 @@
     fb.text(hx, y, "Panel", BK, u);
     fb.text(x, y, `${s.panel} ${s.color ? "b/w/color" : "b/w"}`, BK, u);
     y += pitch;
-    const pin = p => (p < 0 ? "-" : String(p));
     fb.text(hx, y, s.pinTitle, BK, u);
-    clip(x, y, `CS${pin(s.pins[0])} DC${pin(s.pins[1])} RST${pin(s.pins[2])} BUSY${pin(s.pins[3])}`, Math.trunc((W - x) / CW), BK);
+    clip(x, y, pinLine, maxC, BK);
     if (s.wifi != null) {
       y += pitch;
       fb.text(hx, y, "WiFi", BK, u);
-      clip(x, y, s.wifi, Math.trunc((W - x) / CW), BK);
-      if (s.key) clip(x, y + pitch, `Key ${s.key}`, Math.trunc((W - x) / CW), BK);   // how to set it up: the access point password
+      clip(x, y, s.wifi, maxC, BK);
+      if (s.key) clip(x, y + pitch, `Key ${s.key}`, maxC, BK);   // how to set it up: the access point password
     }
     fb.text(hx, waitY, "Waiting for data from system ...", BK, u);
   }
