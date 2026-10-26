@@ -551,10 +551,12 @@
     // inverted (H field 23): white with black text and a black line at the bottom
     const inv = m.headInv === 1, bg = inv ? WH : BK, fg = inv ? BK : WH, HH = headerH(W, fb.h);
     fb.fillRect(0, 0, W, HH, bg);
-    // inverted: lines at the top and the bottom of the header (H field 27: 1 top, 2 bottom; default both)
-    const lines = m.headLines ?? 3;
-    if (inv && lines & 1) fb.fillRect(0, 0, W, 1, BK);
-    if (inv && lines & 2) fb.fillRect(0, HH - 1, W, 1, BK);
+    // inverted: the divider line at the bottom of the header (H field 27: 1 on, default / 0 off);
+    // on the 4.2" 2 px thick, downwards (user: like 1 px on the 2.13" with its half-size text)
+    if (inv && m.headLine !== 0) fb.fillRect(0, HH - 1, W, wide ? 2 : 1, BK);
+    // black header: its bottom edge under the boxes is the divider line, on the 4.2" 2 px too (one
+    // row below it; user); off: the boxes reach down to the bottom edge
+    if (!inv && wide && m.headLine !== 0) fb.fillRect(0, HH, W, 1, BK);
     const given = layoutOk(m.layout) ? m.layout : DEFAULT_LAYOUT;
     const lay = [...given.toUpperCase()], hi = [...given].map(c => c >= "a" && c <= "z");
     // highlighted: a box in the text colour 2 px (4 px on the 4.2") wider than the text on each
@@ -569,9 +571,15 @@
     const ndBox = inv || m.yellow;
     const put = (i, px, s) => {
       const nd = lay[i] === "N";
-      if (hi[i] || nd) fb.fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (ndBox ? third : WH) : lit ? third : fg);
+      if (hi[i] || nd) fb.fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, (!inv && m.headLine === 0 ? HH : hy - hs + 9 * hs) - boxY, nd ? (ndBox ? third : WH) : lit ? third : fg);
       fb.text(px, hy, s, nd ? (ndBox ? onBox : third) : hi[i] ? (lit ? onBox : bg) : fg, hs);
     };
+    // Fill gaps (H field 30): the whole line in the colour of the boxes, every place drawn like a
+    // highlighted one (user)
+    if (m.headFill === 1) {
+      hi.fill(true);
+      fb.fillRect(0, boxY, W, (!inv && m.headLine === 0 ? HH : hy - hs + 9 * hs) - boxY, lit ? third : fg);
+    }
     if (m.noData) {
       const at = [lay.indexOf("P"), lay.indexOf("U")].find(i => i >= 0) ?? [1, 2, 0].find(i => lay[i] === "-") ?? 1;
       lay[at] = "N";
@@ -1031,12 +1039,16 @@
   function drawScreen(fb, m) {
     onThird = m.yellow ? BK : WH;
     const W = fb.w, wanted = m.rows || 0, head = headerOn(m);
-    const wide = isBig(W, fb.h), hs = wide ? 2 : 1, HH = headerH(W, fb.h, head), hx = wide ? 4 : 2;
+    const wide = isBig(W, fb.h), hs = wide ? 2 : 1, hx = wide ? 4 : 2;
     const stacked = W < fb.h;   // upright: device | used/total, the pool in a second line
     const nets = m.nets || [];
     const counts = pageCounts(m.disks.length, fb.h, wanted, W, !!m.sys, !!m.wifiPage, head, nets.length, !!m.clock);
     const pages = Object.values(counts).reduce((x, y) => x + y, 0);
-    drawHeader(fb, m, pages, wide);
+    const [kind, idx] = pageAt(m.page, m.order, counts);
+    // the time page without the header line (H field 29: Show header off)
+    const bare = kind === "T" && m.clockHead === 0 && !m.noData;
+    const HH = bare ? 0 : headerH(W, fb.h, head);
+    if (!bare) drawHeader(fb, m, pages, wide);
     // "Check connection" (the time stays: when the last data came), or "Nothing to ink" when every
     // page is switched off (no system page, no network or WiFi page, disk pages off), with its picture
     // above it (user); both screens share one block as high as the taller of the two, centred in the
@@ -1054,7 +1066,6 @@
       fb.text(Math.trunc((W - textW(L.msg) * L.ms) / 2), ty, L.msg, BK, L.ms);
       return;
     }
-    const [kind, idx] = pageAt(m.page, m.order, counts);
     if (kind === "S") { m.sys.stby = m.stby === 1; drawSystem(fb, m.sys, HH, wide, stacked); return; }
     if (kind === "W") { drawWifi(fb, m.wifi || {}, HH, wide, stacked, m.wifiIcons); return; }
     // the time page (m.now: the time to show, else the time of the frame)
@@ -1390,11 +1401,11 @@
     let rx = null, done = null;
     for (const raw of text.split("\n")) {
       const line = raw.replace(/\r/g, "").slice(0, 127);
-      if (line === "#BEGIN") { rx = { host: "", time: "", rows: 0, warn: L.WARN_PCT, timer: 0, ringDir: 0, icons: 1, pctBar: 0, fast: 0, uptime: -1, upMonths: 0, wifiPage: 0, wifiIcons: true, netBar: 0, netIcons: 1, driveTemp: 0, stby: 0, headInv: 0, headCol: 0, timeFmt: 0, screens: 7, headLines: 3, order: PAGE_ORDER, clock: null, disks: [], nets: [], sys: null, page: 0 }; continue; }
+      if (line === "#BEGIN") { rx = { host: "", time: "", rows: 0, warn: L.WARN_PCT, timer: 0, ringDir: 0, icons: 1, pctBar: 0, fast: 0, uptime: -1, upMonths: 0, wifiPage: 0, wifiIcons: true, netBar: 0, netIcons: 1, driveTemp: 0, stby: 0, headInv: 0, headCol: 0, timeFmt: 0, screens: 7, headLine: 1, order: PAGE_ORDER, clockHead: 0, headFill: 0, clock: null, disks: [], nets: [], sys: null, page: 0 }; continue; }
       if (!rx) continue;
       if (line === "#END") { done = rx; rx = null; continue; }
       if (line.startsWith("H|")) {
-        const f = splitFields(line, 28);
+        const f = splitFields(line, 30);
         if (f.length >= 3) {
           rx.host = f[1].slice(0, 16); rx.time = f[2].slice(0, 5);
           rx.rows = f.length >= 4 ? clamp(atoi(f[3]), 0, 6) : 0;
@@ -1421,8 +1432,10 @@
           rx.headCol = f.length >= 24 && f[23] === "1" ? 1 : 0;       // inverted header: highlighted boxes in the third colour
           rx.timeFmt = f.length >= 25 && (f[24] === "1" || f[24] === "2") ? Number(f[24]) : 0;   // 12 hours: 1 with AM/PM, 2 without
           rx.screens = f.length >= 26 && /^[0-7]$/.test(f[25]) ? Number(f[25]) : 7;   // shown: 1 start screen, 2 "Nothing to ink", 4 "Check connection"
-          rx.headLines = f.length >= 27 && /^[0-3]$/.test(f[26]) ? Number(f[26]) : 3;   // inverted header: 1 line at the top, 2 at the bottom
+          rx.headLine = f.length >= 27 && f[26] === "0" ? 0 : 1;   // inverted header: the divider line at its bottom
           rx.order = f.length >= 28 && orderOk(f[27]) ? f[27] : PAGE_ORDER;   // the page order
+          rx.clockHead = f.length >= 29 && f[28] === "1" ? 1 : 0;   // the time page with the header line 1 / without 0 (default)
+          rx.headFill = f.length >= 30 && f[29] === "1" ? 1 : 0;    // header: the gaps between the boxes filled
         }
       } else if (line.startsWith("S|")) {
         // system page: components (C R N V S) | cpu % | cpu °C | cpu W | RAM used MiB | ZFS cache MiB |
@@ -1519,6 +1532,9 @@
   // "" = the one with the default route; s.zfs = 0: ZFS cache hidden). fast: the panel can do fast refreshes (s.fast seconds).
   // dt: local date and time of the data YYYYMMDDHHMMSS for the time page (missing: today at time)
   function buildFrame(disks, s, title, time, system = null, fast = false, interval = 0, dt = "") {
+    // Advanced Ink, Just give me time: only the time page, the header line as the Time card's Show
+    // header says (the other settings stay)
+    if (s.justTime === 1) s = { ...s, showSys: 0, showDisks: 0, showNet: 0, showWifi: 0, showTime: 1, showHeader: s.timeHead === 1 ? 1 : 0 };
     // H field 17: header layout, "---" = header switched off (s.showHeader 0, the layout stays);
     // H fields 13 and 14: uptime (when the header shows it) as minutes after the full calendar
     // months, and the months; -1 = none
@@ -1535,9 +1551,11 @@
       s.headInv === 1 && s.headCol === 1 ? 1 : 0,   // H field 24: inverted header, highlighted boxes in the third colour
       s.timeFmt === 1 ? (s.ampm === 0 ? 2 : 1) : 0,   // H field 25: 0 24 hours, 12 hours 1 with AM/PM, 2 without
       (s.inkSplash === 0 ? 0 : 1) | (s.inkNothing === 0 ? 0 : 2) | (s.inkNoData === 0 ? 0 : 4),   // H field 26: screens shown (Advanced Ink)
-      (s.lineTop === 0 ? 0 : 1) | (s.lineBottom === 0 ? 0 : 2),   // H field 27: inverted header, lines at the top / bottom
-      orderOk(s.pageOrder) ? s.pageOrder : PAGE_ORDER];   // H field 28: the page order
-    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 3, PAGE_ORDER];
+      s.lineBottom === 0 ? 0 : 1,   // H field 27: inverted header, the divider line at its bottom
+      orderOk(s.pageOrder) ? s.pageOrder : PAGE_ORDER,   // H field 28: the page order
+      s.timeHead === 1 ? 1 : 0,   // H field 29: the time page with the header line (default without)
+      s.headFill === 1 && s.headInv === 1 && s.headCol === 1 ? 1 : 0];  // H field 30: header filled in the third colour (with Highlight color only)
+    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, PAGE_ORDER, 0, 0];
     while (extra.length && extra[extra.length - 1] === defaults[extra.length - 1]) extra.pop();
     const head = [`H|${title}|${time}|${s.rows || 0}|${s.warn ?? L.WARN_PCT}|${Math.trunc((s.rot || 0) / 90)}|${s.page ?? 600}`, ...extra].join("|");
     const lines = ["#BEGIN", head];

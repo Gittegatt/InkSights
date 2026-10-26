@@ -62,6 +62,28 @@ select, input[type="text"], input[type="number"], textarea {
 }
 input[type="number"] { width: 5em; font-variant-numeric: tabular-nums; }
 input:disabled, select:disabled { opacity: 0.45; }
+/* the open list of a select looks like the NTP server list (browsers that can style it; others
+   keep their own list) */
+@supports (appearance: base-select) {
+  select, ::picker(select) { appearance: base-select; }
+  select { display: inline-flex; align-items: center; gap: 8px; }
+  select::picker-icon { color: var(--muted); transition: rotate 0.15s; }
+  select:open::picker-icon { rotate: 180deg; }
+  ::picker(select) { margin: 4px 0; padding: 4px 0; color: var(--fg); background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25); max-height: min(60vh, 24em); overflow-y: auto; }
+  select option { padding: 5px 12px; white-space: nowrap; }
+  select option::checkmark { display: none; }
+  select option:hover, select option:focus-visible { background: var(--bg); outline: none; }
+  select option:checked { color: var(--accent); }
+  /* the button shows the chosen entry; the hidden entries below it make it as wide as the widest */
+  select > button { display: grid; grid-template-columns: max-content; min-width: 0; padding: 0; border: 0;
+    font: inherit; color: inherit; background: none; text-align: start; }
+  /* where a select may get narrower than its widest entry (narrow cards): the text is cut */
+  .panel-pick select > button, .sim-f select > button { grid-template-columns: minmax(0, max-content); }
+  select > button > selectedcontent, .sel-sizer > span { grid-area: 1 / 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sel-sizer { display: contents; }
+  .sel-sizer > span { visibility: hidden; }
+}
 
 .displays { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
 @media (max-width: 980px) { .displays { grid-template-columns: minmax(0, 1fr); } }
@@ -91,14 +113,22 @@ input:disabled, select:disabled { opacity: 0.45; }
 .sub-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; padding-top: 8px; }
 .sub-card { position: relative; }
 .page-toggle { position: absolute; top: 16px; right: 20px; font-size: 0.9rem; }
-/* grip of a movable card: two vertical lines left of "Ink" */
+/* grip of a movable card: two horizontal lines left of "Ink" */
 .grip { position: absolute; top: 12px; right: 76px; width: 26px; height: 28px; padding: 0; border: 0; border-radius: var(--r);
   background: transparent; cursor: grab; touch-action: none; }
-.grip::before { content: ""; position: absolute; left: 9px; top: 7px; width: 8px; height: 14px; box-sizing: border-box;
-  border-left: 2px solid var(--muted); border-right: 2px solid var(--muted); }
+.grip::before { content: ""; position: absolute; left: 6px; top: 11px; width: 14px; height: 6px; box-sizing: border-box;
+  border-top: 1px solid var(--muted); border-bottom: 1px solid var(--muted); }
 .grip:hover::before, .grip:focus-visible::before { border-color: var(--fg); }
 .grip:focus-visible { outline: 2px solid var(--focus); }
 .sub-card.dragging { opacity: 0.6; }
+/* text field with a list of choices below it (NTP server): the list always shows every choice */
+.combo { position: relative; max-width: 14em; }
+.combo > input { width: 100%; }
+.combo-list { position: absolute; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px 0; list-style: none; z-index: 10;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25); }
+.combo-list li { padding: 5px 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.combo-list li:hover, .combo-list li.on { background: var(--bg); }
+.combo-list li[aria-selected="true"] { color: var(--accent); }
 html:has(.sub-card.dragging) { overflow-anchor: none; }   /* the page must not scroll while a card moves */
 .sub-card.dragging .grip { cursor: grabbing; }
 .sub-card.off .sub-body { opacity: 0.5; }
@@ -114,6 +144,7 @@ fieldset { border: 0; padding: 0; margin: 0; display: contents; }
 .oneline .check { gap: 4px; }
 /* display pins: each pin with its name stays whole; they wrap when the card is narrow */
 .choices.pins { gap: 8px 14px; }
+.choices.header-sec { gap: 10px 28px; align-items: start; }   /* Header card: the fields of a framed section side by side */
 .pins .check { gap: 5px; }
 .pins select { padding-left: 6px; padding-right: 2px; }
 .check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
@@ -160,8 +191,8 @@ input[type="password"] { font: inherit; color: var(--fg); background: var(--bg);
 .sim-fold > summary h2 { display: inline; }
 .sim-fold[open] > summary { margin-bottom: 14px; }
 /* Simulation card, displays: one block per display, its fields wrap when the card gets narrow */
-.sim-grid { display: flex; flex-direction: column; gap: 10px; }
-.sim-hw { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; }
+.sim-grid { display: flex; flex-direction: column; gap: 10px; min-width: 0; }   /* narrow card: the selects get shorter, never wider than the card */
+.sim-hw { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; min-width: 0; }
 .sim-hw + .sim-hw { border-top: 1px solid var(--line); padding-top: 10px; }
 .sim-hw .sim-id { flex-basis: 100%; }
 .sim-f { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 100%; }

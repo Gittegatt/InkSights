@@ -36,6 +36,22 @@
     return e;
   }
 
+  // Selects with the styled list (inksights.css, appearance: base-select) would be as wide as the
+  // chosen entry, so they would change width with every choice. A hidden copy of every entry in
+  // their button keeps them as wide as the widest one, like the browser's own selects. Done for
+  // every select of the page (also the simulator's and the USB setup's) as it appears.
+  function keepSelectWidth(sel) {
+    if (sel.dataset.sized) return;
+    sel.dataset.sized = "1";
+    sel.prepend(el("button", { type: "button", tabindex: "-1" }, document.createElement("selectedcontent"),
+      el("span", { class: "sel-sizer", "aria-hidden": "true" }, ...[...sel.options].map(o => el("span", {}, o.textContent)))));
+  }
+  if (window.CSS && CSS.supports("appearance: base-select")) {
+    const sizeAll = root => { if (root.nodeType !== 1) return; if (root.matches("select")) keepSelectWidth(root); root.querySelectorAll("select").forEach(keepSelectWidth); };
+    new MutationObserver(ms => { for (const m of ms) m.addedNodes.forEach(sizeAll); }).observe(document.documentElement, { childList: true, subtree: true });
+    sizeAll(document.documentElement);
+  }
+
   // ------------------------------------------------------------ boards
   // Same table as firmware/InkSights/BoardProfile.h. Pins are the board's pin numbers:
   // D numbers on the XIAO SAMD21, GPIO numbers on the ESP32 boards (dlabel: D label on the XIAO).
@@ -223,7 +239,7 @@
       // one (earlier version) as before: title, time, then the page number or the uptime
       if (!EPD.layoutOk(s.layout)) s.layout = s.headerUp === 1 ? "TCU" : EPD.DEFAULT_LAYOUT;
       // a new display: header and system page (all components) on, disk and WiFi pages off
-      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 0], ["barCap", 0], ["zfs", 1], ["showSys", 1], ["showDisks", 0], ["sysIcons", 1], ["showWifi", 0], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 0], ["netIcons", 1], ["driveTemp", 0], ["stby", 0], ["headInv", 0], ["headCol", 0], ["timeFmt", 0], ["ampm", 1], ["showTime", 0], ["timeDate", 1], ["timeWday", 1], ["ntp", 0], ["inkSplash", 1], ["inkNothing", 1], ["inkNoData", 1], ["lineTop", 1], ["lineBottom", 1]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 0], ["barCap", 0], ["zfs", 1], ["showSys", 1], ["showDisks", 0], ["sysIcons", 1], ["showWifi", 0], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 0], ["netIcons", 1], ["driveTemp", 0], ["stby", 0], ["headInv", 0], ["headCol", 0], ["timeFmt", 0], ["ampm", 1], ["showTime", 0], ["timeDate", 1], ["timeWday", 1], ["ntp", 0], ["inkSplash", 1], ["inkNothing", 1], ["inkNoData", 1], ["lineBottom", 1], ["justTime", 0], ["timeHead", 0], ["headFill", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
       if (!EPD.orderOk(s.pageOrder)) s.pageOrder = EPD.PAGE_ORDER;   // the page order: S system, D drives, N network, T time, W WiFi
       if (![0, 1, 2, 3].includes(s.dateFmt)) s.dateFmt = 0;   // time page: 26 Oct 2026, ISO, US, German
       if (typeof s.ntpServer !== "string" || !NTP_RE.test(s.ntpServer)) s.ntpServer = NTP_SERVERS[0];
@@ -758,30 +774,37 @@
         const c = s.layout[i];
         layoutSel[i].value = c.toUpperCase();
         litBox[i].checked = c !== "-" && c !== c.toUpperCase();
-        litBox[i].disabled = c === "-";
+        litBox[i].disabled = c === "-" || (s.headFill === 1 && s.headInv === 1 && s.headCol === 1 && panel.colors !== 2);   // Fill gaps: every place is drawn highlighted
       });
       syncLayout();
       // inverted header: the highlighted places in the third colour (only panels with one)
-      const colBox = field("Highlight color", radios("headcol", [[1, "On"], [0, "Off"]], s.headCol, v => { s.headCol = v; }));
+      const colBox = field("Highlight color", radios("headcol", [[1, "On"], [0, "Off"]], s.headCol, v => { s.headCol = v; fillOk(); }));
       setDisabled(colBox, !s.headInv || panel.colors === 2);
-      // inverted header: the lines at its top and bottom
-      const topBox = field("Line top", radios("linetop", [[1, "On"], [0, "Off"]], s.lineTop, v => { s.lineTop = v; }));
-      const botBox = field("Line bottom", radios("linebottom", [[1, "On"], [0, "Off"]], s.lineBottom, v => { s.lineBottom = v; }));
-      setDisabled(topBox, !s.headInv);
-      setDisabled(botBox, !s.headInv);
+      // Fill gaps: the whole header in the third colour; only then something new (on black/white it
+      // would be the same as switching Invert colors), so only with Invert colors and Highlight color
+      // on a colour panel
+      const fillBox = field("Fill gaps", radios("headfill", [[1, "On"], [0, "Off"]], s.headFill, v => { s.headFill = v; syncLayout(); }));
+      const fillOk = () => { setDisabled(fillBox, !(s.headInv === 1 && s.headCol === 1 && panel.colors !== 2)); syncLayout(); };
+      fillOk();
+      // the divider line at the bottom of the header (black header: its edge under the boxes)
+      const botBox = el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Divider line"),
+        radios("linebottom", [[1, "On"], [0, "Off"]], s.lineBottom, v => { s.lineBottom = v; }));
       const headerCard = subCard("headerOpen", "Header", true, "showHeader",
         el("fieldset", { class: `set-${id}` },
+          // framed sections: Title, Colors, Divider line, Positions
           el("div", { class: "form" },
-            el("label", { class: "field wide" },
+            el("label", { class: "field wide boxed" },
               el("span", { class: "label" }, "Title"),
               el("input", { type: "text", maxlength: "12", value: s.name, placeholder: state.host || "SYSTEM", autocomplete: "off", style: "max-width: 10em",
                 oninput: e => { s.name = e.target.value; setHeading(); redraw(); } })),
-            field("Invert colors", radios("headinv", [[1, "On"], [0, "Off"]], s.headInv, v => {
-              s.headInv = v; setDisabled(colBox, !v || panel.colors === 2); setDisabled(topBox, !v); setDisabled(botBox, !v); })),
-            colBox,
-            topBox,
+            el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Colors"),
+              el("div", { class: "choices header-sec" },
+                field("Invert colors", radios("headinv", [[1, "On"], [0, "Off"]], s.headInv, v => {
+                  s.headInv = v; setDisabled(colBox, !v || panel.colors === 2); fillOk(); })),
+                colBox,
+                fillBox)),
             botBox,
-            el("div", { class: "field wide" },
+            el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Positions"),
               el("div", { class: "choices header-places" }, ...places.map((place, i) => el("div", { class: "field" },
                 el("span", { class: "label" }, place), layoutSel[i],
                 el("label", { class: "check" }, litBox[i], "Highlight"))))))));
@@ -842,25 +865,57 @@
       const ntpOk = board.wifi;
       const dateSel = el("select", { "aria-label": "Date format", disabled: !s.timeDate, onchange: e => { s.dateFmt = Number(e.target.value); redraw(); } },
         ...DATE_FORMATS.map(([v, l]) => el("option", { value: String(v), selected: v === s.dateFmt }, l)));
-      const ntpIn = el("input", { type: "text", list: `ntp-${id}`, maxlength: "40", value: s.ntpServer, autocomplete: "off", style: "max-width: 14em",
-        "aria-label": "NTP server", disabled: !(ntpOk && s.ntp), oninput: e => { s.ntpServer = e.target.value.trim(); changed(); } });
+      // NTP server: typed in, or picked from a list that always shows every server (a datalist
+      // would only show the ones matching what is in the field)
+      const ntpList = el("ul", { class: "combo-list", role: "listbox", "aria-label": "NTP servers", hidden: true });
+      let ntpActive = -1;
+      const ntpMark = () => [...ntpList.children].forEach((li, i) => {
+        li.classList.toggle("on", i === ntpActive);
+        li.setAttribute("aria-selected", li.textContent === ntpIn.value.trim() ? "true" : "false");
+      });
+      const ntpOpen = () => { if (ntpIn.disabled) return; ntpList.hidden = false; ntpActive = NTP_SERVERS.indexOf(ntpIn.value.trim()); ntpMark(); };
+      const ntpPick = n => { ntpIn.value = n; s.ntpServer = n; ntpList.hidden = true; changed(); };
+      const ntpIn = el("input", { type: "text", maxlength: "40", value: s.ntpServer, autocomplete: "off", role: "combobox", "aria-expanded": "false",
+        "aria-label": "NTP server", disabled: !(ntpOk && s.ntp), oninput: e => { s.ntpServer = e.target.value.trim(); ntpMark(); changed(); },
+        onfocus: ntpOpen, onclick: ntpOpen, onblur: () => { ntpList.hidden = true; },
+        onkeydown: e => {
+          if (e.key === "Escape") { ntpList.hidden = true; return; }
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            if (ntpList.hidden) { ntpOpen(); return; }
+            const n = NTP_SERVERS.length;
+            ntpActive = e.key === "ArrowDown" ? (ntpActive + 1) % n : (ntpActive + n - 1) % n;
+            ntpMark();
+          } else if (e.key === "Enter" && !ntpList.hidden && ntpActive >= 0) { e.preventDefault(); ntpPick(NTP_SERVERS[ntpActive]); }
+        } });
+      ntpList.append(...NTP_SERVERS.map(n => el("li", { role: "option", onmousedown: e => { e.preventDefault(); ntpPick(n); } }, n)));
+      new MutationObserver(() => ntpIn.setAttribute("aria-expanded", String(!ntpList.hidden))).observe(ntpList, { attributes: true, attributeFilter: ["hidden"] });
       const tzSel = el("select", { "aria-label": "Time zone", disabled: !(ntpOk && s.ntp), onchange: e => {
         s.tz = e.target.value; s.tzPosix = ZONES.find(([n]) => n === s.tz)[1]; redraw(); } },
         ...ZONES.map(([n]) => el("option", { value: n, selected: n === s.tz }, n.replace(/_/g, " "))));
-      const ntpBox = field("Use NTP", radios("ntp", [[1, "On"], [0, "Off"]], s.ntp, v => { s.ntp = v; ntpIn.disabled = tzSel.disabled = !v; }));
+      const ntpBox = field("NTP", radios("ntp", [[1, "On"], [0, "Off"]], s.ntp, v => { s.ntp = v; ntpIn.disabled = tzSel.disabled = !v; ntpList.hidden = true; }));
       if (!ntpOk) setDisabled(ntpBox, true);   // no WiFi: always the system time
       const timeCard = subCard("timeOpen", "Time", false, "showTime",
+        // framed sections: Time zone and Date format side by side with Show below (what the page shows),
+        // and NTP with its server
         el("div", { class: "form" },
-          field("Show", el("div", { class: "choices" },
-            el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!s.timeDate, onchange: e => {
-              s.timeDate = e.target.checked ? 1 : 0; dateSel.disabled = !s.timeDate; redraw(); } }), "Date"),
-            el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!s.timeWday, onchange: e => {
-              s.timeWday = e.target.checked ? 1 : 0; redraw(); } }), "Weekday"))),
-          field("Date format", dateSel),
-          ntpBox,
-          el("label", { class: "field" }, el("span", { class: "label" }, "NTP server"), ntpIn,
-            el("datalist", { id: `ntp-${id}` }, ...NTP_SERVERS.map(n => el("option", { value: n })))),
-          el("label", { class: "field" }, el("span", { class: "label" }, "Time zone"), tzSel)));
+          el("div", { class: "field wide boxed" },
+            el("div", { class: "choices header-sec" },
+              el("label", { class: "field" }, el("span", { class: "label" }, "Time zone"), tzSel),
+              el("div", { class: "field" }, el("span", { class: "label" }, "Date format"), dateSel)),
+            el("span", { class: "label", style: "margin-top: 4px" }, "Show"),
+            el("div", { class: "choices" },
+              el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!s.timeDate, onchange: e => {
+                s.timeDate = e.target.checked ? 1 : 0; dateSel.disabled = !s.timeDate; redraw(); } }), "Date"),
+              el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!s.timeWday, onchange: e => {
+                s.timeWday = e.target.checked ? 1 : 0; redraw(); } }), "Weekday"),
+              // the time page with or without the header line (the other pages keep theirs)
+              el("label", { class: "check" }, el("input", { type: "checkbox", checked: s.timeHead === 1, onchange: e => {
+                s.timeHead = e.target.checked ? 1 : 0; redraw(); } }), "Header"))),
+          el("div", { class: "field wide boxed" },
+            el("div", { class: "choices header-sec" },
+              ntpBox,
+              el("label", { class: "field" }, el("span", { class: "label" }, "NTP server"), el("div", { class: "combo" }, ntpIn, ntpList))))));
       // Advanced Ink: the start screen, "Nothing to ink" and "Check connection" each shown when needed or
       // never (the board keeps the start screen setting for the next power-up)
       const screenTick = (key, label) => el("label", { class: "check" },
@@ -868,6 +923,11 @@
       // and the backup: the settings of this display as a JSON file, and back (also from another board)
       const advCard = subCard("advOpen", "Advanced Ink", false, null,
         el("div", { class: "form" },
+          // only the time page on the display: the other page cards are hidden (their settings stay)
+          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Pages"),
+            el("div", { class: "choices" }, el("label", { class: "check" },
+              el("input", { type: "checkbox", checked: s.justTime === 1, onchange: e => { s.justTime = e.target.checked ? 1 : 0; justTime(); pages[id] = 0; redraw(); } }),
+              "Just give me time"))),
           el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Screens"),
             el("div", { class: "choices" }, screenTick("inkSplash", "Start screen"), screenTick("inkNothing", "Nothing to ink"), screenTick("inkNoData", "No connection"))),
           // remembered in this browser, like which cards are folded (no need to save)
@@ -937,6 +997,15 @@
         return g;
       };
       for (const [k, c] of Object.entries(movable)) if (c) { c.dataset.page = k; c.append(grip(c)); }
+      // Just give me time: the Header card and every page card but Time hidden, the time page switched on (and kept on)
+      const justTime = () => {
+        const on = s.justTime === 1, ink = timeCard.querySelector(".page-toggle input");
+        for (const c of [headerCard, sysCard, disksCard, netCard, wifiCard]) if (c) c.hidden = on;
+        if (on) { s.showTime = 1; ink.checked = true; timeCard.classList.remove("off"); }
+        ink.disabled = on;
+        evenOut();
+      };
+      justTime();
       return { main, subs: [displayCard, headerCard, ...[...s.pageOrder].map(k => movable[k]).filter(Boolean), advCard] };
     }
 

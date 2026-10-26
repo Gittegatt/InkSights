@@ -71,7 +71,7 @@ MAX_NETS = 32                          # interfaces in the order and hidden list
 NET_SORTS = ("name", "manual")
 NET_BARS = (0, 1, 2)                   # details in the bar of the network pages: none, percentage of the link, link speed
 SYS_PARTS = ("cpu", "ram", "net", "nvme", "ssd", "hdd")       # system page components (rows); none = no system page
-CONF_COLS = 57
+CONF_COLS = 59
 # Time page: NTP server (boards with WiFi), time zone name and its POSIX rule for the board
 NTP_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$")
 TZ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_+/-]{0,39}$")
@@ -248,9 +248,11 @@ def read_conf(path):
                     "inkNothing": 0 if parts[52] == "0" else 1,
                     "inkNoData": 0 if parts[53] == "0" else 1,
                     # inverted header: lines at the top and the bottom
-                    "lineTop": 0 if parts[54] == "0" else 1,
-                    "lineBottom": 0 if parts[55] == "0" else 1,
-                    "pageOrder": parts[56] if page_order_ok(parts[56]) else DEFAULT_PAGE_ORDER,
+                    "lineBottom": 0 if parts[54] == "0" else 1,
+                    "pageOrder": parts[55] if page_order_ok(parts[55]) else DEFAULT_PAGE_ORDER,
+                    "justTime": 1 if parts[56] == "1" else 0,   # Advanced Ink: only the time page
+                    "timeHead": 1 if parts[57] == "1" else 0,   # the time page with the header line (default without)
+                    "headFill": 1 if parts[58] == "1" else 0,   # header: the gaps between the boxes filled
                     "panel": int(parts[29]) if parts[29] in ("1", "2", "3", "4", "5") else None,
                     "wifiIcons": 0 if parts[30] == "0" else 1,
                     # missing (earlier version): title, time, then the page number or the uptime
@@ -331,7 +333,7 @@ def validate(displays, old_conf=None):
         for key, default in (("showSys", 1), ("showDisks", 1), ("showWifi", 0), ("wifiIcons", 1), ("sysIcons", 1), ("showHeader", 1),
                              ("showNet", 0), ("netIcons", 1), ("driveTemp", 0), ("stby", 0), ("headInv", 0), ("headCol", 0),
                              ("showTime", 0), ("timeFmt", 0), ("ampm", 1), ("timeDate", 1), ("timeWday", 1), ("ntp", 0),
-                             ("inkSplash", 1), ("inkNothing", 1), ("inkNoData", 1), ("lineTop", 1), ("lineBottom", 1)):
+                             ("inkSplash", 1), ("inkNothing", 1), ("inkNoData", 1), ("lineBottom", 1), ("justTime", 0), ("timeHead", 0), ("headFill", 0)):
             v = s.get(key, default)
             if v not in (0, 1) or isinstance(v, bool):
                 raise SettingsError(f"Display {did}: invalid {key}.")
@@ -452,7 +454,7 @@ def write_conf(path, conf, interval, page_name=""):
         "<TAB>fast<TAB>system<TAB>network<TAB>zfs<TAB>pages<TAB>system icons<TAB>header<TAB>panel<TAB>wifi icons<TAB>layout<TAB>header on"
         "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted<TAB>header color<TAB>refresh"
         "<TAB>time format<TAB>date<TAB>weekday<TAB>date format<TAB>ntp<TAB>ntp server<TAB>time zone<TAB>posix time zone"
-        "<TAB>start screen<TAB>nothing to ink<TAB>no connection<TAB>line top<TAB>line bottom<TAB>page order",
+        "<TAB>start screen<TAB>nothing to ink<TAB>no connection<TAB>divider line<TAB>page order<TAB>just time<TAB>time header<TAB>header fill",
         "#   '-' = empty. boxes 0 = timer off, rows 0 = auto, warn = highlight from % used (0 = never),",
         "#   rot = degrees clockwise (0, 90, 180, 270), page = seconds between page turns (0 = off),",
         "#   pins = cs,dc,rst,busy (rst/busy -1 = none, '-' = keep the pins of the display),",
@@ -479,8 +481,11 @@ def write_conf(path, conf, interval, page_name=""):
         "#   time format = 0 24 hours / 1 12 hours with AM/PM / 2 without; time page (pages: time): date, weekday 1/0, date format 0 26 Oct 2026 /",
         "#   1 2026-10-26 / 2 10/26/2026 / 3 26.10.2026, ntp 1/0 (boards with WiFi), ntp server, time zone and its POSIX rule,",
         "#   start screen, nothing to ink, no connection = 1 shown when needed (default) / 0 never (Advanced Ink),",
-        "#   line top, line bottom = lines of the inverted header 1 on (default) / 0 off,",
-        "#   page order = S system, D drives, N network, T time, W WiFi, each once (default SDNTW)",
+        "#   divider line = the line at the bottom of the inverted header 1 on (default) / 0 off,",
+        "#   page order = S system, D drives, N network, T time, W WiFi, each once (default SDNTW),",
+        "#   just time = 1 only the time page (the pages stay as set) / 0 the pages (default),",
+        "#   time header = the time page with the header line 1 / 0 without (default),",
+        "#   header fill = 1 the whole header in the colour of the highlighted boxes / 0 only the boxes (default)",
     ]
     for did, s in sorted(conf.items()):
         order = ",".join(s["order"]) or "-"
@@ -508,8 +513,9 @@ def write_conf(path, conf, interval, page_name=""):
                                 str(2 if s.get("timeFmt") == 1 and s.get("ampm", 1) == 0 else s.get("timeFmt", 0)), str(s.get("timeDate", 1)), str(s.get("timeWday", 1)), str(s.get("dateFmt", 0)),
                                 str(s.get("ntp", 0)), s.get("ntpServer") or "pool.ntp.org", s.get("tz") or "UTC", s.get("tzPosix") or "UTC0",
                                 str(s.get("inkSplash", 1)), str(s.get("inkNothing", 1)), str(s.get("inkNoData", 1)),
-                                str(s.get("lineTop", 1)), str(s.get("lineBottom", 1)),
-                                s.get("pageOrder") if page_order_ok(s.get("pageOrder")) else DEFAULT_PAGE_ORDER]))
+                                str(s.get("lineBottom", 1)),
+                                s.get("pageOrder") if page_order_ok(s.get("pageOrder")) else DEFAULT_PAGE_ORDER,
+                                str(s.get("justTime", 0)), str(s.get("timeHead", 0)), str(s.get("headFill", 0))]))
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".conf.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:

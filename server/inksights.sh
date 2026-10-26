@@ -342,7 +342,7 @@ fi
 #   <fast> <system> <network> <zfs> <pages> <system icons> <header> <panel> <wifi icons> <layout> <header on>
 #   <net sort> <net order> <net hidden> <net icons> <net bar> <drive temps> <stby> <header inverted> <header color> <refresh>
 #   <time format> <date> <weekday> <date format> <ntp> <ntp server> <time zone> <posix time zone>
-#   <start screen> <nothing to ink> <no connection> <line top> <line bottom> <page order>
+#   <start screen> <nothing to ink> <no connection> <divider line> <page order> <just time> <time header> <header fill>
 #   types : hdd,ssd,nvme; - = none
 #   boxes : 0 = timer off, else on | rows : 0 = auto, 2 to 6 | sort : pool, uid, dev or manual
 #   order : uid,uid,... | warn : highlight from % used, 0 = never | rot : 0, 90, 180 or 270
@@ -377,14 +377,17 @@ fi
 #   date, weekday : time page shows them 1 / 0 | date format : 0 26 Oct 2026, 1 2026-10-26, 2 10/26/2026, 3 26.10.2026
 #   ntp, ntp server, time zone, posix time zone : time page with NTP (boards with WiFi; the board sets its clock)
 #   start screen, nothing to ink, no connection : 1 = shown when needed (default), 0 = never (Advanced Ink)
-#   line top, line bottom : lines of the inverted header 1 = on (default), 0 = off
+#   divider line : the line at the bottom of the inverted header 1 = on (default), 0 = off
 #   page order : S system, D drives, N network, T time, W WiFi, each once (default SDNTW)
+#   just time : 1 = only the time page (the pages column stays as set), 0 = the pages column (default)
+#   time header : the time page with the header line 1 = yes, 0 = without (default; with just time: the header at all)
+#   header fill : 1 = the whole header in the colour of the highlighted boxes, 0 = only the boxes (default)
 #   refresh : seconds between updates of this display: 2, 5, 10, 30 (fast refresh, black/white panels),
 #             60 ... 14400 (a full update that often); missing = the fast refresh, else the interval line
 # -----------------------
 NTP_RE='^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$'              # time page: NTP server
 TZPOSIX_RE='^[A-Za-z<][A-Za-z0-9<>+,./:-]{0,47}$'      # time page: POSIX time zone for the board
-declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH CFG_TIMEFMT CFG_CLOCK CFG_SCREENS CFG_LINES CFG_PORDER
+declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH CFG_TIMEFMT CFG_CLOCK CFG_SCREENS CFG_LINES CFG_PORDER CFG_THEAD CFG_HFILL
 IFLIST_RE='^[A-Za-z0-9._-]{1,15}(,[A-Za-z0-9._-]{1,15}){0,31}$'
 NAME_RE='^[A-Za-z0-9 ._+/-]{0,12}$'
 ORDER_RE='^[A-Za-z0-9._-]{1,40}(,[A-Za-z0-9._-]{1,40}){0,31}$'
@@ -427,7 +430,7 @@ order_valid() {
 }
 
 if [[ -r "$CONF_FILE" ]]; then
-    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc ltopc lbotc pordc; do
+    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc; do
         name="${name%$'\r'}"; wappass="${wappass%$'\r'}"; wapdelay="${wapdelay%$'\r'}"
         fastc="${fastc%$'\r'}"; sysc="${sysc%$'\r'}"; netc="${netc%$'\r'}"; zfsc="${zfsc%$'\r'}"; pagesc="${pagesc%$'\r'}"; sysiconc="${sysiconc%$'\r'}"; headerc="${headerc%$'\r'}"; panelc="${panelc%$'\r'}"
         layoutc="${layoutc%$'\r'}"; headonc="${headonc%$'\r'}"
@@ -435,8 +438,13 @@ if [[ -r "$CONF_FILE" ]]; then
         nbarc="${nbarc%$'\r'}"; dtempc="${dtempc%$'\r'}"; stbyc="${stbyc%$'\r'}"; headinvc="${headinvc%$'\r'}"; headcolc="${headcolc%$'\r'}"; refreshc="${refreshc%$'\r'}"
         tfmtc="${tfmtc%$'\r'}"; tdatec="${tdatec%$'\r'}"; twdayc="${twdayc%$'\r'}"; dfmtc="${dfmtc%$'\r'}"; ntpc="${ntpc%$'\r'}"; ntpsc="${ntpsc%$'\r'}"; tzc="${tzc%$'\r'}"
         tzpc="${tzpc%$'\r'}"; inksplc="${inksplc%$'\r'}"; inknotc="${inknotc%$'\r'}"
-        inkndc="${inkndc%$'\r'}"; ltopc="${ltopc%$'\r'}"; lbotc="${lbotc%$'\r'}"
-        pordc="${pordc%%[$'\t\r']*}"   # last column: also cut anything after it
+        inkndc="${inkndc%$'\r'}"; lbotc="${lbotc%$'\r'}"
+        pordc="${pordc%$'\r'}"
+        justc="${justc%$'\r'}"
+        theadc="${theadc%$'\r'}"
+        hfillc="${hfillc%%[$'\t\r']*}"   # last column: also cut anything after it
+        # Just give me time: the header line as the Time card's Header tick says (default off)
+        if [[ "$justc" == 1 ]]; then [[ "$theadc" == 1 ]] && headonc=1 || headonc=0; fi
         [[ "$id" =~ ^[0-9A-F]{8}$ ]] || continue
         [[ "$name" == "-" ]] && name=""
         [[ "$sysc" == "1" ]] && sysc="cpu,ram,net,nvme,ssd"
@@ -517,13 +525,17 @@ if [[ -r "$CONF_FILE" ]]; then
         CFG_TIMEFMT[$id]=$tfmtc
         # Advanced Ink: start screen 1, "Nothing to ink" 2, "Check connection" 4 shown when needed
         CFG_SCREENS[$id]=$(( (inksplc == 0 ? 0 : 1) | (inknotc == 0 ? 0 : 2) | (inkndc == 0 ? 0 : 4) ))
-        # inverted header: line at the top 1, at the bottom 2
-        CFG_LINES[$id]=$(( (ltopc == 0 ? 0 : 1) | (lbotc == 0 ? 0 : 2) ))
+        # inverted header: the divider line at its bottom 1 / none 0
+        [[ "$lbotc" == 0 ]] && CFG_LINES[$id]=0 || CFG_LINES[$id]=1
         order_valid "$pordc" && CFG_PORDER[$id]=$pordc   # the order of the pages
+        [[ "$theadc" == 1 ]] && CFG_THEAD[$id]=1 || CFG_THEAD[$id]=0   # the time page with the header line (default without)
+        # header filled in the third colour: only with the inverted header and Highlight color
+        [[ "$hfillc" == 1 && "$headinvc" == 1 && "$headcolc" == 1 ]] && CFG_HFILL[$id]=1 || CFG_HFILL[$id]=0
         CFG_CLOCK[$id]="$tdatec|$twdayc|$dfmtc|$ntpc|$ntpsc|$tzpc"
         CFG_SYS[$id]=$sysc
         CFG_NET[$id]=$netc
         CFG_ZFS[$id]=$zfsc
+        [[ "$justc" == 1 ]] && pagesc="time"   # Advanced Ink, Just give me time: only the time page
         CFG_PAGES[$id]=$pagesc
         CFG_SYSICONS[$id]=$sysiconc
         CFG_HEADER[$id]=$headerc
@@ -1135,9 +1147,9 @@ order_disks() {
 # -----------------------
 build_frame() {
     local title="$1" types=",$2," maxb="$3" rows="$4" warn="$7" turns=$(( ${8:-0} / 90 )) pagesec="${9:-$DEFAULT_PAGE}"
-    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-3}" porder="${30:-SDNTW}"
+    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-1}" porder="${30:-SDNTW}" thead="${31:-0}" hfill="${32:-0}"
     local d steps idle tmo poll st remain tsec head i dt pct pdec u t
-    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0 0 7 3 SDNTW)
+    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0 0 7 1 SDNTW 0 0)
     order_disks "$5" "$6"
     local hm
     printf -v hm '%(%H:%M)T' -1
@@ -1154,10 +1166,10 @@ build_frame() {
     # speed, and symbols 1 on / 0 off; netp = "sort;order;hidden;icons;bar", "" = network pages off
     local -a np
     IFS=';' read -ra np <<< "$netp"
-    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$nodata" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv" "$headcol" "$timefmt" "$screens" "$lines" "$porder")   # field 28: page order; field 27: inverted header lines (1 top, 2 bottom); field 26: screens shown (1 start, 2 nothing to ink, 4 no connection); field 25: 0 24 hours, 12 hours 1 with AM/PM / 2 without; field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0, 24: its highlighted boxes in the third colour 1 / 0
+    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$nodata" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv" "$headcol" "$timefmt" "$screens" "$lines" "$porder" "$thead" "$hfill")   # field 30: header, gaps between the boxes filled 1 / 0; field 29: the time page with the header line 1 / without 0 (default); field 28: page order; field 27: inverted header, divider line at its bottom 1 / 0; field 26: screens shown (1 start, 2 nothing to ink, 4 no connection); field 25: 0 24 hours, 12 hours 1 with AM/PM / 2 without; field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0, 24: its highlighted boxes in the third colour 1 / 0
     # header: uptime instead of the page number (minutes after the full months, months)
     [[ "$header" == 1 && "$UP_REST" =~ ^[0-9]+$ ]] && sv[5]=$UP_REST sv[6]=$UP_MONTHS
-    local n=21
+    local n=23
     while (( n > 0 )) && [[ "${sv[n-1]}" == "${defs[n-1]}" ]]; do n=$((n - 1)); done
     for (( i = 0; i < n; i++ )); do head+="|${sv[i]}"; done
     FRAME=("#BEGIN" "$head")
@@ -1242,7 +1254,7 @@ frame_for() {
         "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-}" "${CFG_HIDDEN[$id]:-}" \
         "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-1}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-0}" \
         "${CFG_LAYOUT[$id]:-TCP}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-0}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}" "$nodata" \
-        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-3}" "${CFG_PORDER[$id]:-SDNTW}"
+        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-1}" "${CFG_PORDER[$id]:-SDNTW}" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}"
 }
 
 # Display with fast refresh: remember it (port or wifi) for the fast runs in between

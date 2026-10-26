@@ -42,7 +42,7 @@
  *
  * Protocol (one line per record, fields separated by '|'):
  *   #BEGIN
- *   H|<title>|<HH:MM>|<rows>|<warn>|<rot>|<page>[|<timer>|<ringdir>|<icons>|<pct>|<fast>|<uptime>|<months>|<wifi>|<nodata>|<layout>|<disks>|<netbar>|<neticons>|<temps>|<stby>|<headinv>|<headcol>|<timefmt>|<screens>|<lines>|<order>]
+ *   H|<title>|<HH:MM>|<rows>|<warn>|<rot>|<page>[|<timer>|<ringdir>|<icons>|<pct>|<fast>|<uptime>|<months>|<wifi>|<nodata>|<layout>|<disks>|<netbar>|<neticons>|<temps>|<stby>|<headinv>|<headcol>|<timefmt>|<screens>|<lines>|<order>|<timehead>|<headfill>]
  *     rows   : 2 to 6 (6 only on the 4.2"), 0/missing = automatic
  *     warn   : % used from which bar and used/total are highlighted (third colour, or inverted
  *              on black/white panels); 0 = never, missing = WARN_PCT
@@ -85,9 +85,12 @@
  *              Check connection" added up, default 7 (all). Off: no start screen after power-up (the
  *              panel keeps its last picture; the board stores this), only the header instead of
  *              "Nothing to ink", the pages go on instead of "Check connection".
- *     lines  : (27th field) inverted header: 1 line at the top, 2 at the bottom added up, default 3
+ *     lines  : (27th field) inverted header: the divider line at its bottom 1 (default) / none 0
  *     order  : (28th field) order of the pages: S system, D drives, N network, T time, W WiFi, each
  *              once, default SDNTW
+ *     timehead: (29th field) the time page with the header line 1 / without 0 (default)
+ *     headfill: (30th field) header: 1 the whole line in the colour of the highlighted boxes (every
+ *              place drawn highlighted), 0 only the boxes (default)
  *   C|<YYYYMMDDHHMMSS>|<date 1/0>|<weekday 1/0>|<date format 0-3>|<ntp 1/0>|<ntp server or ->|<POSIX zone or ->
  *                              (optional) the time page, the last page: the time in big, below it
  *                              weekday and date (0: 26 Oct 2026, 1: 2026-10-26, 2: 10/26/2026,
@@ -302,7 +305,9 @@ struct Head {
   uint8_t  headCol;  // inverted header: 1 = highlighted places in the third colour, 0 = black
   uint8_t  timeFmt;  // 0 = 24 hours, 1 = 12 hours with AM/PM, 2 = 12 hours without
   uint8_t  screens;  // shown when needed: 1 start screen, 2 "Nothing to ink", 4 "Check connection"
-  uint8_t  headLines;// inverted header: 1 line at the top, 2 at the bottom
+  uint8_t  headLines;// inverted header: the divider line at its bottom 1 / none 0
+  uint8_t  clockHead;// the time page with the header line 1 / without 0
+  uint8_t  headFill; // header: the gaps between the highlighted boxes filled 1 / 0
   char     order[6]; // order of the pages: S system, D drives, N network, T time, W WiFi
 };
 
@@ -429,7 +434,7 @@ Disk    rxDisks[MAX_DISKS];    // what is being received
 uint8_t diskCount  = 0;
 uint8_t rxCount    = 0;
 bool    rxActive   = false;
-const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0, 0, 7, 3, "SDNTW" };
+const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, 0, 0, "SDNTW" };
 Head    head   = HEAD_DEFAULT;
 Head    rxHead = HEAD_DEFAULT;
 SysInfo sys;                   // system page shown
@@ -2077,8 +2082,10 @@ void drawHeader(int16_t W, bool wide) {
   const uint16_t bg = inv ? WH : BK, fg = inv ? BK : WH;
   const int16_t HH = headerH(W, epd->height());
   epd->fillRect(0, 0, W, HH, bg);
-  if (inv && (head.headLines & 1)) epd->fillRect(0, 0, W, 1, BK);        // line at the top
-  if (inv && (head.headLines & 2)) epd->fillRect(0, HH - 1, W, 1, BK);   // line at the bottom
+  if (inv && head.headLines) epd->fillRect(0, HH - 1, W, wide ? 2 : 1, BK);   // the divider line at the bottom (4.2": 2 px, downwards)
+  // black header: its bottom edge under the boxes is the divider line, on the 4.2" 2 px too; off: the
+  // boxes reach down to the bottom edge
+  if (!inv && wide && head.headLines) epd->fillRect(0, HH, W, 1, BK);
   char lay[4];
   bool lit[3];
   for (uint8_t i = 0; i < 3; i++) { lay[i] = toupper(head.layout[i]); lit[i] = islower(head.layout[i]); }
@@ -2115,9 +2122,14 @@ void drawHeader(int16_t W, bool wide) {
   const bool col = inv && head.headCol == 1;
   auto put = [&](uint8_t i, int16_t px, const char* s) {
     const bool nd = item[i] == 'N';
-    if (lit[i] || nd) epd->fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, hy - hs + 9 * hs - boxY, nd ? (inv ? RD : WH) : col ? RD : fg);
+    if (lit[i] || nd) epd->fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, (!inv && !head.headLines ? HH : hy - hs + 9 * hs) - boxY, nd ? (inv ? RD : WH) : col ? RD : fg);
     printAt(px, hy, s, nd ? (inv ? WH : RD) : lit[i] ? (col ? WH : bg) : fg, hs);
   };
+  // Fill gaps: the whole line in the colour of the boxes, every place drawn like a highlighted one
+  if (head.headFill) {
+    for (uint8_t i = 0; i < 3; i++) lit[i] = true;
+    epd->fillRect(0, boxY, W, (!inv && !head.headLines ? HH : hy - hs + 9 * hs) - boxY, col ? RD : fg);
+  }
   int16_t x[3] = { 0, 0, 0 };
   if (fixed(item[0])) x[0] = hx;
   if (fixed(item[2])) x[2] = W - hx - wOf(item[2]);
@@ -2736,8 +2748,13 @@ void drawScreen() {
   const bool wide = isBig(W, H);   // 4.2" in any rotation: double text size
   const bool stacked = W < H;      // upright: device | used/total, the pool in a second line
   const uint8_t hs = wide ? 2 : 1;
-  const int16_t HH = headerH(W, H), hx = wide ? 4 : 2;
-  drawHeader(W, wide);
+  const int16_t hx = wide ? 4 : 2;
+  uint8_t idx;
+  const char kind = pageAt(page, idx);
+  // the time page without the header line (H field 29: Show header off)
+  const bool bare = kind == 'T' && !head.clockHead && !noDataShown;
+  const int16_t HH = bare ? 0 : headerH(W, H);
+  if (!bare) drawHeader(W, wide);
   // "Check connection" (the time stays: when the last data came), or "Nothing to ink" when every
   // page is switched off (no system page, disk pages off), with its picture above it (user); both
   // screens share one block as high as the taller of the two, centred in the rest: the text at its
@@ -2759,8 +2776,6 @@ void drawScreen() {
     printAt((W - textW(msg) * ms) / 2, ty, msg, BK, ms);
     return;
   }
-  uint8_t idx;
-  const char kind = pageAt(page, idx);
   if (kind == 'S') { drawSystem(HH, wide, stacked); return; }
   if (kind == 'T') { drawClockPage(HH); return; }
   if (kind == 'N') { drawNetPage(idx, HH, wide, stacked); return; }
@@ -2951,7 +2966,7 @@ void commitFrame() {
                             rxHead.upMonths,
                             (uint32_t)rxHead.diskPages << 24 | (uint32_t)rxHead.layout[0] << 16 |
                             (uint32_t)rxHead.layout[1] << 8 | rxHead.layout[2] };
-  const uint32_t h = fnv1a(&rxClock, sizeof(rxClock), fnv1a(&rxHead.timeFmt, 3, fnv1a(rxHead.order, 5, fnv1a(rxNets, sizeof(NetIf) * rxNetCount,
+  const uint32_t h = fnv1a(&rxClock, sizeof(rxClock), fnv1a(&rxHead.timeFmt, 5, fnv1a(rxHead.order, 5, fnv1a(rxNets, sizeof(NetIf) * rxNetCount,
                      fnv1a(&rxSys, sizeof(rxSys), fnv1a(rxDisks, sizeof(Disk) * rxCount, fnv1a(hv, sizeof(hv))))))));
   const bool first = !dataReceived;
   const uint32_t fh = fnv1a(rxTime, strlen(rxTime), h);   // with the time: still the same frame?
@@ -3065,8 +3080,8 @@ void handleLine(char* line) {
     rxActive = false;
     commitFrame();
   } else if (line[0] == 'H' && line[1] == '|') {
-    char* f[28];
-    const uint8_t n = splitFields(line, f, 28);
+    char* f[30];
+    const uint8_t n = splitFields(line, f, 30);
     if (n >= 3) {
       copyStr(rxHost, f[1], sizeof(rxHost));
       copyStr(rxTime, f[2], sizeof(rxTime));
@@ -3096,8 +3111,10 @@ void handleLine(char* line) {
       rxHead.headCol = n >= 24 && strcmp(f[23], "1") == 0 ? 1 : 0;    // inverted header: highlighted places in colour
       rxHead.timeFmt = n >= 25 ? constrain(atoi(f[24]), 0, 2) : 0;    // 12 hours: 1 with AM/PM, 2 without
       rxHead.screens = n >= 26 ? constrain(atoi(f[25]), 0, 7) : 7;    // Advanced Ink: screens shown when needed
-      rxHead.headLines = n >= 27 ? constrain(atoi(f[26]), 0, 3) : 3;  // inverted header: lines top / bottom
+      rxHead.headLines = n >= 27 && strcmp(f[26], "0") == 0 ? 0 : 1;  // inverted header: the divider line
       copyStr(rxHead.order, n >= 28 && orderValid(f[27]) ? f[27] : "SDNTW", sizeof(rxHead.order));   // page order
+      rxHead.clockHead = n >= 29 && strcmp(f[28], "1") == 0 ? 1 : 0;  // the time page with the header line (default without)
+      rxHead.headFill = n >= 30 && strcmp(f[29], "1") == 0 ? 1 : 0;   // header: the gaps between the boxes filled
     }
   } else if (line[0] == 'D' && line[1] == '|') {
     parseDisk(line);
