@@ -294,7 +294,7 @@ struct SysInfo {
   char    parts[8];    // rows: C cpu, R ram, N network, V NVMe, S SSD, H HDD
   char    iface[16];
   int32_t cpu, temp, power, ramUsed, ramArc, ramTotal, rx, tx, link;   // -1 = unknown
-  int16_t nvme[6], ssd[6], hdd[6];   // hdd: from the T line, -1 = asleep
+  int16_t nvme[6], ssd[6], hdd[6];   // hdd: from the T line, -2 = asleep, -1 = unknown
   uint8_t nNvme, nSsd, nHdd;
   bool    wifiNet;     // the interface is wireless (letter W): WiFi symbol
   char    netState;    // U up, L no link, D down (letters L / D)
@@ -309,7 +309,7 @@ struct NetIf {
 };
 
 // One row of the system page and the network pages
-enum SysIcon : uint8_t { SI_CPU, SI_RAM, SI_NET, SI_CHIP, SI_WIFI, SI_HDD };
+enum SysIcon : uint8_t { SI_CPU, SI_RAM, SI_NET, SI_CHIP, SI_WIFI, SI_HDD, SI_HDD_ASLEEP };
 struct SysRow {
   SysIcon icon;
   char    label[16], info[40], value[24], barText[8];
@@ -1685,7 +1685,10 @@ uint8_t sysRows(SysRow* rows) {
   if (strchr(sys.parts, 'H') && sys.nHdd) {   // HDD temperatures (T line, from drive-temp-export; asleep = "--" or "STBY")
     SysRow& r = rows[n++];
     memset(&r, 0, sizeof(r));
-    r.icon = SI_HDD;
+    // the symbol shows the state: asleep when all hard disks are asleep (-2), spinning as soon as one runs (user)
+    bool allAsleep = true;
+    for (uint8_t i = 0; i < sys.nHdd; i++) if (sys.hdd[i] != -2) allAsleep = false;
+    r.icon = allAsleep ? SI_HDD_ASLEEP : SI_HDD;
     copyStr(r.label, "HDD", sizeof(r.label));
     tempList(sys.hdd, sys.nHdd, r.info, sizeof(r.info));
     r.inl = true;
@@ -1755,11 +1758,12 @@ void drawWifiIcon(int16_t x, int16_t y, int16_t B) {
       }
   }
 }
-// SI_HDD: the spinning disc of the drive pages, in the style of its size (like there; wide = 4.2")
+// SI_HDD / SI_HDD_ASLEEP: the spinning / asleep disc of the drive pages, in the style of its size
+// (like there; wide = 4.2")
 void drawSysIcon(SysIcon kind, int16_t x, int16_t y, int16_t B, bool deep, bool wide) {
-  if (kind == SI_HDD) {
+  if (kind == SI_HDD || kind == SI_HDD_ASLEEP) {
     const int16_t r = (B - 1) / 2;
-    drawDiscIcon(x + r, y + r, r, true, !wide && (B == 11 || B == 13), !wide && B == 17, !wide && B == 11);
+    drawDiscIcon(x + r, y + r, r, kind == SI_HDD, !wide && (B == 11 || B == 13), !wide && B == 17, !wide && B == 11);
     return;
   }
   if (kind == SI_CPU) drawCpu(x, y, B);

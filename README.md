@@ -585,7 +585,8 @@ One extra first page with the ticked rows; sizes like a drive page with as many 
 | HDD | `HDD` | temperature of each hard disk, `--` or `STBY` when asleep | – | – |
 
 - With **Icons** on, each row gets a symbol: a processor for CPU, a memory module for RAM, linked boxes for the
-  network, the chip for NVMe and SSD and the disc for HDD.
+  network, the chip for NVMe and SSD and the disc for HDD: the light disc of a sleeping hard disk when all of them
+  are asleep, the grey disc of a spinning one as soon as one runs.
 - Temperatures stand after the name (upright: below it), at most six per row. A temperature row without such drives
   is left out, and the other rows get bigger.
 - The network row without a link speed shows its values below the name instead of a bar. A wireless interface gets

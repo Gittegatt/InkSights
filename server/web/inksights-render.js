@@ -1079,7 +1079,8 @@
     if (on("V") && sys.nvme.length) rows.push({ icon: "chip", label: "NVMe", info: temps(sys.nvme), value: "", bar: null, inline: true });
     if (on("S") && sys.ssd.length) rows.push({ icon: "chip", label: "SSD", info: temps(sys.ssd), value: "", bar: null, inline: true });
     // HDD temperatures (T line, from drive-temp-export; asleep = "--" or "STBY")
-    if (on("H") && sys.hdd && sys.hdd.length) rows.push({ icon: "hdd", label: "HDD", info: temps(sys.hdd), value: "", bar: null, inline: true });
+    // the symbol shows the state: asleep when all hard disks are asleep (-2), spinning as soon as one runs (user)
+    if (on("H") && sys.hdd && sys.hdd.length) rows.push({ icon: sys.hdd.every(t => t === -2) ? "hddAsleep" : "hdd", label: "HDD", info: temps(sys.hdd), value: "", bar: null, inline: true });
     return rows;
   }
   // Bar of the system page: black up to p1 %, grey up to p2 %, light after that
@@ -1154,9 +1155,11 @@
     fb.fillRect(x + c - Math.trunc((w - 1) / 2), y + c - hand + 1, w, hand, BK);   // up
     fb.fillRect(x + c, y + c - Math.trunc((w - 1) / 2), Math.max(1, hand - 1), w, BK);   // to the right
   }
-  // hdd: the spinning disc of the drive pages, in the style of its size (like there; wide = 4.2")
+  // hdd / hddAsleep: the spinning / asleep disc of the drive pages, in the style of its size (like
+  // there; wide = 4.2")
   function drawSysIcon(fb, kind, x, y, B, deep, wide = false) {
-    if (kind === "hdd") drawIcon(fb, { state: "A" }, x, y, B, !wide && (B === 11 || B === 13), !wide && B === 17, !wide && B === 11, false);
+    if (kind === "hdd" || kind === "hddAsleep")
+      drawIcon(fb, { state: kind === "hdd" ? "A" : "S" }, x, y, B, !wide && (B === 11 || B === 13), !wide && B === 17, !wide && B === 11, false);
     else if (kind === "cpu") drawCpu(fb, x, y, B);
     else if (kind === "clock") drawClock(fb, x, y, B);
     else if (kind === "wifi") drawWifiIcon(fb, x, y, B);
