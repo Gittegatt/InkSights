@@ -55,21 +55,37 @@
   // ------------------------------------------------------------ boards
   // Same table as firmware/InkSights/BoardProfile.h. Pins are the board's pin numbers:
   // D numbers on the XIAO SAMD21, GPIO numbers on the ESP32 boards (dlabel: D label on the XIAO).
+  // slot: the size of one firmware slot (app0 / ota_0) in the partition table of its PlatformIO env,
+  // the most a firmware update over WiFi may bring.
   const QTPY_PINS = [5, 6, 7, 8, 9, 16, 17, 18, 37, 40, 41, 42];
   const BOARDS = {
     "xiao-samd21": { name: "Seeed XIAO SAMD21", wifi: false, pins: [0, 1, 2, 3, 4, 5, 6, 7, 9], defaults: [7, 9, 6, 5], samd: true },
-    "seeed-xiao-esp32-c3": { name: "Seeed XIAO ESP32-C3", wifi: true, pins: [3, 4, 5, 6, 7, 9, 20, 21], defaults: [20, 9, 21, 7],
+    "seeed-xiao-esp32-c3": { name: "Seeed XIAO ESP32-C3", wifi: true, pins: [3, 4, 5, 6, 7, 9, 20, 21], defaults: [20, 9, 21, 7], slot: 0x140000,
       dlabel: { 2: 0, 3: 1, 4: 2, 5: 3, 6: 4, 7: 5, 21: 6, 20: 7, 8: 8, 9: 9, 10: 10 } },
-    "seeed-xiao-esp32-s3": { name: "Seeed XIAO ESP32-S3", wifi: true, pins: [1, 2, 4, 5, 6, 8, 43, 44], defaults: [44, 8, 43, 6],
+    "seeed-xiao-esp32-s3": { name: "Seeed XIAO ESP32-S3", wifi: true, pins: [1, 2, 4, 5, 6, 8, 43, 44], defaults: [44, 8, 43, 6], slot: 0x330000,
       dlabel: { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 43: 6, 44: 7, 7: 8, 8: 9, 9: 10 } },
-    "esp32-s3-supermini": { name: "ESP32-S3 Super Mini", wifi: true, pins: [1, 2, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 18, 21], defaults: [10, 9, 8, 7] },
-    "esp32-s3-zero": { name: "Waveshare ESP32-S3-Zero", wifi: true, pins: [1, 2, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 18, 43, 44], defaults: [10, 9, 8, 7] },
-    "esp32-c3-supermini": { name: "ESP32-C3 Super Mini", wifi: true, pins: [0, 1, 3, 5, 7, 10, 20, 21], defaults: [7, 5, 3, 10] },
-    "esp32-c3-zero": { name: "Waveshare ESP32-C3-Zero", wifi: true, pins: [0, 1, 3, 5, 7, 20, 21], defaults: [7, 5, 3, 1] },
-    "adafruit-qtpy-esp32-s3-n4r2": { name: "Adafruit QT Py ESP32-S3 N4R2", wifi: true, pins: QTPY_PINS, defaults: [9, 8, 18, 17] },
-    "adafruit-qtpy-esp32-s3-nopsram": { name: "Adafruit QT Py ESP32-S3 No PSRAM", wifi: true, pins: QTPY_PINS, defaults: [9, 8, 18, 17] },
+    "esp32-s3-supermini": { name: "ESP32-S3 Super Mini", wifi: true, pins: [1, 2, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 18, 21], defaults: [10, 9, 8, 7], slot: 0x1E0000 },
+    "esp32-s3-zero": { name: "Waveshare ESP32-S3-Zero", wifi: true, pins: [1, 2, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 18, 43, 44], defaults: [10, 9, 8, 7], slot: 0x1E0000 },
+    "esp32-c3-supermini": { name: "ESP32-C3 Super Mini", wifi: true, pins: [0, 1, 3, 5, 7, 10, 20, 21], defaults: [7, 5, 3, 10], slot: 0x1E0000 },
+    "esp32-c3-zero": { name: "Waveshare ESP32-C3-Zero", wifi: true, pins: [0, 1, 3, 5, 7, 20, 21], defaults: [7, 5, 3, 1], slot: 0x1E0000 },
+    "adafruit-qtpy-esp32-s3-n4r2": { name: "Adafruit QT Py ESP32-S3 N4R2", wifi: true, pins: QTPY_PINS, defaults: [9, 8, 18, 17], slot: 0x160000 },
+    "adafruit-qtpy-esp32-s3-nopsram": { name: "Adafruit QT Py ESP32-S3 No PSRAM", wifi: true, pins: QTPY_PINS, defaults: [9, 8, 18, 17], slot: 0x200000 },
   };
-  const DEFAULT_BOARD = "xiao-samd21";   // displays with older firmware report no board: they are SAMD21
+  const DEFAULT_BOARD = "xiao-samd21";
+  // the screens with a picture: settings prefix, kind (render.js m.art), card title, the setting of its
+  // case (auto: "Nothing to ink" / "Check connection", On cue), the time window of a new display
+  const ARTS = [
+    { p: "conv", kind: "N", key: "C", title: "The Conversation", auto: "inkNothing", from: "18:00", to: "19:00" },
+    { p: "inter", kind: "D", key: "I", title: "The Intermission", auto: "inkNoData", from: "12:00", to: "13:00" },
+    { p: "after", kind: "Q", key: "A", title: "The Afterhours", auto: null, from: "23:00", to: "07:00" }];
+  // the order of the cards that move: the pages (S D N T W, H field 28) and the pictures (C I A, their
+  // place in the page turn)
+  const CARD_LETTERS = "SDNTWCIA";
+  const cardOrderOk = o => typeof o === "string" && o.length === CARD_LETTERS.length && [...CARD_LETTERS].every(k => o.includes(k));
+  const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const minsOf = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  // is minute m of the day in the window from..to (it may go past midnight; from = to: empty)
+  const inWindow = (m, from, to) => { const f = minsOf(from), e = minsOf(to); return f < e ? m >= f && m < e : f > e && (m >= f || m < e); };   // displays with older firmware report no board: they are SAMD21
   const PIN_NONE = -1;
   const PIN_NAMES = ["CS", "D/C", "Reset", "Busy"];
   function pinLabel(board, p) {
@@ -145,6 +161,7 @@
     const d = new Date(epoch * 1000);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   };
+  const hhmmss = ms => { const d = new Date(ms); return [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, "0")).join(":"); };
   const parseSize = s => { const m = /^(\d+)x(\d+)$/.exec(s || ""); return m ? [Number(m[1]), Number(m[2])] : [212, 104]; };
   // Panel types (PANELS in the firmware): chosen on this page, saved on the board like the pins.
   // size in landscape, colors 3 = black/white/color, fast = fast partial refresh possible
@@ -195,7 +212,8 @@
       el("header", { class: "top" },
         el("div", {},
           el("span", { class: "eyebrow" }, "YOUR SYSTEM METRICS AT A GLANCE"),
-          el("h1", { id: "pagetitle" }, "InkSights"),
+          // the logo bars of the start screen in front of the instance name
+          el("h1", {}, el("span", { class: "logo", "aria-hidden": "true" }, el("i"), el("i"), el("i"), el("i")), " ", el("span", { id: "pagetitle" }, "InkSights")),
           el("p", { class: "status", id: "status" }, "Loading …"),
           el("p", { class: "status versions", id: "versions" })),
         el("div", { class: "actions" },
@@ -245,8 +263,22 @@
       // one (earlier version) as before: title, time, then the page number or the uptime
       if (!EPD.layoutOk(s.layout)) s.layout = s.headerUp === 1 ? "TCU" : NEW_LAYOUT;
       // a new display: header and system page (all components) on, disk and WiFi pages off
-      for (const [k, d] of [["timer", 0], ["ringDir", 0], ["icons", 1], ["pctBar", 1], ["barCap", 0], ["zfs", 0], ["showSys", 1], ["showDisks", 1], ["sysIcons", 1], ["showWifi", 1], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 1], ["netIcons", 1], ["driveTemp", 1], ["stby", 1], ["headInv", 0], ["headCol", 0], ["timeFmt", 0], ["ampm", 1], ["showTime", 1], ["timeDate", 1], ["timeWday", 1], ["ntp", 0], ["inkSplash", 1], ["inkNothing", 1], ["inkNoData", 1], ["lineBottom", 0], ["justTime", 0], ["timeHead", 0], ["headFill", 0], ["timeColor", 0], ["timeFrame", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      for (const [k, d] of [["timer", 1], ["ringDir", 1], ["icons", 1], ["pctBar", 1], ["barCap", 1], ["zfs", 0], ["showSys", 1], ["showDisks", 1], ["sysIcons", 1], ["showWifi", 1], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 1], ["netIcons", 1], ["driveTemp", 0], ["stby", 1], ["headInv", 0], ["headCol", 0], ["timeFmt", 0], ["ampm", 1], ["showTime", 1], ["timeDate", 1], ["timeWday", 1], ["ntp", 0], ["inkSplash", 1], ["inkNothing", 1], ["inkNoData", 1], ["convInk", 1], ["interInk", 1], ["afterInk", 1], ["sober", 1], ["lineBottom", 0], ["justTime", 0], ["timeHead", 0], ["headFill", 0], ["timeColor", 0], ["timeFrame", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      // the pictures: header, a time window when only this picture shows (Scheduled, From, To), a page
+      // in the page turn; all off for a new display
+      for (const a of ARTS) {
+        // a new display (user, 2026-10-27): Header, Caption, Turn candidate on, Scheduled off
+        for (const [k, d] of [["Head", 1], ["Sched", 0], ["Rot", 1]]) if (s[a.p + k] !== 0 && s[a.p + k] !== 1) s[a.p + k] = d;
+        // Caption (the text below the picture when its case shows it, The Afterhours: in its time window
+        // "Closed until <To>"): on where it tells something ("Check connection", the end of the quiet hours)
+        if (s[a.p + "Cap"] !== 0 && s[a.p + "Cap"] !== 1) s[a.p + "Cap"] = 1;
+        if (!HHMM_RE.test(s[a.p + "From"] || "")) s[a.p + "From"] = a.from;
+        if (!HHMM_RE.test(s[a.p + "To"] || "")) s[a.p + "To"] = a.to;
+      }
       if (!EPD.orderOk(s.pageOrder)) s.pageOrder = NEW_PAGE_ORDER;   // the page order: S system, D drives, N network, T time, W WiFi
+      // the card order with the pictures; its pages always in the page order (that one is saved)
+      if (!cardOrderOk(s.cardOrder)) s.cardOrder = s.pageOrder + "CIA";
+      { let i = 0; s.cardOrder = [...s.cardOrder].map(k => (EPD.PAGE_ORDER.includes(k) ? s.pageOrder[i++] : k)).join(""); }
       if (![0, 1, 2, 3].includes(s.dateFmt)) s.dateFmt = 1;   // time page: 26 Oct 2026, ISO, US, German
       if (typeof s.ntpServer !== "string" || !NTP_RE.test(s.ntpServer)) s.ntpServer = NTP_SERVERS[0];
       if (!ZONES.some(([n]) => n === s.tz)) s.tz = "UTC";
@@ -291,6 +323,14 @@
       return c;
     }
 
+    // the pictures: Ink = used at all; the rest (On cue, Header, Scheduled, Turn candidate and
+    // The Afterhours) everywhere now (afterhours: once the simulator only)
+    const artsShown = () => ARTS.filter(a => a.kind !== "Q" || afterhours);
+    const inkKey = a => afterhours ? a.p + "Ink" : a.auto;
+    // its case shows the picture: On cue on and Ink on
+    const autoOn = (s, a) => s[a.auto] !== 0 && (!afterhours || s[a.p + "Ink"] !== 0);
+    // the pictures with a time window in use (Ink on, Scheduled on)
+    const artsTimed = s => artsShown().filter(a => s[inkKey(a)] !== 0 && s[a.p + "Sched"] === 1);
     function problems() {
       const out = [];
       for (const { id, live } of displayList()) {
@@ -300,6 +340,15 @@
         if (s.ntp && !NTP_RE.test(s.ntpServer)) out.push(`${who}: NTP server like pool.ntp.org.`);
         if (!Number.isInteger(s.warn) || s.warn < 0 || s.warn > 100) out.push(`${who}: highlight threshold must be between 1 and 100 %.`);
         if (s.page < 0) out.push(`${who}: page turn must be a time like 00:10:00 (max. 24:00:00).`);
+        const timed = artsTimed(s, live);
+        for (const a of timed) if (s[a.p + "From"] === s[a.p + "To"]) out.push(`${who}: ${a.title}: start and end must differ.`);
+        for (let i = 0; i < timed.length; i++) for (let j = i + 1; j < timed.length; j++) {
+          const A = timed[i], B = timed[j];
+          for (let m = 0; m < 1440; m++) if (inWindow(m, s[A.p + "From"], s[A.p + "To"]) && inWindow(m, s[B.p + "From"], s[B.p + "To"])) {
+            out.push(`${who}: the times of ${A.title} and ${B.title} overlap.`);
+            break;
+          }
+        }
         const used = (s.pins || []).filter(p => p !== PIN_NONE);
         if (new Set(used).size !== used.length) out.push(`${who}: CS, D/C, Reset and Busy need different pins.`);
         if (boardOf(live).wifi) {
@@ -348,6 +397,25 @@
       }
     }
 
+    // Live display (Display card, remembered in this browser): the preview shows what the panel shows, by the
+    // rules of the firmware: new data and page turns only at a redraw, at most every 3 minutes (fast refresh:
+    // its seconds), the first data and "Redraw now" at once; in between the old picture stays
+    const mirror = {};
+    const mirrorOn = id => !!pref(id, "mirror", 0);
+    function mirrorStep(entry, text) {
+      const now = Date.now(), s = settingsFor(entry.id), v = mirror[entry.id];
+      // the firmware compares the frames without their time
+      const bare = t => (t || "").replace(/^(H\|[^|\n]*\|)[^|\n]*/m, "$1");
+      if (!v || v.force) return (mirror[entry.id] = { text, page: v ? v.page : 0, drawn: now, turned: now, pc: v ? v.pc : 1 });
+      const minMs = panelOf(entry.live, s).fast && s.fast > 0 ? s.fast * 1000 - 500 : 180000;
+      const turn = s.page > 0 && v.pc > 1 && now - v.turned >= s.page * 1000;
+      if ((turn || bare(text) !== bare(v.text)) && now - v.drawn >= minMs) {
+        if (turn) { v.page = (v.page + 1) % v.pc; v.turned = now; }
+        v.text = text;
+        v.drawn = now;
+      }
+      return v;
+    }
     function frameText(entry) {
       const s = settingsFor(entry.id);
       const override = backend.frameOverride ? backend.frameOverride(entry.id) : null;
@@ -359,7 +427,9 @@
     // the frame of a display from its settings and state st (state.json, or simulated live values)
     function buildFor(entry, st) {
       const s0 = settingsFor(entry.id), title = (s0.name || DEFAULT_TITLE).slice(0, 12);
-      const s = boardOf(entry.live).wifi ? s0 : { ...s0, showWifi: 0 };   // a board without WiFi has no WiFi page
+      let s = boardOf(entry.live).wifi ? s0 : { ...s0, showWifi: 0 };   // a board without WiFi has no WiFi page
+      // the screens bits (H field 26) of the cases: On cue and Ink of The Conversation / The Intermission
+      s = { ...s, inkNothing: autoOn(s, ARTS[0]) ? 1 : 0, inkNoData: autoOn(s, ARTS[1]) ? 1 : 0 };
       return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st));
     }
     // date and time of the data YYYYMMDDHHMMSS: the day of the update, the time it shows
@@ -387,7 +457,9 @@
       if (!canvas) return;
       const s = settingsFor(id), panel = panelOf(live, s);
       const [w, h] = panelSize(panel, s.rot);
-      const { text, override } = frameText(entry);
+      const fresh = frameText(entry), mv = mirrorOn(id) && !fresh.override ? mirrorStep(entry, fresh.text) : null;
+      const { text, override } = mv ? { text: mv.text, override: false } : fresh;
+      for (const b of document.querySelectorAll(`#pager-${id} button`)) b.disabled = !!mv;   // Live display: the board turns the pages
       document.querySelectorAll(`.set-${id}`).forEach(f => { f.disabled = override; });
       $(`size-${id}`).textContent = `${w} × ${h} px · ${panel.colors === 2 ? "b/w" : "b/w/color"}`;
       $(`frame-${id}`).textContent = text || "";
@@ -407,9 +479,40 @@
       // simulator "No data": connected, but nothing to show -> the "Nothing to ink" screen
       if (live && live.nothingToInk) { model.sys = null; model.nets = []; model.disks = []; model.diskPages = 0; model.wifiPage = 0; model.clock = null; }
       if (model.clock) model.now = clockNow(model, live, s);
-      const pc = EPD.pageCount(model.disks.length, h, model.rows, w, !!model.sys, !!model.wifiPage, model.layout !== "---", model.nets.length, !!model.clock);
+      // every page off ("Nothing to ink"); with pictures in the page turn those are all the pages
+      const nothing = !model.sys && !model.wifiPage && !model.clock && !model.nets.length && !model.netPages && model.disks.length === 0 && model.diskPages === 0;
+      const counts = EPD.pageCounts(model.disks.length, h, model.rows, w, !!model.sys, !!model.wifiPage, model.layout !== "---", model.nets.length, !!model.clock, !!model.netPages, model.diskPages !== 0);
+      // the pictures: the one whose time window holds the time of the frame
+      // shows alone; the ones in the page turn have their place in the card order; m.artHead: with a header
+      const hm = /^(\d\d):(\d\d)/.exec(model.time || ""), now = hm ? Number(hm[1]) * 60 + Number(hm[2]) : -1;
+      const timed = artsTimed(s).find(a => now >= 0 && inWindow(now, s[a.p + "From"], s[a.p + "To"]));
+      const extra = timed ? [] : artsShown().filter(a => s[inkKey(a)] !== 0 && s[a.p + "Rot"] === 1);
+      // (the real page: header and text as the firmware draws them)
+      model.artHead = afterhours ? artsShown().filter(a => s[a.p + "Head"] === 1).map(a => a.kind).join("") : "ND";
+      model.artCap = afterhours ? ARTS.filter(a => a.auto && s[a.p + "Cap"] === 1).map(a => a.kind).join("") : "ND";
+      model.extraPages = extra.length;
+      if (afterhours && nothing && extra.length) model.extraOnly = true;
+      // the page turn: the pages and the pictures in the card order (m.page: the page among the pages,
+      // m.pageNo: its number in the whole turn, for the header)
+      const turn = [];
+      let bi = 0;
+      for (const k of s.cardOrder) {
+        const a = extra.find(x => x.key === k);
+        if (a) turn.push({ art: a });
+        else if (!model.extraOnly) for (let i = 0; i < (counts[k] || 0); i++) turn.push({ base: bi++ });
+      }
+      if (!turn.length) turn.push({ base: 0 });
+      // the screens of the firmware with the pictures: the time page keeps its places without
+      // a header, every page off without a picture shows the logo
+      model.nextFw = afterhours;
+      model.sober = afterhours && s.sober === 1;   // Sobriety: the pictures without the bottle
+      const pc = timed ? 1 : turn.length;
+      if (mv) { mv.pc = pc; pages[id] = mv.page; }
       pages[id] = (((pages[id] || 0) % pc) + pc) % pc;
-      model.page = pages[id];
+      const at = timed ? { base: 0 } : turn[pages[id]];
+      model.page = at.base ?? 0;
+      model.pageNo = pages[id];
+      const artPage = timed || at.art || null;
       model.mono = panel.colors === 2;
       model.yellow = !!panel.yellow;   // yellow third colour: black text on it
       // WiFi page: the board shows its own WiFi; here what the server last heard from it
@@ -417,8 +520,22 @@
         ip: live ? live.ip || "" : "", ap: s.wifi.apSsid || DEFAULT_AP_SSID,
         online: live && Number.isInteger(live.online) && live.online >= 0 ? Math.floor(live.online / 60) : -1 };   // black/white panel: highlighted used/total inverted instead of in colour
       // no fresh data for too long; in the simulator also a display that is not connected ("Connected" off)
-      model.noData = (live ? !!live.noData : !!backend.offlineNoData) && s.inkNoData !== 0;   // Advanced Ink: "Check connection" off
+      model.noData = (live ? !!live.noData : !!backend.offlineNoData) && autoOn(s, ARTS[1]);   // The Intermission: On cue / Ink off
+      // a picture page: its time window, or (while there is data) its page in the page turn
+      if (artPage && (timed || !model.noData)) model.art = artPage.kind;
+      // The Afterhours in its time window with Caption: "Closed until" its end
+      if (timed && timed.kind === "Q" && s.afterCap === 1) model.until = s.afterTo;
       if (override) { model.timer = s.timer; model.ringDir = s.ringDir; model.icons = s.icons; model.pctBar = s.pctBar ? (s.barCap ? 2 : 1) : 0; }
+      for (const k of ["N", "D", "Q"]) {
+        const c = $(`scr-${id}-${k}`);
+        if (!c || !c.offsetParent) continue;   // folded
+        // The Conversation and The Intermission as their case shows them (with the caption), The Afterhours as itself
+        const sm = { ...model, screens: 7, noData: k === "D", art: k === "Q" ? "Q" : "", until: k === "Q" && s.afterCap === 1 && s.afterSched === 1 ? s.afterTo : "" };
+        if (k !== "D") Object.assign(sm, { sys: null, nets: [], disks: [], diskPages: 0, wifiPage: 0, clock: null });
+        const sfb = new EPD.Fb(w, h);
+        EPD.drawScreen(sfb, sm);
+        paint(c, sfb, w, h, panel.yellow);
+      }
       if (live && live.splash && s.inkSplash !== 0) {   // the board's start screen, before the first data (simulator: "Start screen"; Advanced Ink)
         const [sw, sh] = panelSize(panel, 0), sfb = new EPD.Fb(sw, sh), board = boardOf(live);
         const pins = String(live.pins || "").split(",").map(Number);
@@ -435,9 +552,14 @@
       }
       EPD.drawScreen(fb, model);
       paint(canvas, fb, w, h, panel.yellow);
-      const what = [model.sys ? "system" : "", model.disks.length || (!model.sys && !model.wifiPage && !model.clock && !model.nets.length) ? `${model.disks.length} drives` : "",
-        model.nets.length ? `${model.nets.length} network` : "", model.wifiPage ? "WiFi" : "", model.clock ? "time" : ""].filter(Boolean).join(", ");
-      $(`pg-${id}`).textContent = `Page ${model.page + 1}/${pc} · ${what}`;
+      const what = [model.sys ? "system" : "", model.disks.length || (model.diskPages !== 0 && !model.sys && !model.wifiPage && !model.clock && !model.nets.length) ? `${model.disks.length} drives` : "",
+        model.nets.length ? `${model.nets.length} network` : model.netPages ? "no interfaces" : "", model.wifiPage ? "WiFi" : "", model.clock ? "time" : ""].filter(Boolean).join(", ");
+      // what the display shows: a picture in its time window, a case, a picture page, the pages
+      const caseText = model.noData ? "The Intermission · no data"
+        : nothing && !model.art ? `${(model.screens ?? 7) & 2 ? "The Conversation" : afterhours ? "InkSights" : "Top line only"} · nothing to ink` : "";
+      $(`pg-${id}`).textContent = model.art && timed ? `${timed.title} · ${s[timed.p + "From"]} to ${s[timed.p + "To"]}`
+        : caseText || `Page ${pages[id] + 1}/${pc} · ${model.art ? artPage.title : what}`;
+      if (mv) $(`pg-${id}`).textContent = `Live · ${$(`pg-${id}`).textContent} · drawn ${hhmmss(mv.drawn)}`;
       msg.textContent = "";
       msg.className = "note";
     }
@@ -584,7 +706,7 @@
         ...ifNames.map(n => el("option", { value: n, selected: n === s.net }, n)));
 
       // ZFS cache on the system page: shown (grey part of the RAM bar) or hidden (counted as free)
-      const zfsBox = el("div", { class: "field" }, el("span", { class: "label" }, "ZFS RAM cache"),
+      const zfsBox = el("div", { class: "field boxed" }, el("span", { class: "label" }, "ZFS RAM cache"),
         radios("zfs", [[1, "On"], [0, "Off"]], s.zfs, v => { s.zfs = v; }));
       const setDisabled = (box, off) => box.querySelectorAll("input").forEach(i => { i.disabled = off; });
       // 12 hours: AM / PM shown or not (Display card)
@@ -597,8 +719,8 @@
         s.stby = v;
         document.querySelectorAll(`input[name="stbyd-${id}"], input[name="stbys-${id}"]`).forEach(i => { i.checked = Number(i.value) === v; });
       };
-      const stbySys = el("div", { class: "field" }, el("span", { class: "label" }, "HDD asleep"),
-        radios("stbys", [[0, "--"], [1, "STBY"]], s.stby, pickStby));
+      const stbySys = el("div", { class: "field boxed" }, el("span", { class: "label" }, "HDD asleep"),
+        radios("stbys", [[1, "STBY"], [0, "--"]], s.stby, pickStby));
       setDisabled(stbySys, !s.sys.includes("hdd"));
       // components as checkboxes, like the disk types; the drive counts in brackets
       const sysChecks = SYS_PARTS.map(([p, label]) => el("label", { class: "check" },
@@ -619,9 +741,14 @@
       const redrawNow = live ? [el("button", { class: "btn small redraw", type: "button", onclick: async () => {
         try {
           await backend.redraw(id);
+          if (mirror[id]) mirror[id].force = true;
           setMsg(`${nameOf(id, s)}: redraws within a minute (takes about 15 seconds).`, "ok");
         } catch (e) { setMsg(e.message, "warn"); }
       } }, "Redraw now")] : [];
+      // Update firmware (OTA, simulator only so far): only when it fits and is not running already
+      const ota = otaCheck(live, board), otaBusy = live && live.ota && (live.ota.state === "pending" || live.ota.state === "loading");
+      if (versionCheck && backend.ota && ota.ok && !otaBusy)
+        redrawNow.push(el("button", { class: "btn small redraw", type: "button", onclick: () => startOta(id, s, ota.fw) }, "Update firmware"));
       const remove = live ? [] : [el("button", { class: "btn link", type: "button",
         onclick: () => { delete config[id]; changed(); render(true); } }, "Remove settings")];
 
@@ -651,6 +778,7 @@
             // (also fired when a card is built open: then nothing changed)
             const opened = e.target.open && !pref(id, key, openByDefault);
             setPref(id, key, e.target.open);
+            if (e.target.open && card.querySelector(".shot.mini")) drawPreview(entry);
             // Advanced Ink, Auto collapse: opening a card folds the other open cards of this display
             if (opened && pref(id, "autoFold", 1)) for (const d of card.parentElement?.querySelectorAll(".sub-card > details.fold[open]") || [])
               if (d !== e.target) d.open = false;
@@ -668,49 +796,63 @@
       // Ink: the WiFi page on the display (network and address); the WiFi settings apply either way
       const wifiCard = board.wifi ? subCard("wifiOpen", "WiFi", false, "showWifi",
         el("p", { class: "note" }, wifiState),
-        // framed: the symbols of the WiFi page, the WiFi network, the setup access point
-        el("div", { class: "field boxed" },
-          field("Icons", radios("wifiicons", [[1, "On"], [0, "Off"]], s.wifiIcons, v => { s.wifiIcons = v; }))),
+        // framed: the WiFi network, the setup access point, then the symbols of the WiFi page
         el("form", { class: "wifi-form", autocomplete: "off", onsubmit: e => e.preventDefault() },   // a form, so browsers handle the password fields properly
-          el("div", { class: "wifi-grid boxed" },
-            wifiInput("ssid", "WiFi network", { maxlength: "32" }),
-            wifiInput("pass", "Password", { type: "password", maxlength: "63", value: "", placeholder: w.passSet ? "unchanged" : "" }),
-            wifiInput("server", "Settings page", { maxlength: "120", placeholder: backend.serverAddress || "http://hostname:8099" }),
-            wifiInput("host", "Host name", { maxlength: "32", placeholder: `inksights-${id.toLowerCase()}` })),
-          el("div", { class: "wifi-grid boxed" },
-          field("Setup access point", radios("apon", [[true, "On"], [false, "Off"]], w.apOn, v => { w.apOn = v; })),
-          el("label", { class: "field" }, el("span", { class: "label" }, "Access point after (s)"),
-            el("input", { type: "number", min: "0", max: String(MAX_AP_DELAY), step: "1", value: String(w.apDelay),
-              style: "max-width: 7em", oninput: e => {
-                w.apDelay = /^\d{1,4}$/.test(e.target.value) ? Number(e.target.value) : NaN; changed(); } })),
-          wifiInput("apSsid", "Access point name", { maxlength: "32", placeholder: DEFAULT_AP_SSID }),
-          wifiInput("apPass", "Access point password", { type: "password", maxlength: "63", value: "", placeholder: w.apPassSet ? "unchanged" : DEFAULT_AP_PASS })))) : null;
+          // four frames, two by two (user): the names and passwords on the left (WiFi network, then the
+          // access point), on the right what is changed rarely (settings page and host name, the setup
+          // access point and its delay)
+          el("div", { class: "wifi-grid" },
+            el("div", { class: "wifi-box boxed" },
+              wifiInput("ssid", "WiFi network", { maxlength: "32" }),
+              wifiInput("pass", "Password", { type: "password", maxlength: "63", value: "", placeholder: w.passSet ? "unchanged" : "" })),
+            el("div", { class: "wifi-box boxed" },
+              wifiInput("server", "Settings page", { maxlength: "120", placeholder: backend.serverAddress || "http://hostname:8099" }),
+              wifiInput("host", "Host name", { maxlength: "32", placeholder: `inksights-${id.toLowerCase()}` })),
+            el("div", { class: "wifi-box boxed" },
+              wifiInput("apSsid", "Access point name", { maxlength: "32", placeholder: DEFAULT_AP_SSID }),
+              wifiInput("apPass", "Access point password", { type: "password", maxlength: "63", value: "", placeholder: w.apPassSet ? "unchanged" : DEFAULT_AP_PASS })),
+            el("div", { class: "wifi-box boxed" },
+              field("Setup access point", radios("apon", [[true, "On"], [false, "Off"]], w.apOn, v => { w.apOn = v; })),
+              el("label", { class: "field" }, el("span", { class: "label" }, "Failover access point after (s)"),
+                el("input", { type: "number", min: "0", max: String(MAX_AP_DELAY), step: "1", value: String(w.apDelay),
+                  style: "max-width: 7em", oninput: e => {
+                    w.apDelay = /^\d{1,4}$/.test(e.target.value) ? Number(e.target.value) : NaN; changed(); } }))))),
+        // the symbols of the WiFi page, at the end (user)
+        el("div", { class: "field boxed" },
+          field("Icons", radios("wifiicons", [[1, "On"], [0, "Off"]], s.wifiIcons, v => { s.wifiIcons = v; })))) : null;
 
       // details in the bar: percentage or used capacity (only while "Details in bar" is on)
       // decimals of the percentage (only while the percentage stands in the bar)
       const decBox = field("Percentage", radios("pctdec", [[0, "35%"], [1, "35.4%"], [2, "35.47%"]], s.pctDec, v => { s.pctDec = v; }));
-      const capBox = field("Details", radios("barcap", [[0, "Percentage"], [1, "Capacity"]], s.barCap, v => { s.barCap = v; setDisabled(decBox, !s.pctBar || v); }));
+      const capBox = field("Details", radios("barcap", [[1, "Capacity"], [0, "Percentage"]], s.barCap, v => { s.barCap = v; setDisabled(decBox, !s.pctBar || v); }));
       setDisabled(capBox, !s.pctBar);
       setDisabled(decBox, !s.pctBar || s.barCap);
-      const stbyBox = field("Asleep", radios("stbyd", [[0, "--"], [1, "STBY"]], s.stby, pickStby));
+      const stbyBox = field("Asleep", radios("stbyd", [[1, "STBY"], [0, "--"]], s.stby, pickStby));
+      stbyBox.classList.add("boxed");
       setDisabled(stbyBox, !s.driveTemp);
-      // Disks: disk types | spindown timer, color highlight, then the order and visibility of the disks
+      // Drives: drive types, the frames of a drive row, color highlight, then the order and visibility of the drives
       const disksCard = subCard("disksOpen", "Drives", true, "showDisks",
         el("fieldset", { class: `set-${id}` },
           el("div", { class: "field boxed" }, el("span", { class: "label" }, "Drive types"), el("div", { class: "choices" }, ...types))),
-        el("div", { class: "pair" },
-          el("div", { class: "col group-col" },
-            field("Icons", radios("icons", [[1, "On"], [0, "Off"]], s.icons, v => { s.icons = v; })),
+        // framed and sorted like a drive row from left to right (user): the symbol | the temperature with
+        // the asleep text, the details in the bar | the spindown timer at its right end
+        el("div", { class: "form" },
+          // in one row, each in its own frame (user): Icons | Temperature | Asleep
+          el("div", { class: "wide trio" },
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Icons"),
+              radios("icons", [[1, "On"], [0, "Off"]], s.icons, v => { s.icons = v; })),
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Temperature"),
+              radios("drivetemp", [[1, "On"], [0, "Off"]], s.driveTemp, v => { s.driveTemp = v; setDisabled(stbyBox, !v); })),
+            stbyBox),
+          el("div", { class: "box-stack boxed" },
             field("Details in bar", radios("pctbar", [[1, "On"], [0, "Off"]], s.pctBar, v => { s.pctBar = v; setDisabled(capBox, !v); setDisabled(decBox, !v || s.barCap); })),
             capBox,
             decBox),
-          el("div", { class: "col plain-col" },
+          el("div", { class: "box-stack boxed" },
             el("fieldset", { class: `set-${id}` },
-              field("Spindown timer", radios("boxes", [[0, "Off"], [10, "On"]], s.boxes ? 10 : 0, v => { s.boxes = v; }))),
-            field("Timer style", radios("timer", [[0, "Badge"], [1, "Ring"]], s.timer, v => { s.timer = v; })),
-            field("Ring direction", radios("ringdir", [[0, "Clockwise"], [1, "Counterclockwise"]], s.ringDir, v => { s.ringDir = v; })),
-            field("Temperature", radios("drivetemp", [[1, "On"], [0, "Off"]], s.driveTemp, v => { s.driveTemp = v; setDisabled(stbyBox, !v); })),
-            stbyBox)),
+              field("Spindown timer", radios("boxes", [[10, "On"], [0, "Off"]], s.boxes ? 10 : 0, v => { s.boxes = v; }))),
+            field("Timer style", radios("timer", [[1, "Ring"], [0, "Badge"]], s.timer, v => { s.timer = v; })),   // a new display: Ring (user)
+            field("Ring direction", radios("ringdir", [[1, "Counterclockwise"], [0, "Clockwise"]], s.ringDir, v => { s.ringDir = v; })))),
         el("fieldset", { class: `set-${id}` },
           el("div", { class: "field boxed" },
             el("span", { class: "label" }, "Color highlight"),
@@ -734,16 +876,18 @@
         netKind = v;
         if (s.netBar) s.netBar = v;
       }));
+      netKindBox.classList.add("boxed");
       setDisabled(netKindBox, !s.netBar);
       // framed: the symbols, the details in the bar, the order
       const netCard = subCard("netOpen", "Network", true, "showNet",
+        // each in its own frame, in one row (user): Icons | Details in bar | Details
         el("div", { class: "form" },
-          el("div", { class: "field wide boxed" },
-            field("Icons", radios("neticons", [[1, "On"], [0, "Off"]], s.netIcons, v => { s.netIcons = v; }))),
-          el("div", { class: "field wide boxed" },
-            el("div", { class: "choices header-sec" },
-              field("Details in bar", radios("netbar", [[1, "On"], [0, "Off"]], s.netBar ? 1 : 0, v => { s.netBar = v ? netKind : 0; setDisabled(netKindBox, !v); })),
-              netKindBox))),
+          el("div", { class: "wide trio" },
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Icons"),
+              radios("neticons", [[1, "On"], [0, "Off"]], s.netIcons, v => { s.netIcons = v; })),
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Details in bar"),
+              radios("netbar", [[1, "On"], [0, "Off"]], s.netBar ? 1 : 0, v => { s.netBar = v ? netKind : 0; setDisabled(netKindBox, !v); })),
+            netKindBox)),
         el("fieldset", { class: `set-${id}` },
           el("details", { class: "fold boxed field", open: pref(id, "netOrderOpen", true), ontoggle: e => setPref(id, "netOrderOpen", e.target.open) },
             el("summary", {}, "Order and visibility by"),
@@ -761,13 +905,12 @@
           el("div", { class: "form" },
             el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Components"),
               el("div", { class: "choices" }, ...sysChecks)),
-            el("div", { class: "field wide boxed" },
-              el("div", { class: "choices header-sec" },
-                el("label", { class: "field" }, el("span", { class: "label" }, "Network"), netSel),
-                zfsBox,
-                stbySys)),
-            el("div", { class: "field wide boxed" },
-              field("Icons", radios("sysicons", [[1, "On"], [0, "Off"]], s.sysIcons, v => { s.sysIcons = v; }))))));
+            // each in its own frame, two by two (user): Icons | ZFS RAM cache, Network | HDD asleep
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Icons"),
+              radios("sysicons", [[1, "On"], [0, "Off"]], s.sysIcons, v => { s.sysIcons = v; })),
+            zfsBox,
+            el("label", { class: "field boxed" }, el("span", { class: "label" }, "Network"), netSel),
+            stbySys)));
 
       // Header: what stands left, in the middle and right (s.layout, a lower-case letter = that place
       // highlighted). Picking what already stands in another place swaps the two, so nothing can
@@ -796,15 +939,17 @@
       syncLayout();
       // inverted header: the highlighted places in the third colour (only panels with one)
       const colBox = field("Color highlight", radios("headcol", [[1, "On"], [0, "Off"]], s.headCol, v => { s.headCol = v; fillOk(); }));
+      colBox.classList.add("boxed");
       setDisabled(colBox, !s.headInv || panel.colors === 2);
       // Fill gaps: the whole header in the third colour; only then something new (on black/white it
       // would be the same as switching Invert colors), so only with Invert colors and Highlight color
       // on a colour panel
       const fillBox = field("Fill gaps", radios("headfill", [[1, "On"], [0, "Off"]], s.headFill, v => { s.headFill = v; syncLayout(); }));
+      fillBox.classList.add("boxed");
       const fillOk = () => { setDisabled(fillBox, !(s.headInv === 1 && s.headCol === 1 && panel.colors !== 2)); syncLayout(); };
       fillOk();
       // the divider line at the bottom of the header (black header: its edge under the boxes)
-      const botBox = el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Divider line"),
+      const botBox = el("div", { class: "field boxed" }, el("span", { class: "label" }, "Divider line"),
         radios("linebottom", [[1, "On"], [0, "Off"]], s.lineBottom, v => { s.lineBottom = v; }));
       const headerCard = subCard("headerOpen", "Header", true, "showHeader",
         el("fieldset", { class: `set-${id}` },
@@ -814,17 +959,18 @@
               el("span", { class: "label" }, "Title"),
               el("input", { type: "text", maxlength: "12", value: s.name, placeholder: DEFAULT_TITLE, autocomplete: "off", style: "max-width: 10em",
                 oninput: e => { s.name = e.target.value; setHeading(); redraw(); } })),
-            el("div", { class: "field wide boxed" },
-              el("div", { class: "choices header-sec" },
-                field("Invert colors", radios("headinv", [[1, "On"], [0, "Off"]], s.headInv, v => {
-                  s.headInv = v; setDisabled(colBox, !v || panel.colors === 2); fillOk(); })),
-                colBox,
-                fillBox)),
+            // the places Left, Middle, Right with their Highlight ticks, right below Title, each in its own
+            // frame, three equal ones over the whole width (user)
+            el("div", { class: "wide trio" }, ...places.map((place, i) => el("div", { class: "field boxed" },
+              el("span", { class: "label" }, place), layoutSel[i],
+              el("label", { class: "check" }, litBox[i], "Highlight")))),
+            // each in its own frame (user): Invert colors | Color highlight, Divider line | Fill gaps
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Invert colors"),
+              radios("headinv", [[1, "On"], [0, "Off"]], s.headInv, v => {
+                s.headInv = v; setDisabled(colBox, !v || panel.colors === 2); fillOk(); })),
+            colBox,
             botBox,
-            el("div", { class: "field wide boxed" },
-              el("div", { class: "choices header-places" }, ...places.map((place, i) => el("div", { class: "field" },
-                el("span", { class: "label" }, place), layoutSel[i],
-                el("label", { class: "check" }, litBox[i], "Highlight"))))))));
+            fillBox)));
 
       const setHeading = () => { heading.textContent = nameOf(id, s); titles.forEach(t => { t.textContent = heading.textContent; }); };
       const main = el("article", { class: "card", "aria-labelledby": `h-${id}` },
@@ -834,7 +980,7 @@
           ...redrawNow),
         el("div", { class: "shot" },
           el("div", { class: "glass" }, el("canvas", { id: `cv-${id}`, role: "img", "aria-label": `Preview of display ${id}` })),
-          el("div", { class: "pager" },
+          el("div", { class: "pager", id: `pager-${id}` },
             el("button", { class: "btn small", type: "button", "aria-label": "Previous page", onclick: () => { pages[id] = (pages[id] || 0) - 1; drawPreview(entry); } }, "‹"),
             el("span", { id: `pg-${id}` }),
             el("button", { class: "btn small", type: "button", "aria-label": "Next page", onclick: () => { pages[id] = (pages[id] || 0) + 1; drawPreview(entry); } }, "›"))),
@@ -853,28 +999,36 @@
             el("input", { type: "text", class: "pagename", maxlength: "32", value: pageName, placeholder: defaultPageName, autocomplete: "off", style: "max-width: 14em",
               oninput: e => { pageName = e.target.value; applyPageName(); syncPageName(e.target); changed(); } })),
           // 12 or 24 hours: the time in the header and on the time page
-          el("div", { class: "field wide boxed" }, el("div", { class: "choices" },
+          el("div", { class: "field boxed" }, el("div", { class: "choices" },
             field("Time format", radios("timefmt", [[0, "24h"], [1, "12h"]], s.timeFmt, v => { s.timeFmt = v; setDisabled(ampmBox, !v); })),
             ampmBox)),
-          // framed: Panel over the full width, then Rotation | Title, Rows per page | Auto page turn
-          el("div", { class: "group wide" },
-            el("div", { class: "field wide" }, el("span", { class: "label" }, "Panel"),
-              el("div", { class: "choices panel-pick" }, panelSel, el("span", { class: "ro" }, live ? board.name : "not connected"))),
-            field("Rotation", radios("rot", [[0, "0°"], [90, "90°"], [180, "180°"], [270, "270°"]], s.rot, v => { s.rot = v; })),
-            el("fieldset", { class: `set-${id}` },
-              el("div", { class: "field" }, el("span", { class: "label" }, "Rows per page"),
-                el("div", { class: "oneline" }, radios("rows", rowOptions, s.rows, v => { s.rows = v; pages[id] = 0; }))),
-              // the only hint text on the page
-              field("Auto page turn (HH:MM:SS)", el("div", { class: "choices", style: "flex-wrap: nowrap; gap: 8px" }, pageTurn,
+          // Live display: the preview shows what the panel shows (this browser, no need to save)
+          el("div", { class: "field boxed" }, el("span", { class: "label" }, "Live display"),
+            el("div", { class: "choices" }, el("label", { class: "check" },
+              el("input", { type: "checkbox", checked: mirrorOn(id), onchange: e => { setPref(id, "mirror", e.target.checked ? 1 : 0); delete mirror[id]; drawPreview(entry); } }),
+              "Live display"))),
+          // each in its own frame (user): Panel over the full width, then Rotation | Rows per page,
+          // Auto page turn | Refresh
+          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Panel"),
+            el("div", { class: "choices panel-pick" }, panelSel, el("span", { class: "ro" }, live ? board.name : "not connected"))),
+          el("div", { class: "field boxed" }, el("span", { class: "label" }, "Rotation"),
+            radios("rot", [[0, "0°"], [90, "90°"], [180, "180°"], [270, "270°"]], s.rot, v => { s.rot = v; })),
+          el("fieldset", { class: `set-${id}` },
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Rows per page"),
+              el("div", { class: "oneline" }, radios("rows", rowOptions, s.rows, v => { s.rows = v; pages[id] = 0; }))),
+            // the only hint text on the page
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Auto page turn (HH:MM:SS)"),
+              el("div", { class: "choices", style: "flex-wrap: nowrap; gap: 8px" }, pageTurn,
                 el("span", { class: "count", style: "white-space: nowrap" }, "00:00:00 = off"))),
-              field("Refresh", refreshSel))),
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Refresh"), refreshSel)),
           el("div", { class: "field wide boxed" },
             el("span", { class: "label" }, "Display pins"),
             el("div", { class: "choices pins" }, ...pinSelects)),
-          ...remove.map(b => el("div", { class: "wide" }, b))),
-        el("details", { class: "fold boxed" },
-          el("summary", {}, `Frame (data received via ${via})`),
-          el("pre", { id: `frame-${id}` })));
+          ...remove.map(b => el("div", { class: "wide" }, b))));
+      // the frame the display gets (over USB or WiFi): at the end of the Advanced Ink card (user)
+      const frameFold = el("details", { class: "fold boxed" },
+        el("summary", {}, `Frame (data received via ${via})`),
+        el("pre", { id: `frame-${id}` }));
       if (wifiCard) wifiCard.classList.add("keep-on");   // its settings are not dimmed when the page is off
       // Time: a page with the time in big, below it weekday and date (each when ticked); the system
       // time of the server, counted on by the board, or (boards with WiFi) NTP in a time zone.
@@ -933,48 +1087,109 @@
                 s.timeWday = e.target.checked ? 1 : 0; redraw(); } }), "Weekday"),
               // the time page with or without the header line (the other pages keep theirs)
               el("label", { class: "check" }, el("input", { type: "checkbox", checked: s.timeHead === 1, onchange: e => {
-                s.timeHead = e.target.checked ? 1 : 0; redraw(); } }), "Header"))),
+                s.timeHead = e.target.checked ? 1 : 0; justTime(); redraw(); } }), "Header"))),
           el("div", { class: "field wide boxed" },
             el("div", { class: "choices header-sec" },
               ntpBox,
               el("label", { class: "field" }, el("span", { class: "label" }, "NTP server"), el("div", { class: "combo" }, ntpIn, ntpList)))),
-          // colour panels: the time in the third colour (the date stays black), with a black outline
+          // colour panels: the time in the third colour (the date stays black), with a black outline;
+          // Just give me time: only the time page on the display, the other page cards are hidden (their
+          // settings stay)
           el("div", { class: "field wide boxed" },
             el("div", { class: "choices" },
               el("label", { class: "check" }, timeColTick, "Color highlight"),
-              el("label", { class: "check" }, timeFrameTick, "Time frame")))));
-      // Advanced Ink: the start screen, "Nothing to ink" and "Check connection" each shown when needed or
-      // never (the board keeps the start screen setting for the next power-up)
+              el("label", { class: "check" }, timeFrameTick, "Time frame"),
+              el("label", { class: "check" },
+                el("input", { type: "checkbox", checked: s.justTime === 1, onchange: e => { s.justTime = e.target.checked ? 1 : 0; justTime(); pages[id] = 0; redraw(); } }),
+                "Just give me time")))));
+      // the screens with a picture, each a card named after it, inside the screen as this display would
+      // show it. Ink: the picture is used at all. On cue: its case, The Conversation = "Nothing to
+      // ink" (every page off), The Intermission = "Check connection" (no data); Header: the header line
+      // above the picture; Scheduled: from..to only this picture (the windows of the three must not
+      // overlap; it comes before the case); Turn candidate: the picture as a page after the others.
+      // (saved in inksights.conf columns 62-66, sent in the A line)
+      const screenCard = a => {
+        const artTick = (key, label, then) => el("label", { class: "check" },
+          el("input", { type: "checkbox", checked: s[key] !== 0, disabled: key === a.p + "Cap" && capOff(),
+            onchange: e => { s[key] = e.target.checked ? 1 : 0; if (then) then(); pages[id] = 0; redraw(); } }), label);
+        // Caption only with its case (On cue), The Afterhours only with its time window (Scheduled)
+        const capOff = () => a.auto ? s[a.auto] === 0 : s[a.p + "Sched"] !== 1;
+        const capTick = artTick(a.p + "Cap", "Caption"), capSync = () => { capTick.querySelector("input").disabled = capOff(); };
+        const times = ["From", "To"].map(k => el("input", { type: "time", value: s[a.p + k], required: true, disabled: s[a.p + "Sched"] !== 1, "aria-label": `${a.title} ${k.toLowerCase()}`,
+          onchange: e => { if (HHMM_RE.test(e.target.value)) { s[a.p + k] = e.target.value; redraw(); } } }));
+        return subCard(a.p + "Open", a.title, false, inkKey(a),
+          ...(afterhours ? [el("div", { class: "form" },
+            el("div", { class: "field wide boxed" },
+              // the order (user): Header, Caption, Turn candidate, On cue
+              el("div", { class: "choices" }, artTick(a.p + "Head", "Header"), capTick, artTick(a.p + "Rot", "Turn candidate"),
+                ...(a.auto ? [artTick(a.auto, "On cue", capSync)] : []))),
+            el("div", { class: "field wide boxed" },
+              el("div", { class: "choices" }, artTick(a.p + "Sched", "Scheduled", () => { times.forEach(t => { t.disabled = s[a.p + "Sched"] !== 1; }); capSync(); }),
+                field("From", times[0]), field("To", times[1]))))] : []),
+          el("div", { class: "shot mini" }, el("div", { class: "glass" },
+            el("canvas", { id: `scr-${id}-${a.kind}`, role: "img", "aria-label": `${a.title} on display ${id}` }))));
+      };
+      const screenCards = artsShown().map(screenCard);
+      // Advanced Ink: the start screen shown at power-up or never (the board keeps the setting for the
+      // next power-up)
       const screenTick = (key, label) => el("label", { class: "check" },
         el("input", { type: "checkbox", checked: s[key] !== 0, onchange: e => { s[key] = e.target.checked ? 1 : 0; redraw(); } }), label);
       // and the backup: the settings of this display as a JSON file, and back (also from another board)
       const advCard = subCard("advOpen", "Advanced Ink", false, null,
         el("div", { class: "form" },
-          // only the time page on the display: the other page cards are hidden (their settings stay)
-          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Pages"),
-            el("div", { class: "choices" }, el("label", { class: "check" },
-              el("input", { type: "checkbox", checked: s.justTime === 1, onchange: e => { s.justTime = e.target.checked ? 1 : 0; justTime(); pages[id] = 0; redraw(); } }),
-              "Just give me time"))),
-          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Screens"),
-            el("div", { class: "choices" }, screenTick("inkSplash", "Start screen"), screenTick("inkNothing", "Nothing to ink"), screenTick("inkNoData", "No connection"))),
-          // remembered in this browser, like which cards are folded (no need to save)
-          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Bar behaviour"),
-            el("div", { class: "choices" }, el("label", { class: "check" },
-              el("input", { type: "checkbox", checked: !!pref(id, "autoFold", 1), onchange: e => setPref(id, "autoFold", e.target.checked ? 1 : 0) }), "Auto collapse"))),
+          // in one row, each in its own frame (user): Screens | Bar behaviour | Pictures
+          el("div", { class: "wide trio" },
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Screens"),
+              el("div", { class: "choices" }, screenTick("inkSplash", "Start screen"))),
+            // remembered in this browser, like which cards are folded (no need to save)
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Bar behaviour"),
+              el("div", { class: "choices" }, el("label", { class: "check" },
+                el("input", { type: "checkbox", checked: !!pref(id, "autoFold", 1), onchange: e => setPref(id, "autoFold", e.target.checked ? 1 : 0) }), "Auto collapse"))),
+            // the pictures of The Conversation, The Intermission and The Afterhours without the bottle
+            // (inksights.conf column 66)
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Pictures"),
+              el("div", { class: "choices" }, el("label", { class: "check" },
+                el("input", { type: "checkbox", checked: s.sober === 1, onchange: e => { s.sober = e.target.checked ? 1 : 0; redraw(); } }), "Sobriety")))),
+          // OTA Update: the check whether the firmware of the WebUI fits this board, the button, the progress
+          ...(versionCheck && backend.ota ? [el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "OTA Update"),
+            ...otaLines(live, ota),
+            ...(otaText(live && live.ota) ? [el("p", { class: `about-text${live.ota.state === "failed" ? " warn" : ""}` }, otaText(live.ota))] : []),
+            el("div", { class: "choices" },
+              el("button", { class: "btn", type: "button", disabled: !ota.ok || otaBusy, onclick: () => startOta(id, s, ota.fw) }, "Update firmware"),
+              // a firmware that fits: what the click does (user)
+              ...(ota.ok && !otaBusy ? [el("span", { class: "ota-note plain" }, "Click initiates the update.")] : [])),
+            // manual update: a firmware file from this computer, checked here before it is uploaded
+            ...(backend.otaFile ? [el("span", { class: "label" }, "Manual update"),
+              ...(otaFiles[id] ? [el("p", { class: `about-text${otaFiles[id].ok ? " good" : otaFiles[id].plain ? "" : " warn"}` }, otaFiles[id].why)] : []),
+              el("div", { class: "choices" },
+                el("button", { class: "btn", type: "button", disabled: otaBusy || !board.wifi, onclick: () => $(`otafile-${id}`).click() }, "Choose file"),
+                el("button", { class: "btn", type: "button", disabled: !(otaFiles[id] && otaFiles[id].ok) || otaBusy, onclick: () => uploadOta(id, s) }, "Upload"),
+                // a file that fits: what the click does (user)
+                ...(otaFiles[id] && otaFiles[id].ok && !otaBusy ? [el("span", { class: "ota-note" }, "Upload flashes it, the board restarts.")] : []),
+                el("input", { type: "file", id: `otafile-${id}`, accept: ".bin,application/octet-stream", hidden: true, onchange: e => pickOtaFile(id, e.target.files[0], live, board) }))] : []))] : []),
           el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Backup"),
             el("div", { class: "choices" },
               el("button", { class: "btn", type: "button", onclick: () => doExport(id) }, "Export"),
               el("button", { class: "btn", type: "button", onclick: () => $(`import-${id}`).click() }, "Import"),
-              el("input", { type: "file", id: `import-${id}`, accept: ".json,application/json", hidden: true, onchange: e => doImport(id, e.target.files[0]) })))));
+              el("input", { type: "file", id: `import-${id}`, accept: ".json,application/json", hidden: true, onchange: e => doImport(id, e.target.files[0]) })))),
+        frameFold);
       // System, Drives, Network, Time and WiFi move with their grip (dragged, or the arrow keys on it);
       // their order is the order of the pages on the display (H field 28). Display, Header and
       // Advanced Ink stay where they are.
-      const movable = { S: sysCard, D: disksCard, N: netCard, T: timeCard, W: wifiCard };
+      // The Conversation, The Intermission and The Afterhours move too: their
+      // place is their place in the page turn (Turn candidate)
+      const movable = { S: sysCard, D: disksCard, N: netCard, T: timeCard, W: wifiCard,
+        ...(afterhours ? Object.fromEntries(artsShown().map((a, i) => [a.key, screenCards[i]])) : {}) };
       const takeOrder = c => {
         let o = [...c.parentElement.querySelectorAll(".sub-card[data-page]")].map(x => x.dataset.page).join("");
-        // a page without a card here (WiFi on a board without WiFi) keeps its place
-        [...s.pageOrder].forEach((k, i) => { if (!o.includes(k)) o = o.slice(0, i) + k + o.slice(i); });
-        if (o !== s.pageOrder) { s.pageOrder = o; pages[id] = 0; redraw(); }
+        // a card that is not here (WiFi on a board without WiFi, the pictures on the real page) keeps its place
+        [...s.cardOrder].forEach((k, i) => { if (!o.includes(k)) o = o.slice(0, i) + k + o.slice(i); });
+        if (o !== s.cardOrder) {
+          s.cardOrder = o;
+          s.pageOrder = [...o].filter(k => EPD.PAGE_ORDER.includes(k)).join("");
+          pages[id] = 0;
+          redraw();
+        }
       };
       const grip = c => {
         const g = el("button", { class: "grip", type: "button", "aria-label": "Move this card",
@@ -1024,16 +1239,18 @@
         return g;
       };
       for (const [k, c] of Object.entries(movable)) if (c) { c.dataset.page = k; c.append(grip(c)); }
-      // Just give me time: the Header card and every page card but Time hidden, the time page switched on (and kept on)
+      // Just give me time: the Header card and every page card but Time hidden, the time page switched on (and kept on);
+      // the Header card stays while the Time card's Header is ticked (the time page then has the header)
       const justTime = () => {
         const on = s.justTime === 1, ink = timeCard.querySelector(".page-toggle input");
-        for (const c of [headerCard, sysCard, disksCard, netCard, wifiCard]) if (c) c.hidden = on;
+        for (const c of [sysCard, disksCard, netCard, wifiCard]) if (c) c.hidden = on;
+        headerCard.hidden = on && s.timeHead !== 1;
         if (on) { s.showTime = 1; ink.checked = true; timeCard.classList.remove("off"); }
         ink.disabled = on;
         evenOut();
       };
       justTime();
-      return { main, subs: [displayCard, headerCard, ...[...s.pageOrder].map(k => movable[k]).filter(Boolean), advCard] };
+      return { main, subs: [displayCard, headerCard, ...[...s.cardOrder].map(k => movable[k]).filter(Boolean), ...(afterhours ? [] : screenCards), advCard] };
     }
 
     function render(force) {
@@ -1119,6 +1336,7 @@
         defaultPageName = data.defaultPagename || defaultPageName;
         appProblem = typeof data.problem === "string" ? data.problem : "";   // the app cannot write its data folder
         versionCheck = data.versionCheck === true;
+        firmwareCat = data.firmware && typeof data.firmware === "object" ? data.firmware : {};
         const newVersion = typeof data.version === "string" && data.version !== appVersion;
         if (newVersion) appVersion = data.version;   // before render: the cards compare the firmware with it
         applyPageName();
@@ -1174,7 +1392,112 @@
     // every display; all three belong together. Below the status line, and a notice for every one that
     // differs from the settings page
     // (simulator only so far: its load() data carry versionCheck)
-    let versionCheck = false;
+    let versionCheck = false, firmwareCat = {};
+    // the pictures with all their settings (once the simulator only: its load() data carried afterhours); now
+    // the settings page, inksights.sh and the firmware know them
+    const afterhours = true;
+
+    // OTA update (boards with WiFi): does the firmware the WebUI carries fit this board? It must have WiFi and
+    // be connected to a WiFi network, the WebUI must carry a firmware built for exactly this board, and it
+    // must fit the free firmware slot (board.slot)
+    function otaCheck(live, board) {
+      if (!live) return { ok: false, why: "Not connected." };
+      if (!board.wifi) return { ok: false, plain: true, why: `${board.name} has no WiFi: update it over USB.` };   // a fact, not a problem: not in red (user)
+      if (live.net !== "sta") return { ok: false, why: "Not connected to a WiFi network." };
+      const fw = firmwareCat[live.board];
+      if (!fw || typeof fw.version !== "string") return { ok: false, why: `The WebUI carries no firmware for ${board.name}.` };
+      if (!(fw.size > 0) || !(fw.size <= board.slot)) return { ok: false, why: `Firmware ${fw.version} does not fit the firmware slot of this board.` };
+      if (live.fw === fw.version) return { ok: false, same: true, fw, why: `Firmware ${fw.version} installed and matches the board.` };
+      return { ok: true, fw, why: `Firmware ${fw.version} for ${board.name} matches the board (${live.fw || "?"} installed).` };
+    }
+    // a firmware file chosen for the manual update: an ESP32 app image for the chip of this board, with the ID
+    // of this board inside (the PONG text " board=<id> wifi="), small enough for the firmware slot. A factory
+    // image (a release file: bootloader, partition table and app) works too: the app is cut out of it.
+    const u32 = (b, p) => (b[p] | b[p + 1] << 8 | b[p + 2] << 16 | b[p + 3] << 24) >>> 0;
+    // the length of the app image at off: header, segments, checksum padded to 16 bytes, SHA-256 when
+    // appended; 0 when there is none or it is cut short
+    function appLength(b, off) {
+      if (b.length < off + 24 || b[off] !== 0xE9) return 0;
+      let p = off + 24;
+      for (let i = 0; i < b[off + 1]; i++) { if (p + 8 > b.length) return 0; p += 8 + u32(b, p + 4); }
+      p = Math.floor((p + 16) / 16) * 16;
+      if (b[off + 23] === 1) p += 32;
+      return p <= b.length ? p - off : 0;
+    }
+    // the app in a factory image: the first firmware slot (ota_0) of its partition table at 0x8000, else
+    // the factory slot; -1 when the file has no partition table, 0 when it holds no app
+    function factoryApp(b) {
+      if (b.length < 0x8020 || b[0x8000] !== 0xAA || b[0x8001] !== 0x50) return -1;
+      let at = 0;
+      for (let p = 0x8000; p + 32 <= b.length && b[p] === 0xAA && b[p + 1] === 0x50; p += 32) {
+        if (b[p + 2] !== 0) continue;
+        if (b[p + 3] === 0x10) return u32(b, p + 4);
+        if (b[p + 3] === 0 && !at) at = u32(b, p + 4);
+      }
+      return at;
+    }
+    const CHIPS = { 0: "ESP32", 2: "ESP32-S2", 5: "ESP32-C3", 9: "ESP32-S3", 12: "ESP32-C2", 13: "ESP32-C6" };
+    const otaFiles = {};   // per display: the file chosen and its check (not saved)
+    function otaFileCheck(buf, name, live, board) {
+      if (!live) return { ok: false, why: "Not connected." };
+      if (!board.wifi) return { ok: false, plain: true, why: `${board.name} has no WiFi: update it over USB.` };   // a fact, not a problem: not in red (user)
+      if (live.net !== "sta") return { ok: false, why: "Not connected to a WiFi network." };
+      let b = new Uint8Array(buf);
+      if (b.length < 0x100 || b[0] !== 0xE9) return { ok: false, why: `${name}: not an ESP32 firmware file.` };
+      const at = factoryApp(b), off = at < 0 ? 0 : at, len = at ? appLength(b, off) : 0;
+      if (!len) return { ok: false, why: `${name}: no complete firmware in this file.` };
+      b = b.slice(off, off + len);
+      const chip = b[12] | b[13] << 8, want = /c3/.test(live.board) ? 5 : /s3/.test(live.board) ? 9 : -1;
+      if (chip !== want) return { ok: false, why: `${name}: built for ${CHIPS[chip] || "another chip"}, not for the ${CHIPS[want] || "chip"} of this board.` };
+      if (!(b.length <= board.slot)) return { ok: false, why: `${name}: too big for the firmware slot of this board.` };
+      const text = new TextDecoder("latin1").decode(b), m = text.match(/ board=([a-z0-9-]{1,40}) wifi=/);
+      if (!m) return { ok: false, why: `${name}: not an InkSights firmware.` };
+      if (m[1] !== live.board) return { ok: false, why: `${name}: firmware for ${BOARDS[m[1]] ? BOARDS[m[1]].name : m[1]}, not for ${board.name}.` };
+      return { ok: true, buf: b.buffer, why: "Firmware valid." };   // in green (user)
+    }
+    async function pickOtaFile(id, file, live, board) {
+      $(`otafile-${id}`).value = "";   // the same file can be picked again
+      if (!file) return;
+      otaFiles[id] = { name: file.name, ...otaFileCheck(await file.arrayBuffer(), file.name, live, board) };
+      render(true);
+    }
+    async function uploadOta(id, s) {
+      const f = otaFiles[id];
+      if (!f || !f.ok) return;
+      try {
+        await backend.otaFile(id, f.buf, f.name);
+        delete otaFiles[id];
+        setMsg(`${nameOf(id, s)}: ${f.name} uploaded; the board fetches it within 30 seconds.`, "ok");
+        load(true);
+      } catch (e) { setMsg(e.message, "warn"); }
+    }
+    // the first lines of the OTA Update frame (user): whether a newer firmware is there (the one the WebUI
+    // carries for this board, else the version of the WebUI; also for boards without WiFi), then, only with a
+    // newer one, why it cannot be flashed from here (no WiFi: a fact, in the normal colour; the rest in red)
+    function otaLines(live, ota) {
+      if (!live) return [el("p", { class: "about-text warn" }, ota.why)];
+      const target = (firmwareCat[live.board] && firmwareCat[live.board].version) || appVersion;
+      if (!(target && (!live.fw || newer(target, live.fw)))) return [el("p", { class: "about-text" }, "Firmware up to date.")];
+      // why it cannot be flashed from here: only with a newer firmware (user)
+      return [el("p", { class: "about-text good" }, "New firmware available!"),
+        ...(!ota.ok && !ota.same ? [el("p", { class: `about-text${ota.plain ? "" : " warn"}` }, ota.why)] : [])];
+    }
+    // the state of an update the board is running (state.json displays: ota {state, pct, version, error})
+    function otaText(o) {
+      if (!o || !o.state) return "";
+      if (o.state === "pending") return "Waiting for the board (it asks every 30 seconds) …";
+      if (o.state === "loading") return `Loading firmware ${o.version || ""} … ${Math.round(o.pct || 0)} %`;
+      if (o.state === "done") return `Updated to firmware ${o.version || ""}; the board has restarted.`;
+      if (o.state === "failed") return `Update failed${o.error ? `: ${o.error}` : ""}. The old firmware stays.`;
+      return "";
+    }
+    async function startOta(id, s, fw) {
+      try {
+        await backend.ota(id, fw.version);
+        setMsg(`${nameOf(id, s)}: firmware ${fw.version} requested; the board fetches it within 30 seconds.`, "ok");
+        load(true);
+      } catch (e) { setMsg(e.message, "warn"); }
+    }
     const fwOff = fw => versionCheck && !!appVersion && !!fw && fw !== appVersion;
     function showVersions() {
       const line = $("versions"), box = $("vercheck");
@@ -1185,7 +1508,7 @@
       const fws = [...new Set(shown.map(e => e.live.fw))];
       const part = (text, off) => el("span", { class: off ? "warn" : "" }, text);
       const parts = [part(`WebUI ${appVersion}`, false),
-        part(`Script ${!ran ? "–" : sv || "unknown"}`, scriptOff)];
+        part(`Script ${!ran ? "-" : sv || "unknown"}`, scriptOff)];
       // the firmware always with the controllers it runs on, the same version together
       for (const fw of fws)
         parts.push(part(`Firmware ${fw} (${shown.filter(e => e.live.fw === fw).map(e => nameOf(e.id, settingsFor(e.id))).join(", ")})`, fwOff(fw)));
@@ -1226,7 +1549,7 @@
             el("div", { class: "form" },
               frame("Versions", el("dl", { class: "about-list" },
                 ...row("WebUI", appVersion, false),
-                ...row("Script", !ran ? "–" : sv || "unknown", ran && sv !== appVersion),
+                ...row("Script", !ran ? "-" : sv || "unknown", ran && sv !== appVersion),
                 ...shown.flatMap(e => row(`Firmware · ${nameOf(e.id, settingsFor(e.id))}`, e.live.fw, fwOff(e.live.fw))))),
               frame("Project", el("div", { class: "choices" },
                 link(REPO, "GitHub"), link(`${REPO}/releases`, "Releases"), link(`${REPO}#readme`, "README"))),
@@ -1320,6 +1643,8 @@
     load(true);
     if (backend.pollMs) setInterval(() => load(false), backend.pollMs);
     if (backend.live) setInterval(pollLive, 500);
+    // Live display: every second the step of the panel (a redraw when the firmware would make one)
+    setInterval(() => { for (const e of displayList()) if (mirrorOn(e.id)) drawPreview(e); }, 1000);
     // a time page in a preview: drawn again as the minutes go on
     setInterval(() => { if (displayList().some(e => settingsFor(e.id).showTime === 1)) drawAll(); }, 20000);
 

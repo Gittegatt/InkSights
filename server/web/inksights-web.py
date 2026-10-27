@@ -71,7 +71,7 @@ MAX_NETS = 32                          # interfaces in the order and hidden list
 NET_SORTS = ("name", "manual")
 NET_BARS = (0, 1, 2)                   # details in the bar of the network pages: none, percentage of the link, link speed
 SYS_PARTS = ("cpu", "ram", "net", "nvme", "ssd", "hdd")       # system page components (rows); none = no system page
-CONF_COLS = 61
+CONF_COLS = 66
 # Time page: NTP server (boards with WiFi), time zone name and its POSIX rule for the board
 NTP_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$")
 TZ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_+/-]{0,39}$")
@@ -95,6 +95,91 @@ DEFAULT_PAGE_ORDER = "TSDNW"   # a new display: time, system, drives, network, W
 
 def page_order_ok(v):
     return isinstance(v, str) and len(v) == 5 and sorted(v) == sorted(DEFAULT_PAGE_ORDER)
+
+
+# The pictures: The Conversation (C, "Nothing to ink"), The Intermission (I, "Check connection"), The Afterhours
+# (A, quiet hours). Per picture Ink (used at all), Caption, Header, Page turn candidate, Scheduled with From/To; the
+# card order (the pages and the pictures, their place in the page turn) and Sobriety (without the bottle).
+PICS = (("conv", "18:00", "19:00", 0), ("inter", "12:00", "13:00", 1), ("after", "23:00", "07:00", 1))   # prefix, window, caption
+PIC_BITS = (("Cap", 1), ("Head", 2), ("Rot", 4), ("Sched", 8))   # bits of a picture in conf column picflags
+HHMM_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+CARD_LETTERS = "SDNTWCIA"
+
+
+def card_order_ok(v):
+    return isinstance(v, str) and len(v) == len(CARD_LETTERS) and sorted(v) == sorted(CARD_LETTERS)
+
+
+def card_order_fix(card, page_order):
+    """The card order with its pages in the page order (that one decides the order of the pages)."""
+    card = card if card_order_ok(card) else page_order + "CIA"
+    pages = iter(page_order)
+    return "".join(next(pages) if k in DEFAULT_PAGE_ORDER else k for k in card)
+
+
+def in_window(m, start, end):
+    """Is minute m of the day in start..end ("HH:MM"; past midnight when end < start; start = end: empty)?"""
+    f, e = int(start[:2]) * 60 + int(start[3:]), int(end[:2]) * 60 + int(end[3:])
+    return f <= m < e if f < e else f > e and (m >= f or m < e)
+
+
+def pics_from_conf(parts, page_order):
+    """The picture settings from conf columns 62-66 (missing: the defaults)."""
+    ink, flags, card, win, sober = parts[61], parts[62], parts[63], parts[64], parts[65]
+    ink = ink if re.match(r"^[01]{3}$", ink) else "111"
+    flags = flags if re.match(r"^[0-9a-f]{3}$", flags) else "".join(str(c) for _, _, _, c in PICS)
+    wins = win.split(",") if re.match(r"^([0-9]{4}-[0-9]{4},){2}[0-9]{4}-[0-9]{4}$", win) else []
+    out = {"cardOrder": card_order_fix(card, page_order), "sober": 0 if sober == "0" else 1}
+    for i, (p, f0, t0, _) in enumerate(PICS):
+        out[p + "Ink"] = int(ink[i])
+        bits = int(flags[i], 16)
+        for k, b in PIC_BITS:
+            out[p + k] = 1 if bits & b else 0
+        f, t = (wins[i][:2] + ":" + wins[i][2:4], wins[i][5:7] + ":" + wins[i][7:]) if wins else (f0, t0)
+        out[p + "From"], out[p + "To"] = (f, t) if HHMM_RE.match(f) and HHMM_RE.match(t) else (f0, t0)
+    return out
+
+
+def pics_to_conf(s):
+    """conf columns 62-66 of the picture settings."""
+    ink = "".join(str(s.get(p + "Ink", 1)) for p, _, _, _ in PICS)
+    flags = "".join(format(sum(b for k, b in PIC_BITS if s.get(p + k, c if k == "Cap" else 0)), "x") for p, _, _, c in PICS)
+    win = ",".join((s.get(p + "From", f0) + "-" + s.get(p + "To", t0)).replace(":", "") for p, f0, t0, _ in PICS)
+    card = card_order_fix(s.get("cardOrder", ""), s.get("pageOrder") if page_order_ok(s.get("pageOrder")) else DEFAULT_PAGE_ORDER)
+    return [ink, flags, card, win, str(s.get("sober", 1))]
+
+
+def validate_pics(did, s, page_order):
+    """The picture settings of a display, checked like the page does (time windows must not overlap)."""
+    out = {"sober": s.get("sober", 1)}
+    if out["sober"] not in (0, 1) or isinstance(out["sober"], bool):
+        raise SettingsError(f"Display {did}: invalid sober.")
+    for p, f0, t0, cap in PICS:
+        # a new display (user, 2026-10-27): Header, Caption, Turn candidate on, Scheduled off (the conf
+        # without these columns keeps the earlier ones: PICS caption, no header, not in the page turn)
+        for k, d in (("Ink", 1), ("Cap", 1), ("Head", 1), ("Rot", 1), ("Sched", 0)):
+            v = s.get(p + k, d)
+            if v not in (0, 1) or isinstance(v, bool):
+                raise SettingsError(f"Display {did}: invalid {p}{k}.")
+            out[p + k] = v
+        for k, d in (("From", f0), ("To", t0)):
+            v = s.get(p + k, d)
+            if not isinstance(v, str) or not HHMM_RE.match(v):
+                raise SettingsError(f"Display {did}: invalid {p}{k}.")
+            out[p + k] = v
+    timed = [p for p, _, _, _ in PICS if out[p + "Ink"] and out[p + "Sched"]]
+    for p in timed:
+        if out[p + "From"] == out[p + "To"]:
+            raise SettingsError(f"Display {did}: a time window needs a different start and end.")
+    for i, a in enumerate(timed):
+        for b in timed[i + 1:]:
+            if any(in_window(m, out[a + "From"], out[a + "To"]) and in_window(m, out[b + "From"], out[b + "To"]) for m in range(1440)):
+                raise SettingsError(f"Display {did}: the time windows of two pictures overlap.")
+    card = s.get("cardOrder", page_order + "CIA")
+    if not card_order_ok(card):
+        raise SettingsError(f"Display {did}: invalid card order.")
+    out["cardOrder"] = card_order_fix(card, page_order)
+    return out
 
 
 def iface_list(text):
@@ -179,7 +264,7 @@ def read_conf(path):
                 hidden = [u for u in parts[12].split(",") if u != "-" and UID_RE.match(u)][:MAX_ORDER]
                 style = parts[11].split(",")
                 style = ([int(x) for x in style] if len(style) in (4, 5, 6) and all(x in ("0", "1") for x in style[:5])
-                         and style[5:] in ([], ["0"], ["1"], ["2"]) else [0, 0, 1, 0])
+                         and style[5:] in ([], ["0"], ["1"], ["2"]) else [1, 1, 1, 1, 1, 1])
                 style += [0] * (6 - len(style))   # bar details: 0 percentage, 1 used capacity; decimals of the percentage
                 title = "" if parts[10] == "-" else parts[10]
                 dname = "" if parts[13] == "-" else parts[13]
@@ -256,6 +341,8 @@ def read_conf(path):
                     # time page: the time in the third colour, with a black outline
                     "timeColor": 1 if parts[59] == "1" else 0,
                     "timeFrame": 1 if parts[60] == "1" else 0,
+                    # the pictures (columns 62-66)
+                    **pics_from_conf(parts, parts[55] if page_order_ok(parts[55]) else DEFAULT_PAGE_ORDER),
                     "panel": int(parts[29]) if parts[29] in ("1", "2", "3", "4", "5") else None,
                     "wifiIcons": 0 if parts[30] == "0" else 1,
                     # missing (earlier version): title, time, then the page number or the uptime
@@ -334,7 +421,7 @@ def validate(displays, old_conf=None):
         sysp = [p for p in SYS_PARTS if p in sysp]
         show = {}
         for key, default in (("showSys", 1), ("showDisks", 1), ("showWifi", 1), ("wifiIcons", 1), ("sysIcons", 1), ("showHeader", 1),
-                             ("showNet", 1), ("netIcons", 1), ("driveTemp", 1), ("stby", 1), ("headInv", 0), ("headCol", 0),
+                             ("showNet", 1), ("netIcons", 1), ("driveTemp", 0), ("stby", 1), ("headInv", 0), ("headCol", 0),
                              ("showTime", 1), ("timeFmt", 0), ("ampm", 1), ("timeDate", 1), ("timeWday", 1), ("ntp", 0),
                              ("inkSplash", 1), ("inkNothing", 1), ("inkNoData", 1), ("lineBottom", 0), ("justTime", 0), ("timeHead", 0), ("headFill", 0), ("timeColor", 0), ("timeFrame", 0)):
             v = s.get(key, default)
@@ -357,6 +444,7 @@ def validate(displays, old_conf=None):
         if not page_order_ok(page_order):
             raise SettingsError(f"Display {did}: invalid page order.")
         show["pageOrder"] = page_order
+        show.update(validate_pics(did, s, page_order))
         fast = refresh if refresh < 60 else 0   # under a minute: fast refresh
         zfs = s.get("zfs", 0)
         if zfs not in (0, 1) or isinstance(zfs, bool):
@@ -397,7 +485,7 @@ def validate(displays, old_conf=None):
         if not NAME_RE.match(name):
             raise SettingsError(f"Display {did}: title max. 12 characters, only letters, digits, spaces and . _ - + /")
         style = []
-        for key, default in (("timer", 0), ("ringDir", 0), ("icons", 1), ("pctBar", 1), ("barCap", 0)):
+        for key, default in (("timer", 1), ("ringDir", 1), ("icons", 1), ("pctBar", 1), ("barCap", 1)):   # a new display: Ring, counterclockwise (user)
             v = s.get(key, default)
             if v not in (0, 1) or isinstance(v, bool):
                 raise SettingsError(f"Display {did}: invalid {key}.")
@@ -457,7 +545,8 @@ def write_conf(path, conf, interval, page_name=""):
         "<TAB>fast<TAB>system<TAB>network<TAB>zfs<TAB>pages<TAB>system icons<TAB>header<TAB>panel<TAB>wifi icons<TAB>layout<TAB>header on"
         "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted<TAB>header color<TAB>refresh"
         "<TAB>time format<TAB>date<TAB>weekday<TAB>date format<TAB>ntp<TAB>ntp server<TAB>time zone<TAB>posix time zone"
-        "<TAB>start screen<TAB>nothing to ink<TAB>no connection<TAB>divider line<TAB>page order<TAB>just time<TAB>time header<TAB>header fill<TAB>time color<TAB>time frame",
+        "<TAB>start screen<TAB>nothing to ink<TAB>no connection<TAB>divider line<TAB>page order<TAB>just time<TAB>time header<TAB>header fill<TAB>time color<TAB>time frame"
+        "<TAB>picture ink<TAB>picture flags<TAB>card order<TAB>picture windows<TAB>sober",
         "#   '-' = empty. boxes 0 = timer off, rows 0 = auto, warn = highlight from % used (0 = never),",
         "#   rot = degrees clockwise (0, 90, 180, 270), page = seconds between page turns (0 = off),",
         "#   pins = cs,dc,rst,busy (rst/busy -1 = none, '-' = keep the pins of the display),",
@@ -489,7 +578,11 @@ def write_conf(path, conf, interval, page_name=""):
         "#   just time = 1 only the time page (the pages stay as set) / 0 the pages (default),",
         "#   time header = the time page with the header line 1 / 0 without (default),",
         "#   header fill = 1 the whole header in the colour of the highlighted boxes / 0 only the boxes (default),",
-        "#   time color, time frame = time page: the time in the third colour 1 / 0, with a black outline 1 / 0",
+        "#   time color, time frame = time page: the time in the third colour 1 / 0, with a black outline 1 / 0,",
+        "#   picture ink = The Conversation, The Intermission, The Afterhours used 1 / 0 (default 111),",
+        "#   picture flags = per picture one hex digit: 1 caption, 2 header, 4 in the page turn, 8 scheduled (default 011),",
+        "#   card order = the pages and the pictures C I A, each once (their place in the page turn),",
+        "#   picture windows = HHMM-HHMM of each picture (scheduled: only that picture), sober = without the bottle 1 / 0",
     ]
     for did, s in sorted(conf.items()):
         order = ",".join(s["order"]) or "-"
@@ -512,7 +605,7 @@ def write_conf(path, conf, interval, page_name=""):
                                 s.get("layout") if layout_ok(s.get("layout")) else DEFAULT_LAYOUT,
                                 str(s.get("showHeader", 1)), s.get("netSort", "name"),
                                 ",".join(s.get("netOrder") or []) or "-", ",".join(s.get("netHidden") or []) or "-",
-                                str(s.get("netIcons", 1)), str(s.get("netBar", 1)), str(s.get("driveTemp", 1)), str(s.get("stby", 1)), str(s.get("headInv", 0)), str(s.get("headCol", 0)),
+                                str(s.get("netIcons", 1)), str(s.get("netBar", 1)), str(s.get("driveTemp", 0)), str(s.get("stby", 1)), str(s.get("headInv", 0)), str(s.get("headCol", 0)),
                                 str(s.get("refresh", DEFAULT_REFRESH)),
                                 str(2 if s.get("timeFmt") == 1 and s.get("ampm", 1) == 0 else s.get("timeFmt", 0)), str(s.get("timeDate", 1)), str(s.get("timeWday", 1)), str(s.get("dateFmt", 0)),
                                 str(s.get("ntp", 0)), s.get("ntpServer") or "pool.ntp.org", s.get("tz") or "UTC", s.get("tzPosix") or "UTC0",
@@ -520,7 +613,7 @@ def write_conf(path, conf, interval, page_name=""):
                                 str(s.get("lineBottom", 0)),
                                 s.get("pageOrder") if page_order_ok(s.get("pageOrder")) else DEFAULT_PAGE_ORDER,
                                 str(s.get("justTime", 0)), str(s.get("timeHead", 0)), str(s.get("headFill", 0)),
-                                str(s.get("timeColor", 0)), str(s.get("timeFrame", 0))]))
+                                str(s.get("timeColor", 0)), str(s.get("timeFrame", 0)), *pics_to_conf(s)]))
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".conf.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
@@ -730,7 +823,8 @@ class Handler(BaseHTTPRequestHandler):
             conf, interval, page_name = read_conf(os.path.join(data_dir, CONF_NAME))
             self._json(200, {"state": load_state(data_dir), "config": public_conf(conf), "interval": interval,
                              "pagename": page_name, "defaultPagename": DEFAULT_PAGE_NAME,
-                             "problem": data_problem(data_dir), "version": VERSION})
+                             "problem": data_problem(data_dir), "version": VERSION,
+                             "versionCheck": True})   # the version line and the About card: WebUI, script and firmware
         elif path == "/api/frame":
             try:
                 frame, code = wifi_frame(data_dir, self.server.run_dir, self.path.split("?", 1)[1] if "?" in self.path else "")

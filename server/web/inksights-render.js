@@ -96,15 +96,22 @@
   // Pages: the system page (S line), the disk pages, the network pages (nets = N lines, as many rows
   // per page as the disk pages), the time page (C line) and the WiFi page (H field 15), in the order
   // of H field 28; without disks the others are the only pages
-  const pageCounts = (n, h, wanted = 0, w = 0, sys = false, wifi = false, head = true, nets = 0, clock = false) => {
+  // netOn: the network pages switched on (H field 31) also without interfaces: then one page "No
+  // interfaces" when nothing else is there (user), and no "No drives" page while the drive pages are off
+  const pageCounts = (n, h, wanted = 0, w = 0, sys = false, wifi = false, head = true, nets = 0, clock = false, netOn = false, diskOn = true) => {
     const per = rowsPerPage(h, wanted, w, head);
-    const c = { S: sys ? 1 : 0, N: Math.ceil(nets / per), T: clock ? 1 : 0, W: wifi ? 1 : 0 };
-    c.D = n === 0 ? (sys || wifi || nets || clock ? 0 : 1) : Math.ceil(n / per);
+    const c = { S: sys ? 1 : 0, N: nets ? Math.ceil(nets / per) : netOn && !sys && !wifi && !clock && n === 0 ? 1 : 0, T: clock ? 1 : 0, W: wifi ? 1 : 0 };
+    c.D = n === 0 ? (sys || wifi || nets || clock || (netOn && !diskOn) ? 0 : 1) : Math.ceil(n / per);
     return c;
   };
   const pageCount = (...a) => Object.values(pageCounts(...a)).reduce((x, y) => x + y, 0);
   // the page order (H field 28): S system, D drives, N network, T time, W WiFi, each once
   const PAGE_ORDER = "SDNTW";
+  // the pictures (A line): The Conversation, The Intermission, The Afterhours: settings prefix, default time window,
+  // caption on by default; the card order holds the pages and the pictures C I A each once
+  const PICS = [["conv", "18:00", "19:00", 0], ["inter", "12:00", "13:00", 1], ["after", "23:00", "07:00", 1]];
+  const PIC_FLAGS = "011", PIC_WIN = "1800-1900,1200-1300,2300-0700";
+  const cardOrderOk = o => typeof o === "string" && o.length === 8 && [..."SDNTWCIA"].every(k => o.includes(k));
   const orderOk = o => typeof o === "string" && o.length === 5 && [...PAGE_ORDER].every(k => o.includes(k));
   // page p in that order: [kind, index within its kind]
   function pageAt(p, order, counts) {
@@ -598,7 +605,8 @@
       lay[at] = "N";
     }
     const hasT = lay.includes("T"), keep = hasT ? Math.min(m.host.length, 5) * 6 * hs : 0;
-    const text = { C: headTime(m.time, m.timeFmt), P: pages > 1 ? `${m.page + 1}/${pages}` : "", N: "NO DATA", U: "" };
+    // (m.pageNo: the number in a page turn with pictures)
+    const text = { C: headTime(m.time, m.timeFmt), P: pages > 1 ? `${(m.pageNo ?? m.page) + 1}/${pages}` : "", N: "NO DATA", U: "" };
     if (lay.includes("U") && m.uptime >= 0) {   // as many units as fit beside the others and 5 characters of the title
       let room = W - 2 * hx - (hasT ? keep - hs + gap : 0);
       for (const k of lay) if ("CPN".includes(k) && k !== "-" && text[k]) room -= textW(text[k]) * hs + gap;
@@ -697,12 +705,13 @@
   }
 
   // m = { host, time, rows, warn, timer, ringDir, icons, pctBar, uptime, layout, disks, page, mono (black/white panel) }
-  // Pictures of the "Nothing to ink" screen: three people sitting about, one hex string per row (MSB =
-  // left pixel), the same tables as in the firmware: NOTHING_ART 118 x 60 (4.2"), NOTHING_ART_M the same
+  // The Conversation: the pictures of the "Nothing to ink" screen, three people sitting about, one
+  // hex string per row (MSB = left pixel), the same tables as in the firmware: NOTHING_ART 118 x 60
+  // (4.2"), NOTHING_ART_M the same
   // with the 2.13" bottle (longer neck, one row higher, like on the "Check connection" picture; user),
   // NOTHING_ART_S 96 x 49 for narrow panels (2.13" upright), all sampled from the same drawing.
   // red = x0, y0, x1, y1 of the bottle's content, in the third colour on colour panels (user)
-  const NOTHING_ART = { w: 118, h: 60, red: [70, 14, 73, 27], cut: [[70, 18, -1], [73, 18, 1]], rows: [
+  const NOTHING_ART = { w: 118, h: 60, red: [70, 14, 73, 27], bottle: [70, 14, 73, 25], cut: [[70, 18, -1], [73, 18, 1]], rows: [
     "0000f8000000001fc00000000c0000",
     "0001fc000000003fa0000001fe0000",
     "0003fe00000000ff90000003ff8000",
@@ -763,7 +772,7 @@
     "00c003006f8243fef003f604001800",
     "0000000067c2c1f26007e600000000",
     "0000000000078003c0000000000000"] };
-  const NOTHING_ART_M = { w: 118, h: 60, red: [70, 13, 73, 26], rows: [
+  const NOTHING_ART_M = { w: 118, h: 60, red: [70, 13, 73, 26], bottle: [70, 13, 73, 24], rows: [
     "0000f8000000001fc00000000c0000",
     "0001fc000000003fa0000001fe0000",
     "0003fe00000000ff90000003ff8000",
@@ -824,7 +833,7 @@
     "00c003006f8243fef003f604001800",
     "0000000067c2c1f26007e600000000",
     "0000000000078003c0000000000000"] };
-  const NOTHING_ART_S = { w: 96, h: 49, red: [57, 12, 59, 22], rows: [
+  const NOTHING_ART_S = { w: 96, h: 49, red: [57, 12, 59, 22], bottle: [57, 12, 59, 20], rows: [
     "000780000000fc0000006000",
     "000fc0000001f8000007f000",
     "001fe0000007fa00000ff800",
@@ -874,10 +883,10 @@
     "0300203f848fae01f4100980",
     "00000033c50f2c03e4000000",
     "000000000700180000000000"] };
-  // Pictures of the "Check connection" screen (NO DATA): the same table and chairs without the people
-  // and the bottle of the "Nothing to ink" picture (red = the bottle, third colour; user):
-  // 172 x 93 in the pixels of the 4.2" (drawn 1x), the same tables as in the firmware
-  const NODATA_ART = { w: 172, h: 93, red: [108, 5, 115, 32], rows: [
+  // The Intermission: the pictures of the "Check connection" screen (NO DATA), the same table and
+  // chairs without the people and the bottle of the "Nothing to ink" picture (red = the bottle, third
+  // colour; user): 172 x 93 in the pixels of the 4.2" (drawn 1x), the same tables as in the firmware
+  const NODATA_ART = { w: 172, h: 93, red: [108, 5, 115, 32], bottle: [108, 5, 115, 32], glass: [117, 24, 123, 32], rows: [
     "fff00000000000000000000000000000000000000000",
     "fff00000000000000000000000000000000000000000",
     "fff00000000000000000000000000000000000000000",
@@ -972,7 +981,7 @@
     "0000000000000003f000000318000000000000000000",
     "0000000000000003f0000003f8000000000000000000"] };
   // the same at half size for the 2.13" (landscape and upright)
-  const NODATA_ART_M = { w: 86, h: 47, red: [54, 2, 57, 15], rows: [
+  const NODATA_ART_M = { w: 86, h: 47, red: [54, 2, 57, 15], bottle: [54, 2, 57, 15], glass: [59, 12, 61, 15], rows: [
     "fc00000000000000000000",
     "fc00000000000000000000",
     "c8000000000001800000fc",
@@ -1020,15 +1029,143 @@
     "0000000160016000000000",
     "00000001e0016000000000",
     "00000001c001e000000000"] };
+  // The Afterhours: the table of The Intermission with one column and a wide foot, both chairs upside down
+  // on it, the bottle on the floor (red = the bottle; user); the quiet hours screen. 172 x 80 for the 4.2",
+  // the same at half size (86 x 40) for the 2.13"; the floor on the row of the chairs of The Intermission
+  const AFTER_ART = { w: 172, h: 80, red: [103, 52, 110, 79], bottle: [103, 52, 110, 79], rows: [
+    "0000000000f000000f0000000f000000f00000000000",
+    "0000000000f000000f0000000f000000f00000000000",
+    "0000000000f000000f0000000f000000f00000000000",
+    "0000000000f000000f0000000f000000f00000000000",
+    "00000000003c00000f0000000f000003c00000000000",
+    "00000000003c00000f0c00030f000003c00000000000",
+    "00000000003d80000f0c00030f00001bc00000000000",
+    "00000000003d80000f0c00030f00001bc00000000000",
+    "00000000003d80000f0c00030f00001bc00000000000",
+    "00000000003d80000f0c00030f00001bc00000000000",
+    "00000000003d80000f0c00030f00001bc00000000000",
+    "00000000003d80000f0c00030f00001bc00000000000",
+    "00000000003ffffffffc0003ffffffffc00000000000",
+    "00000000003ffffffffc0003ffffffffc00000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000ffffffffc0003ffffffff000000000000",
+    "00000000000ffffffffc0003ffffffff000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "00000000000f80000f0c00030f00001f000000000000",
+    "0000000000ffffffffff000ffffffffff00000000000",
+    "0000000000ffffffffff000ffffffffff00000000000",
+    "0000000000ffffffffff000ffffffffff00000000000",
+    "0000000000ffffffffff000ffffffffff00000000000",
+    "0000000000f3fffffffffffffffffffcf00000000000",
+    "0000000000f3fffffffffffffffffffcf00000000000",
+    "0000000000f3fffffffffffffffffffcf00000000000",
+    "0000000000f300000003fffc0000000cf00000000000",
+    "0000000000f300000003fffc0000000cf00000000000",
+    "0000000000f3000000000f000000000cf00000000000",
+    "0000000003cc000000000f00000000033c0000000000",
+    "0000000003cc000000000f00000000033c0000000000",
+    "0000000003cc000000000f00000000033c0000000000",
+    "0000000003cc000000000f00000000033c0000000000",
+    "0000000003cc000000000f00000000033c0000000000",
+    "0000000003cc000000000f00000000033c0000000000",
+    "0000000003cc000000000f00000000033c0000000000",
+    "0000000003cc000000000f00000000033c0000000000",
+    "000000000f0c000000000f00000000030f0000000000",
+    "000000000f0c000000000f00000000030f0000000000",
+    "000000000f30000000000f0000000000cf0000000000",
+    "000000000f30000000000f0000000000cf0000000000",
+    "000000000f30000000000f0000000000cf0000000000",
+    "000000000f30000000000f0000780000cf0000000000",
+    "000000000ff0000000000f0000780000ff0000000000",
+    "000000000ff0000000000f0000780000ff0000000000",
+    "000000003c30000000000f0000780000c3c000000000",
+    "000000003c30000000000f0000780000c3c000000000",
+    "000000003cc0000000000f000078000033c000000000",
+    "000000003cc0000000000f000078000033c000000000",
+    "000000003cc0000000000f000078000033c000000000",
+    "000000003cc0000000000f0000fc000033c000000000",
+    "000000003cc0000000000f0001fe000033c000000000",
+    "000000003cc0000000000f0001fe000033c000000000",
+    "00000000f0c0000000000f0001fe000030f000000000",
+    "00000000f0c0000000000f0001fe000030f000000000",
+    "00000000f0c0000000000f0001fe000030f000000000",
+    "00000000f0c0000000000f00001e000030f000000000",
+    "00000000f300000000000f00001e00000cf000000000",
+    "00000000f300000000000f00001e00000cf000000000",
+    "00000000f300000000000f00001e00000cf000000000",
+    "00000000f300000000000f00001e00000cf000000000",
+    "00000003c300000000000f00001e00000c3c00000000",
+    "00000003c300000000000f00001e00000c3c00000000",
+    "00000003ffc0000000000f00001e00003ffc00000000",
+    "00000003ffc000000000fff0001e00003ffc00000000",
+    "00000003ffc000000000fff0001e00003ffc00000000",
+    "00000003ffc00000000fffff01fe00003ffc00000000",
+    "0000000000000000000fffff01fe0000000000000000",
+    "000000000000000000fffffff1fe0000000000000000",
+    "000000000000000000fffffff1fe0000000000000000"] };
+  const AFTER_ART_M = { w: 86, h: 40, red: [52, 26, 55, 39], bottle: [52, 26, 55, 39], rows: [
+    "00000c0030003000c00000",
+    "00000c0030003000c00000",
+    "0000060033033001800000",
+    "0000078033033007800000",
+    "0000078033033007800000",
+    "0000078033033007800000",
+    "000007ffff03ffff800000",
+    "0000038033033007000000",
+    "0000038033033007000000",
+    "0000038033033007000000",
+    "000003ffff03ffff000000",
+    "0000038033033007000000",
+    "0000038033033007000000",
+    "0000038033033007000000",
+    "00000fffff03ffffc00000",
+    "00000fffff03ffffc00000",
+    "00000dfffffffffec00000",
+    "00000dfffffffffec00000",
+    "00000d0001fe0002c00000",
+    "00001a0000300001600000",
+    "00001a0000300001600000",
+    "00001a0000300001600000",
+    "00001a0000300001600000",
+    "0000320000300001300000",
+    "0000340000300000b00000",
+    "0000340000300000b00000",
+    "00003c0000300600f00000",
+    "0000640000300600980000",
+    "0000680000300600580000",
+    "0000680000300600580000",
+    "0000680000300f00580000",
+    "0000c80000300f004c0000",
+    "0000c80000300f004c0000",
+    "0000d000003003002c0000",
+    "0000d000003003002c0000",
+    "0001900000300300260000",
+    "0001f800003003007e0000",
+    "0001f80000fc03007e0000",
+    "0000000003ff0f00000000",
+    "000000000fffcf00000000"] };
   // draws picture a at x, y with every picture pixel s x s; third = colour of the bottle's content.
   // cut: [x, y, side] pixels that lose their upper outer quarter when drawn 2x or bigger (side -1 left,
   // 1 right): the bottle's step from the neck to the shoulder, half a picture pixel high (user)
-  function drawArt(fb, a, x, y, s, third) {
-    const [rx0, ry0, rx1, ry1] = a.red;
+  // sober (Advanced Ink, Sobriety): without the bottle and the glass (a.bottle,
+  // a.glass: the regions they take)
+  function drawArt(fb, a, x, y, s, third, sober) {
+    const [rx0, ry0, rx1, ry1] = a.red, gone = sober ? [a.bottle, a.glass].filter(Boolean) : [];
+    const off = (c, r) => gone.some(([x0, y0, x1, y1]) => c >= x0 && c <= x1 && r >= y0 && r <= y1);
     a.rows.forEach((hex, r) => {
       for (let c = 0; c < a.w; c++)
-        if ((parseInt(hex.substr((c >> 3) * 2, 2), 16) >> (7 - (c & 7))) & 1)
-          fb.fillRect(x + c * s, y + r * s, s, s, c >= rx0 && c <= rx1 && r >= ry0 && r <= ry1 ? third : BK);
+        if ((parseInt(hex.substr((c >> 3) * 2, 2), 16) >> (7 - (c & 7))) & 1 && !off(c, r))
+          fb.fillRect(x + c * s, y + r * s, s, s, !sober && c >= rx0 && c <= rx1 && r >= ry0 && r <= ry1 ? third : BK);   // sober: what is left of its foot black, like the table
     });
     const q = s >> 1;
     if (q) for (const [c, r, side] of a.cut || []) fb.fillRect(x + c * s + (side > 0 ? s - q : 0), y + r * s, q, q, WH);
@@ -1038,14 +1175,17 @@
   // screen: triple size on the 4.2", double on the 2.13", smaller while wider than W - 8; "Nothing to
   // ink": the people (4.2" its own bottle), the narrow one where 1x does not fit (2.13" upright), as big
   // as fits (whole multiples, at most as wide as the text unless 1x); "Check connection": the empty
-  // table (4.2" its own picture, 2.13" the half-size one), only 1x
-  function msgArt(noData, W, H, HH, wide) {
-    const msg = noData ? "Check connection" : "Nothing to ink";
+  // table (4.2" its own picture, 2.13" the half-size one), only 1x; the quiet hours screen like
+  // "Check connection" with The Afterhours (kind D = Check connection, N = Nothing to ink, Q = quiet hours).
+  // The texts only with Caption (user); they always set how big the pictures are
+  function msgArt(kind, W, H, HH, wide, text) {
+    const msg = text || (kind === "D" ? "Check connection" : kind === "Q" ? "Closed" : "Nothing to ink");
     let ms = wide ? 3 : 2;
     while (ms > 1 && textW(msg) * ms > W - 8) ms--;
-    const A = noData ? (wide ? NODATA_ART : NODATA_ART_M) : wide ? NOTHING_ART : NOTHING_ART_M.w <= W - 4 ? NOTHING_ART_M : NOTHING_ART_S;
+    const A = kind === "D" ? (wide ? NODATA_ART : NODATA_ART_M) : kind === "Q" ? (wide ? AFTER_ART : AFTER_ART_M)
+      : wide ? NOTHING_ART : NOTHING_ART_M.w <= W - 4 ? NOTHING_ART_M : NOTHING_ART_S;
     let as = 0;
-    for (let s = 1; A.w * s <= W - 4 && A.h * s + 10 * ms <= H - HH - 8 && (s === 1 || (!noData && A.w * s <= textW(msg) * ms)); s++) as = s;
+    for (let s = 1; A.w * s <= W - 4 && A.h * s + 10 * ms <= H - HH - 8 && (s === 1 || (kind === "N" && A.w * s <= textW(msg) * ms)); s++) as = s;
     return { msg, ms, A, as, gh: as ? A.h * as + 3 * ms : 0 };
   }
 
@@ -1055,37 +1195,82 @@
     const wide = isBig(W, fb.h), hs = wide ? 2 : 1, hx = wide ? 4 : 2;
     const stacked = W < fb.h;   // upright: device | used/total, the pool in a second line
     const nets = m.nets || [];
-    const counts = pageCounts(m.disks.length, fb.h, wanted, W, !!m.sys, !!m.wifiPage, head, nets.length, !!m.clock);
-    const pages = Object.values(counts).reduce((x, y) => x + y, 0);
+    const counts = pageCounts(m.disks.length, fb.h, wanted, W, !!m.sys, !!m.wifiPage, head, nets.length, !!m.clock, !!m.netPages, m.diskPages !== 0);
+    // pages with a picture in the page turn (m.extraPages)
+    // (m.extraOnly: every page off, the pictures in the page turn are all there is)
+    const pages = (m.extraOnly ? 0 : Object.values(counts).reduce((x, y) => x + y, 0)) + (m.extraPages || 0);
+    // a screen with only a picture, no text (user): The Intermission on no data ("Check connection"),
+    // The Conversation when every page is switched off (no system page, no network or WiFi page, disk
+    // pages off: "Nothing to ink"), or m.art (N The Conversation, D The Intermission, Q The Afterhours:
+    // its time window, or its page in the page turn). The header only when
+    // switched on for that picture (m.artHead: the letters with a header). All pictures share one block
+    // as high as the tallest, centred in the rest, every picture standing on its bottom, so the
+    // pictures stand at the same height (user); always below the room of a header, also when the
+    // header is off, so they match there too (user). Caption (m.artCap: the letters with one; only when
+    // the case shows the picture, not for m.art): "Nothing to ink" / "Check connection" below it as
+    // before: the block as high as the taller picture with its text, the text at its bottom
+    const nothing = !m.sys && !m.wifiPage && !m.clock && !nets.length && !m.netPages && m.disks.length === 0 && m.diskPages === 0;
+    // Advanced Ink: "Nothing to ink" switched off = only the top line ("Check connection" off: the
+    // pages go on, m.noData stays false)
+    const art = m.art || (m.noData ? "D" : nothing && ((m.screens ?? 7) & 2) ? "N" : "");
+    if (art) {
+      if ((m.artHead || "").includes(art)) drawHeader(fb, m, pages, wide);
+      // fixed places per display (user): one block below the room of a header, as high as the tallest
+      // picture plus the room of one caption line (3 + 7 times the caption size), centred; every picture
+      // stands on its bottom line and every caption starts 3 font pixels below it, with or without
+      // header, caption or a second caption line (the pictures never move)
+      const MH = headerH(W, fb.h);
+      const K = ["D", "N", "Q"].map(k => msgArt(k, W, fb.h, MH, wide)), S = Math.max(K[0].ms, K[1].ms);
+      // one caption size C per display for every caption (user): m.nextFw (the firmware with the pictures) plain
+      // 5x7 on every 2.13" (the same on both resolutions), on the 4.2" the size of "Check connection";
+      // else S, as the firmware draws it now
+      const C = m.nextFw && !wide ? 1 : S;
+      const pic = Math.max(...K.map(o => o.A.h * o.as)), bh = pic + 10 * C;
+      const top = MH + Math.trunc((fb.h - MH - bh) / 2), base = top + pic + 3 * C;
+      // The Afterhours in its time window with Caption (m.until = its end): "Closed until 07:00" in the
+      // time format of the display; too wide for 4 font pixels to each edge: the time in a second line
+      // below (user: the time is never left out)
+      let msg, msg2;
+      if (m.art === "Q" && m.until) {
+        const until = headTime(m.until, m.timeFmt);
+        msg = `Closed until ${until}`;
+        if (textW(msg) * C > W - 8 * C) { msg = "Closed until"; msg2 = until; }
+      }
+      const L = msgArt(art, W, fb.h, MH, wide, msg);
+      if (L.as) drawArt(fb, L.A, Math.trunc((W - L.A.w * L.as) / 2), top + pic - L.A.h * L.as, L.as, m.mono ? BK : RD, !!m.sober);
+      if (msg || (!m.art && (m.artCap || "").includes(art))) fb.text(Math.trunc((W - textW(L.msg) * C) / 2), base, L.msg, BK, C);
+      if (msg2) fb.text(Math.trunc((W - textW(msg2) * C) / 2), base + 9 * C, msg2, BK, C);
+      return;
+    }
     const [kind, idx] = pageAt(m.page, m.order, counts);
     // the time page without the header line (H field 29: Show header off)
     const bare = kind === "T" && m.clockHead === 0 && !m.noData;
     const HH = bare ? 0 : headerH(W, fb.h, head);
     if (!bare) drawHeader(fb, m, pages, wide);
-    // "Check connection" (the time stays: when the last data came), or "Nothing to ink" when every
-    // page is switched off (no system page, no network or WiFi page, disk pages off), with its picture
-    // above it (user); both screens share one block as high as the taller of the two, centred in the
-    // rest: the text at its bottom and the picture standing on the text, so text and picture bottom
-    // are at the same height on both screens (user); always below the room of a header, also when the
-    // header is off ("Check connection" brings it back), so both screens match there too (user)
-    const nothing = !m.sys && !m.wifiPage && !m.clock && !nets.length && m.disks.length === 0 && m.diskPages === 0;
-    // Advanced Ink: "Nothing to ink" switched off = only the top line ("Check connection" off: the
-    // pages go on, m.noData stays false)
-    if (nothing && !m.noData && !((m.screens ?? 7) & 2)) return;
-    if (m.noData || nothing) {
-      const MH = headerH(W, fb.h), L = msgArt(m.noData, W, fb.h, MH, wide), O = msgArt(!m.noData, W, fb.h, MH, wide);
-      const bh = Math.max(L.gh + 7 * L.ms, O.gh + 7 * O.ms), ty = MH + Math.trunc((fb.h - MH - bh) / 2) + bh - 7 * L.ms;
-      if (L.as) drawArt(fb, L.A, Math.trunc((W - L.A.w * L.as) / 2), ty - L.gh, L.as, m.mono ? BK : RD);
-      fb.text(Math.trunc((W - textW(L.msg) * L.ms) / 2), ty, L.msg, BK, L.ms);
+    // every page off and no picture for it: the top line only; m.nextFw (the firmware with the pictures): the
+    // product name with its logo bars below it, as on the start screen without its lines, centred in the
+    // room below a header (also without one, so it stays in its place; user)
+    if (nothing) {
+      if (m.nextFw) {
+        const u = wide ? 2 : 1, MH = headerH(W, fb.h), name = "InkSights";
+        let z = 3 * u;
+        while (z > 1 && (textW(name) * z + logoW(z) > W - 4 * u || 7 * z > fb.h - MH - 8)) z--;
+        const nx = Math.trunc((W - textW(name) * z - logoW(z)) / 2), ty = MH + Math.trunc((fb.h - MH - 7 * z) / 2);
+        drawLogo(fb, nx, ty + 7 * z, z);
+        fb.text(nx + logoW(z), ty, name, BK, z);
+      }
       return;
     }
     if (kind === "S") { m.sys.stby = m.stby === 1; drawSystem(fb, m.sys, HH, wide, stacked); return; }
     if (kind === "W") { drawWifi(fb, m.wifi || {}, HH, wide, stacked, m.wifiIcons); return; }
     // the time page (m.now: the time to show, else the time of the frame)
-    if (kind === "T") { drawClockPage(fb, m.clock, m.now || clockParts(m.clock.dt), m.timeFmt, HH, m.mono ? BK : RD); return; }
+    // m.nextFw (the firmware with the pictures): time and date in the place they have with a header, also
+    // without one, so switching the header moves nothing (user)
+    if (kind === "T") { drawClockPage(fb, m.clock, m.now || clockParts(m.clock.dt), m.timeFmt, m.nextFw ? headerH(W, fb.h) : HH, m.mono ? BK : RD); return; }
     const rows = rowsPerPage(fb.h, wanted, W, head), rowH = rowHeight(fb.h, wanted, W, head), first = idx * rows;
     // network pages, every page sized for as many rows as the fullest one
     if (kind === "N") {
+      if (!nets.length) { fb.text(hx, HH + 6, "No interfaces", BK, hs); return; }   // network pages on, no interface
       const part = nets.slice(idx * rows, idx * rows + rows).map(n => netRow(n, m.netBar || 0));
       drawRows(fb, part, HH, wide, stacked, m.netIcons !== 0, false, Math.min(nets.length, rows));
       return;
@@ -1418,7 +1603,7 @@
       if (!rx) continue;
       if (line === "#END") { done = rx; rx = null; continue; }
       if (line.startsWith("H|")) {
-        const f = splitFields(line, 30);
+        const f = splitFields(line, 31);
         if (f.length >= 3) {
           rx.host = f[1].slice(0, 16); rx.time = f[2].slice(0, 5);
           rx.rows = f.length >= 4 ? clamp(atoi(f[3]), 0, 6) : 0;
@@ -1449,6 +1634,7 @@
           rx.order = f.length >= 28 && orderOk(f[27]) ? f[27] : PAGE_ORDER;   // the page order
           rx.clockHead = f.length >= 29 && f[28] === "1" ? 1 : 0;   // the time page with the header line 1 / without 0 (default)
           rx.headFill = f.length >= 30 && f[29] === "1" ? 1 : 0;    // header: the gaps between the boxes filled
+          rx.netPages = f.length >= 31 && f[30] === "1" ? 1 : 0;    // network pages on (also without interfaces)
         }
       } else if (line.startsWith("S|")) {
         // system page: components (C R N V S) | cpu % | cpu °C | cpu W | RAM used MiB | ZFS cache MiB |
@@ -1466,6 +1652,12 @@
           ramTotal: num(7, 2147483647), iface: f[8] === "-" ? "" : f[8].replace(/[^A-Za-z0-9._-]/g, "").slice(0, 15),
           rx: num(9, 2147483647), tx: num(10, 2147483647), link: num(11, 1000000), nvme: tl(f[12]), ssd: tl(f[13]),
         };
+      } else if (line.startsWith("A|")) {
+        // the pictures: A|<flags C I A, hex>|<Sobriety 1/0>|<card order>|<windows HHMM-HHMM,...>
+        const f = splitFields(line, 5);
+        if (f.length >= 5 && /^[0-9a-f]{3}$/.test(f[1]) && cardOrderOk(f[3]) && /^(\d{4}-\d{4},){2}\d{4}-\d{4}$/.test(f[4]))
+          rx.pics = { flags: [...f[1]].map(c => parseInt(c, 16)), sober: f[2] === "0" ? 0 : 1, card: f[3],
+            win: f[4].split(",").map(w => [w.slice(0, 2) + ":" + w.slice(2, 4), w.slice(5, 7) + ":" + w.slice(7, 9)]) };
       } else if (line.startsWith("C|")) {
         // time page: C|<local date and time YYYYMMDDHHMMSS>|<date 1/0>|<weekday 1/0>|<date format 0-3>|<NTP 1/0>|<NTP server>|<POSIX time zone>
         //   [|<time in the third colour 1/0>|<black outline around it 1/0>]
@@ -1569,11 +1761,21 @@
       s.lineBottom === 0 ? 0 : 1,   // H field 27: inverted header, the divider line at its bottom
       orderOk(s.pageOrder) ? s.pageOrder : PAGE_ORDER,   // H field 28: the page order
       s.timeHead === 1 ? 1 : 0,   // H field 29: the time page with the header line (default without)
-      s.headFill === 1 && s.headInv === 1 && s.headCol === 1 ? 1 : 0];  // H field 30: header filled in the third colour (with Highlight color only)
-    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, PAGE_ORDER, 0, 0];
+      s.headFill === 1 && s.headInv === 1 && s.headCol === 1 ? 1 : 0,  // H field 30: header filled in the third colour (with Highlight color only)
+      s.showNet === 1 ? 1 : 0];   // H field 31: network pages on (without interfaces: "No interfaces")
+    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, PAGE_ORDER, 0, 0, 0];
     while (extra.length && extra[extra.length - 1] === defaults[extra.length - 1]) extra.pop();
     const head = [`H|${title}|${time}|${s.rows || 0}|${s.warn ?? L.WARN_PCT}|${Math.trunc((s.rot || 0) / 90)}|${s.page ?? 600}`, ...extra].join("|");
     const lines = ["#BEGIN", head];
+    // A line, the pictures (only when not the defaults): per picture C I A one hex digit (1 caption, 2 header,
+    // 4 in the page turn, 8 scheduled; 0 when its Ink is off), Sobriety, the card order (the pages and the
+    // pictures: their place in the page turn), the time windows HHMM-HHMM
+    const po = orderOk(s.pageOrder) ? s.pageOrder : PAGE_ORDER, card = cardOrderOk(s.cardOrder) ? s.cardOrder : po + "CIA";
+    const flags = PICS.map(([p, , , cap]) => (s[p + "Ink"] === 0 ? 0 : ((s[p + "Cap"] ?? cap) === 1 ? 1 : 0) | (s[p + "Head"] === 1 ? 2 : 0)
+      | (s[p + "Rot"] === 1 ? 4 : 0) | (s[p + "Sched"] === 1 ? 8 : 0)).toString(16)).join("");
+    const win = PICS.map(([p, f, t]) => `${(s[p + "From"] || f).replace(":", "")}-${(s[p + "To"] || t).replace(":", "")}`).join(",");
+    const sober = s.sober === 0 ? 0 : 1;
+    if (flags !== PIC_FLAGS || sober !== 1 || card !== po + "CIA" || win !== PIC_WIN) lines.push(`A|${flags}|${sober}|${card}|${win}`);
     if (s.showTime === 1) {   // the time page: date and time of the data, what it shows, NTP (WiFi boards)
       let when = /^\d{14}$/.test(dt) ? dt : "";
       if (!when) { const n = new Date(), hm = /^(\d\d):(\d\d)$/.exec(time || ""); when = `${n.getFullYear()}${two(n.getMonth() + 1)}${two(n.getDate())}${hm ? hm[1] + hm[2] : two(n.getHours()) + two(n.getMinutes())}00`; }
@@ -1667,5 +1869,5 @@
   }
 
 
-  window.EPD = { WH, BK, RD, Fb, clockParts, DEFAULT_LAYOUT, PAGE_ORDER, orderOk, layoutOk, orderNets, drawScreen, drawSplash, parseFrame, buildFrame, noDataSecs, systemLine, uptimeSplit, orderDisks, pageCount, rowsPerPage, hsize, blit };
+  window.EPD = { WH, BK, RD, Fb, clockParts, DEFAULT_LAYOUT, PAGE_ORDER, orderOk, layoutOk, orderNets, drawScreen, drawSplash, parseFrame, buildFrame, noDataSecs, systemLine, uptimeSplit, orderDisks, pageCount, pageCounts, rowsPerPage, hsize, blit };
 })();

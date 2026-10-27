@@ -321,7 +321,7 @@
         input("host", "Host name", { maxlength: "32", value: pong.host, placeholder: `inksights-${pong.id.toLowerCase()}` }),
         el("div", { class: "field" }, el("span", { class: "label" }, "Setup access point"),
           el("div", { class: "choices" }, el("label", { class: "check" }, apOnBox.on, "On"), el("label", { class: "check" }, apOnBox.off, "Off"))),
-        input("apDelay", "Access point after (s)", { type: "number", min: "0", max: String(UI.MAX_AP_DELAY), step: "1", value: String(pong.apDelay), style: "max-width: 7em" }),
+        input("apDelay", "Failover access point after (s)", { type: "number", min: "0", max: String(UI.MAX_AP_DELAY), step: "1", value: String(pong.apDelay), style: "max-width: 7em" }),
         input("apSsid", "Access point name", { maxlength: "32", value: pong.apSsid, placeholder: UI.DEFAULT_AP_SSID }),
         input("apPass", "Access point password", { type: "password", maxlength: "63", value: "", placeholder: "unchanged" }));
       if (!pong.settings) {   // older firmware: it does not report its WiFi settings, so saving would overwrite them

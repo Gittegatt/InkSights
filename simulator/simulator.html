@@ -7,7 +7,7 @@
 <!--
   Simulator: the settings page itself (../server/web/inksights-ui.js, the same code as the
   real page) with simulated data instead of the server: two displays, a disk list or a pasted
-  frame. The "Simulation" card below sets the simulated hardware. The drawing comes from
+  frame. The "Value simulation" card below sets the simulated hardware. The drawing comes from
   ../server/web/inksights-render.js, so the previews show exactly what the firmware draws.
   Open this file directly in the browser; nothing is sent anywhere.
 -->
@@ -26,7 +26,7 @@ document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}"
 
   <section class="card" aria-labelledby="simHead">
     <details class="sim-fold" id="simFold" open>
-    <summary><h2 id="simHead">Simulation</h2></summary>
+    <summary><h2 id="simHead">Value simulation</h2></summary>
     <div class="sub-body">
     <div class="form">
       <!-- framed: where the data come from, then the tests of special cases -->
@@ -71,7 +71,7 @@ document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}"
 
     <label class="field boxed" id="pasteBox" hidden>
       <span class="label">Pasted frame</span>
-      <textarea id="paste" rows="14" spellcheck="false" placeholder="#BEGIN&#10;H|TRUENAS|14:30|0|85|0|600&#10;D|sda|data|3.18T|8.95T|35|3|10|A&#10;#END"></textarea>
+      <textarea id="paste" rows="14" spellcheck="false" placeholder="#BEGIN&#10;H|SERVER|14:30|0|85|0|600&#10;D|sda|data|3.18T|8.95T|35|3|10|A&#10;#END"></textarea>
     </label>
     </div>
     </details>
@@ -90,6 +90,7 @@ document.write(`<script src="../server/web/inksights-render.js${BUST}"><\/script
 const $ = id => document.getElementById(id);
 const STORE = "inksights-simulator-v1";
 const IDS = ["1A2B3C4D", "5E6F7A8B"];              // simulated chip IDs
+const DISPLAY_NAMES = ["Server rack", "Office desk"];   // their display names when none is set
 const PORTS = ["/dev/ttyACM0", "/dev/ttyACM1"];
 const IPS = ["192.168.1.51", "192.168.1.52"];
 
@@ -167,7 +168,7 @@ function simNow() {
 }
 const SYS_EXAMPLE = { cpu: 37, temp: 52, power: 18, ramUsed: 12.3, ramArc: 40.1, ramTotal: 62.8, rx: 12.3, tx: 1.2, link: 1000, boot: bootExample() };
 const DEFAULTS = {
-  source: "list", time: "14:30", host: "TRUENAS", disks: EXAMPLE, paste: "", sys: SYS_EXAMPLE,
+  source: "list", time: "14:30", host: "SERVER", disks: EXAMPLE, paste: "", sys: SYS_EXAMPLE,
   pagename: "", interval: 10, oldFw: false, config: {},
   hw: [hwDefaults("xiao-samd21", 1), hwDefaults("esp32-c3-supermini", 5)],
 };
@@ -181,6 +182,7 @@ function load() {
       merged.sys = Object.assign(structuredClone(SYS_EXAMPLE), saved.sys || {});
       merged.hw = saved.hw.map((h, i) => Object.assign(structuredClone(DEFAULTS.hw[i]), h));
       for (const h of merged.hw) if (typeof h.panel === "string") h.panel = OLD_PANELS[h.panel] || 1;
+      if (merged.host === "TRUENAS") merged.host = DEFAULTS.host;   // the host name of an earlier version
       return merged;
     }
   } catch (e) { /* private window or blocked storage: start with the defaults */ }
@@ -264,7 +266,7 @@ function stateNow(live = false) {
     const panel = panelById(h.panel);
     const pins = (sim.config[IDS[i]] && sim.config[IDS[i]].pins) || board.defaults;
     displays.push({ id: IDS[i], port: wifi ? "WiFi" : PORTS[i], transport: wifi ? "wifi" : "usb", size: panel.size.join("x"),
-      colors: panel.colors, panel: panel.id, pins: pins.join(","), board: h.board, wifi: board.wifi ? 1 : 0, fw: h.fw || "1.0", net,
+      colors: panel.colors, panel: panel.id, pins: pins.join(","), board: h.board, wifi: board.wifi ? 1 : 0, fw: h.fw || "1.0", net, ota: otaRun[i] || null,
       ssid: net === "sta" ? h.ssid || "" : "", online: net === "sta" ? onlineSecs(h.since) : -1,   // seconds connected
       ip: net === "sta" ? IPS[i] : net === "ap" ? "192.168.4.1" : "", fast: panel.fast ? 1 : 0, answer: "OK",
       nothingToInk: !!h.noData,   // "No data": connected, but nothing to show -> "Nothing to ink"
@@ -274,7 +276,7 @@ function stateNow(live = false) {
   if (sim.oldFw) displays.push({ port: "/dev/ttyACM2", id: "", error: "No answer with chip ID (old firmware?)" });
   const disks = sim.disks.map((d, i) => toState(live ? liveDisk(d, i) : d));
   return { version: sim.scriptVer || "1.0",
-    host: sim.host || "SYSTEM", updated: timeOk ? Math.floor(Date.now() / 1000) : 0, timeText: timeOk ? sim.time : "--:--",
+    host: sim.host || "SERVER", updated: timeOk ? Math.floor(Date.now() / 1000) : 0, timeText: timeOk ? sim.time : "--:--",
     disks, displays, system: systemNow(disks, live ? liveSys() : sim.sys) };
 }
 
@@ -333,6 +335,8 @@ function publicConfig() {
     delete w.pass; delete w.apPass;
     s.wifi = w;
   }
+  // a display without a name gets one, so the simulator shows what the field is for: where it hangs
+  IDS.forEach((id, i) => { if (!out[id]) out[id] = {}; if (!out[id].dname) out[id].dname = DISPLAY_NAMES[i]; });
   return out;
 }
 
@@ -341,7 +345,22 @@ const ui = InkSightsUI.start({
   root: $("app"),
   yellowPanels: true,   // also offer the colour panels with yellow
   offlineNoData: true,  // "Connected" off: the display shows "NO DATA" / "Check connection"
-  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights", version: sim.appVer || "1.0", versionCheck: true }),
+  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights", version: sim.appVer || "1.0", versionCheck: true, afterhours: true,
+    // the firmware the WebUI carries: one per board with WiFi, the version of the WebUI
+    firmware: Object.fromEntries(Object.entries(InkSightsUI.BOARDS).filter(([, b]) => b.wifi).map(([k]) => [k, { version: sim.appVer || "1.0", size: 1147760 }])) }),
+  // OTA update: the board waits for its next fetch, loads the firmware and restarts with it (not kept)
+  ota: async (id, version) => {
+    const i = IDS.indexOf(id);
+    if (i < 0) throw new Error("Unknown display.");
+    otaSteps(i, version);
+  },
+  // manual update: the file goes to the board like the one the WebUI carries; the simulator takes the version of
+  // the WebUI for it (the file names none)
+  otaFile: async id => {
+    const i = IDS.indexOf(id);
+    if (i < 0) throw new Error("Unknown display.");
+    otaSteps(i, sim.appVer || "1.0");
+  },
   save: async body => {
     const next = {};
     for (const [id, s] of Object.entries(body.displays)) {
@@ -373,7 +392,19 @@ function update(structure) {
   if (usb) usb.refreshFrames();
 }
 
-// ------------------------------------------------------------ Simulation card
+// ------------------------------------------------------------ Value simulation card
+// OTA updates running in the simulator, per display (not saved)
+const otaRun = {};
+function otaSteps(i, version) {
+  const step = (o, ms) => new Promise(r => setTimeout(() => { otaRun[i] = o; update(); r(); }, ms));
+  otaRun[i] = { state: "pending", version };
+  (async () => {
+    await step({ state: "loading", version, pct: 0 }, 2500);
+    for (let p = 10; p <= 100; p += 15) await step({ state: "loading", version, pct: Math.min(p, 100) }, 500);
+    sim.hw[i].fw = version;
+    await step({ state: "done", version }, 800);
+  })();
+}
 // a version to choose: earlier, this one, a later one
 const SIM_VERSIONS = ["0.9", "1.0", "1.1"];
 function verSel(cur, onPick, label) {
@@ -482,7 +513,7 @@ buildHw();
 buildSys();
 // USB: set up a real board, or send it what a simulated display gets ("Send to display")
 usb = InkSightsUSB.mount($("usbBox"), { frames: () => ui.frames() });
-// the Simulation card folds; remembered like the rest of the simulation
+// the Value simulation card folds; remembered like the rest of the simulation
 $("simFold").open = sim.simOpen !== false;
 $("simFold").addEventListener("toggle", () => { sim.simOpen = $("simFold").open; save(); });
 buildDisks();

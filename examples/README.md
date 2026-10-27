@@ -5,8 +5,10 @@ the settings page itself. The 2.13″ pictures are shown at twice their size. Al
 
 Every top line here is one continuous line without a divider line: on red and yellow panels mostly in the third
 colour (**Invert colors**, **Color highlight** and **Fill gaps** in the Header card), otherwise white
-(**Invert colors**) or black. Left the time, in the middle the title, right the uptime (the defaults). A time page
-has no top line.
+(**Invert colors**) or black. Mostly left the time, in the middle the title, right the uptime (the defaults); four
+pictures show the page number instead, each in another place (system page, ring timers, 4.2″ drive page, network
+page). The page count includes the three pictures, which are Turn candidates by default. A time page has no top
+line.
 
 [Back to the README](../README.md)
 
@@ -135,37 +137,58 @@ order); the other pages follow, with their top line.
 
 ## Special screens
 
+The pictures of this part without the top line (the default; the caption in 5x7 on the 2.13″). On the right
+each one without the bottle and the glass (**Sobriety**, ticked by default in Advanced Ink).
+
 ### 2.13″ without connection
 
-![2.13″ without connection](example_16_2-13_no_connection.png)
+<img align="top" src="example_16_2-13_no_connection.png" alt="A yellow 2.13″ display without fresh data: Check connection below the empty table" width="49%"> <img align="top" src="example_16_2-13_no_connection_sober.png" alt="The same without the bottle and the glass" width="49%">
 
-The display got no fresh data for too long: **NO DATA** in the top line (in the third colour, where the uptime
-stood) and **Check connection** below a picture of the empty table, its bottle in red. The time is when the last
-data came.
+The display got no fresh data for too long: **The Intermission**, the empty table, with **Check connection**
+below it; on this yellow panel the bottle in yellow. With its **Header** ticked the top line shows **NO DATA**.
 
 ### 4.2″ with nothing to show
 
-![4.2″ with nothing to show](example_17_4-2_nothing_to_ink.png)
+<img align="top" src="example_17_4-2_nothing_to_ink.png" alt="A 4.2″ display with nothing to show: Nothing to ink below three people at a table" width="49%"> <img align="top" src="example_17_4-2_nothing_to_ink_sober.png" alt="The same without the bottle" width="49%">
 
-Every page of this display is switched off (no system, drive, network, time or WiFi page): **Nothing to ink** below
-a picture of three people at a table, so the display never looks broken.
+Every page of this display is switched off (no system, drive, network, time or WiFi page): **The Conversation**,
+three people at a table, with **Nothing to ink** below it, so the display never looks broken.
+
+### 2.13″ with nothing to show, without the picture
+
+![2.13″ with the logo screen](example_20_2-13_logo_screen.png)
+
+Every page switched off and **The Conversation** with **On cue** off: the product name with its logo, in the
+place it keeps with or without the top line.
+
+### 2.13″ in its quiet hours
+
+<img align="top" src="example_21_2-13_closed.png" alt="A red 2.13″ display in its quiet hours: Closed until 07:00" width="49%"> <img align="top" src="example_21_2-13_closed_sober.png" alt="The same without the bottle" width="49%">
+
+The time window of **The Afterhours** (23:00 to 07:00) at 23:37: only its picture, the chairs up on the table, with
+its caption **Closed until 07:00**; on this red panel the bottle in red.
 
 ## Settings page and simulator
 
 ### The settings page
 
-![The settings page](example_18_settings_page.png)
+<img src="example_18_settings_page_2-13.png" alt="The settings page with the 2.13″ display and its Display card open" width="49%"> <img src="example_18_settings_page_4-2.png" alt="The settings page with the 4.2″ display and its Header card open" width="49%">
 
-Two displays with their live previews; below each its cards, here the **Display** card open on the left (names,
-time format, panel, rotation, rows per page, page turn, refresh, display pins) and the **Header** card on the
-right (title, colours, divider line, places). The other cards are folded, each with its **Ink** tick that
-switches that page on or off and its grip (two lines) to change the order of the pages.
+The settings page of two displays, each shown on its own: at the top the versions of the WebUI, the script and the
+firmware on each controller, then the display with its live preview and below it its cards. On the left the 2.13″
+with its **Display** card open (names, time format, Live display, panel, rotation, rows per page, page turn,
+refresh, display pins), on the right the 4.2″ with its **Header** card open (title, colours, divider line, places). The other cards
+are folded, each with its **Ink** tick that switches that page on or off and its grip (two lines) to change the
+order of the pages. Below the page cards the cards of the three pictures (**The Conversation**, **The
+Intermission**, **The Afterhours**) and **Advanced Ink**. At the bottom the **About** card (folded): versions,
+project links, license, support. The version line, The Afterhours and the About card are only in the simulator so
+far.
 
 ### The simulator
 
-![The Simulation card of the simulator](example_19_simulator.png)
+<img src="example_19_simulator.png" alt="The Value simulation card" width="70%">
 
-`simulator/simulator.html` is the same settings page with simulated data; its **Simulation** card sets them: where
+`simulator/simulator.html` is the same settings page with simulated data; its **Value simulation** card sets them: where
 the data come from (disk list or a pasted frame), the time and host name, a controller that does not answer, per
 display the board, panel, connection, WiFi network and **Connected** / **No data** / **Start screen**, the system
 values (**Live values** = a running system) and the drives with storage, usage, temperature and spindown state.

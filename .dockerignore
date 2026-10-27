@@ -1,0 +1,4 @@
+# The image (server/docker/Dockerfile) only needs the settings page
+*
+!server/web/
+server/web/__pycache__/

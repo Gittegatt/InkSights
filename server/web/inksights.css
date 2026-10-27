@@ -21,6 +21,16 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 16px 56px; display: grid; gap: 22px; }
 h1, h2 { margin: 0; }
 h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.01em; }
+/* the logo bars of the start screen (drawLogo): in units z = a tenth of the font size (about a seventh of
+   the cap height, like a font pixel of the 5x7 name), 1.4 z wide and z apart, 1.5 / 3.2 / 5.3 / 2.5 z high
+   on the baseline; in whole pixels with z = 3 px, rounded like drawLogo() (the logo of the 2.13" start
+   screen pixel for pixel), so every bar comes out equally wide and sharp; a space before the name (user) */
+h1 .logo { display: inline-flex; align-items: flex-end; gap: 3px; height: 16px; }
+h1 .logo i { width: 4px; background: currentColor; }
+h1 .logo i:nth-child(1) { height: 5px; }
+h1 .logo i:nth-child(2) { height: 10px; }
+h1 .logo i:nth-child(3) { height: 16px; }
+h1 .logo i:nth-child(4) { height: 8px; }
 h2 { font-size: 1.1rem; font-weight: 600; }
 p { margin: 0; }
 .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.08em; color: var(--accent); }
@@ -100,12 +110,15 @@ input:disabled, select:disabled { opacity: 0.45; }
 .shot { background: var(--pcb); border-radius: 8px; padding: 14px; display: grid; gap: 10px; min-width: 0; grid-template-rows: 520px auto; }  /* fixed stage, the same for both displays */
 .shot .glass { background: var(--epd-paper); display: grid; justify-self: center; width: fit-content; max-width: 100%; min-width: 0; }  /* paper only as big as the panel: upright stays upright */
 .shot .glass { align-self: center; }
+.shot.mini { grid-template-rows: auto; }  /* a screen in its card: only as high as the panel */
 .shot canvas { display: block; max-width: 100%; height: auto; image-rendering: pixelated; }
 .pager { display: flex; gap: 10px; align-items: center; justify-content: center; color: #cfcac0; font-family: var(--font-mono); font-size: 0.8rem; }
 .pager .btn { background: transparent; color: #cfcac0; border-color: #3a3a3a; }
 .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; min-width: 0; }
 @media (max-width: 560px) { .form { grid-template-columns: minmax(0, 1fr); } }
 .form .wide { grid-column: 1 / -1; }
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 18px; min-width: 0; }   /* three frames in a row, the next row in the same columns */
+@media (max-width: 560px) { .trio { grid-template-columns: minmax(0, 1fr); } }
 .col { display: grid; gap: 14px; align-content: start; min-width: 0; }
 .group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
 @media (max-width: 560px) { .group { grid-template-columns: minmax(0, 1fr); } }
@@ -121,6 +134,10 @@ input:disabled, select:disabled { opacity: 0.45; }
 .about-list dd { margin: 0; }
 .about-list .warn { color: var(--warn); }
 .about-text { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.about-text.warn { color: var(--warn); }
+.about-text.good { color: var(--ok); }   /* OTA Update: New firmware available! */
+.ota-note { align-self: center; color: var(--warn); font-size: 0.9rem; }   /* next to Upload: the click flashes the file */
+.ota-note.plain { color: var(--muted); }   /* next to Update firmware: in the colour of the other texts (user) */
 .page-toggle { position: absolute; top: 16px; right: 20px; font-size: 0.9rem; }
 /* grip of a movable card: two horizontal lines left of "Ink" */
 .grip { position: absolute; top: 12px; right: 76px; width: 26px; height: 28px; padding: 0; border: 0; border-radius: var(--r);
@@ -187,6 +204,7 @@ td select { padding: 3px 6px; }
 /* WiFi section */
 .wifi-form { display: grid; gap: 14px; }
 .wifi-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; }
+.wifi-box, .box-stack { display: grid; gap: 12px; align-content: start; min-width: 0; }   /* a frame with two fields one below the other */
 @media (max-width: 560px) { .wifi-grid { grid-template-columns: minmax(0, 1fr); } }
 .wifi-grid input[type="text"], .wifi-grid input[type="password"] { width: 100%; max-width: 16em; }
 input[type="password"] { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 5px 8px; }

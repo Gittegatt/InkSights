@@ -102,6 +102,7 @@ ALL_TYPES="hdd,ssd,nvme"
 DEFAULT_BOXES=0           # spindown timer off for a new display
 DEFAULT_WARN=85          # bar is highlighted from this % used
 DEFAULT_TITLE="InkSights" # title of the top line when the settings page sets none
+VERSION="1.0"             # of InkSights (firmware, script and settings page go together; state.json "version")
 DEFAULT_PAGE=600         # seconds between automatic page turns on the display, 0 = off
 WIFI_STALE=300           # a WiFi display that has not fetched its frame for this long is left out
 TEMPS_EVERY=30           # seconds between NVMe / SSD temperature readings
@@ -389,7 +390,7 @@ fi
 # -----------------------
 NTP_RE='^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$'              # time page: NTP server
 TZPOSIX_RE='^[A-Za-z<][A-Za-z0-9<>+,./:-]{0,47}$'      # time page: POSIX time zone for the board
-declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH CFG_TIMEFMT CFG_CLOCK CFG_SCREENS CFG_LINES CFG_PORDER CFG_THEAD CFG_HFILL
+declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH CFG_TIMEFMT CFG_CLOCK CFG_SCREENS CFG_LINES CFG_PORDER CFG_THEAD CFG_HFILL CFG_PICS
 IFLIST_RE='^[A-Za-z0-9._-]{1,15}(,[A-Za-z0-9._-]{1,15}){0,31}$'
 NAME_RE='^[A-Za-z0-9 ._+/-]{0,12}$'
 ORDER_RE='^[A-Za-z0-9._-]{1,40}(,[A-Za-z0-9._-]{1,40}){0,31}$'
@@ -424,6 +425,23 @@ layout_valid() {
 }
 
 # Page order: S (system), D (drives), N (network), T (time), W (WiFi), each once
+# The card order of the settings page: the pages S D N T W and the pictures C I A (their place in the page
+# turn), each once
+card_valid() {
+    local c="$1" k
+    [[ ${#c} == 8 ]] || return 1
+    for k in S D N T W C I A; do [[ "$c" == *"$k"* ]] || return 1; done
+}
+# CARD = the card order $1 with its pages in the page order $2 (that one decides the order of the pages)
+card_fix() {
+    local c="$1" p="$2" j i=0 k
+    card_valid "$c" || c="${p}CIA"
+    CARD=""
+    for (( j = 0; j < 8; j++ )); do
+        k=${c:j:1}
+        if [[ "SDNTW" == *"$k"* ]]; then CARD+=${p:i:1}; i=$((i + 1)); else CARD+=$k; fi
+    done
+}
 order_valid() {
     local c
     [[ "$1" =~ ^[SDNTW]{5}$ ]] || return 1
@@ -432,7 +450,7 @@ order_valid() {
 }
 
 if [[ -r "$CONF_FILE" ]]; then
-    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc tcolc tframec; do
+    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc tcolc tframec picinkc picflagc cardc picwinc soberc; do
         name="${name%$'\r'}"; wappass="${wappass%$'\r'}"; wapdelay="${wapdelay%$'\r'}"
         fastc="${fastc%$'\r'}"; sysc="${sysc%$'\r'}"; netc="${netc%$'\r'}"; zfsc="${zfsc%$'\r'}"; pagesc="${pagesc%$'\r'}"; sysiconc="${sysiconc%$'\r'}"; headerc="${headerc%$'\r'}"; panelc="${panelc%$'\r'}"
         layoutc="${layoutc%$'\r'}"; headonc="${headonc%$'\r'}"
@@ -445,7 +463,8 @@ if [[ -r "$CONF_FILE" ]]; then
         justc="${justc%$'\r'}"
         theadc="${theadc%$'\r'}"
         hfillc="${hfillc%$'\r'}"; tcolc="${tcolc%$'\r'}"
-        tframec="${tframec%%[$'\t\r']*}"   # last column: also cut anything after it
+        tframec="${tframec%$'\r'}"; picinkc="${picinkc%$'\r'}"; picflagc="${picflagc%$'\r'}"; cardc="${cardc%$'\r'}"; picwinc="${picwinc%$'\r'}"
+        soberc="${soberc%%[$'\t\r']*}"   # last column: also cut anything after it
         # Just give me time: the header line as the Time card's Header tick says (default off)
         if [[ "$justc" == 1 ]]; then [[ "$theadc" == 1 ]] && headonc=1 || headonc=0; fi
         [[ "$id" =~ ^[0-9A-F]{8}$ ]] || continue
@@ -466,7 +485,7 @@ if [[ -r "$CONF_FILE" ]]; then
         [[ "$pagesec" =~ ^[0-9]{1,5}$ ]] && (( 10#$pagesec <= 86400 )) || pagesec=$DEFAULT_PAGE
         pins_valid "$pins" || pins=""
         [[ "$name" =~ $NAME_RE ]] || name=""
-        [[ "$style" =~ ^[01],[01],[01],[01](,[01](,[012])?)?$ ]] || style="0,0,1,0"
+        [[ "$style" =~ ^[01],[01],[01],[01](,[01](,[012])?)?$ ]] || style="1,1,1,1,1,1"   # a new display: ring timer, counterclockwise, the used capacity in the bar
         [[ "$hidden" =~ $ORDER_RE && "$hidden" != "-" ]] || hidden=""
         [[ "$fastc" =~ ^(0|2|5|10|30)$ ]] || fastc=0
         # refresh in seconds (under 60 = fast refresh); missing (earlier version): the fast refresh,
@@ -530,6 +549,24 @@ if [[ -r "$CONF_FILE" ]]; then
         CFG_REFRESH[$id]=$refreshc
         CFG_TIMEFMT[$id]=$tfmtc
         # Advanced Ink: start screen 1, "Nothing to ink" 2, "Check connection" 4 shown when needed
+        # the pictures The Conversation, The Intermission, The Afterhours: Ink 1/0 each (default 111), per
+        # picture one hex digit 1 caption, 2 header, 4 in the page turn, 8 scheduled (default 011), the card
+        # order, the time windows, Sobriety (default 1)
+        [[ "$picinkc" =~ ^[01]{3}$ ]] || picinkc=111
+        [[ "$picflagc" =~ ^[0-9a-f]{3}$ ]] || picflagc=011
+        [[ "$picwinc" =~ ^(([01][0-9]|2[0-3])[0-5][0-9]-([01][0-9]|2[0-3])[0-5][0-9],){2}([01][0-9]|2[0-3])[0-5][0-9]-([01][0-9]|2[0-3])[0-5][0-9]$ ]] || picwinc="1800-1900,1200-1300,2300-0700"
+        [[ "$soberc" == 0 ]] || soberc=1
+        # a picture with its Ink off: nothing of it (when needed neither: the screens bits below)
+        pf=""
+        for (( j = 0; j < 3; j++ )); do [[ "${picinkc:j:1}" == 1 ]] && pf+=${picflagc:j:1} || pf+=0; done
+        po=$pordc; order_valid "$po" || po=TSDNW
+        card_fix "$cardc" "$po"
+        CFG_PICS[$id]=""   # A line only when not the defaults
+        [[ "$pf" == 011 && "$soberc" == 1 && "$CARD" == "${po}CIA" && "$picwinc" == "1800-1900,1200-1300,2300-0700" ]] || CFG_PICS[$id]="$pf|$soberc|$CARD|$picwinc"
+        # Advanced Ink: start screen 1, "Nothing to ink" 2, "Check connection" 4 shown when needed (and the
+        # Ink of The Conversation / The Intermission on)
+        [[ "${picinkc:0:1}" == 1 ]] || inknotc=0
+        [[ "${picinkc:1:1}" == 1 ]] || inkndc=0
         CFG_SCREENS[$id]=$(( (inksplc == 0 ? 0 : 1) | (inknotc == 0 ? 0 : 2) | (inkndc == 0 ? 0 : 4) ))
         # inverted header: the divider line at its bottom 1 / none 0
         [[ "$lbotc" == 1 ]] && CFG_LINES[$id]=1 || CFG_LINES[$id]=0
@@ -1153,9 +1190,9 @@ order_disks() {
 # -----------------------
 build_frame() {
     local title="$1" types=",$2," maxb="$3" rows="$4" warn="$7" turns=$(( ${8:-0} / 90 )) pagesec="${9:-$DEFAULT_PAGE}"
-    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-1}" porder="${30:-SDNTW}" thead="${31:-0}" hfill="${32:-0}"
+    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-1}" porder="${30:-SDNTW}" thead="${31:-0}" hfill="${32:-0}" pics="${33:-}"
     local d steps idle tmo poll st remain tsec head i dt pct pdec u t
-    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0 0 7 1 SDNTW 0 0)
+    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0 0 7 1 SDNTW 0 0 0)
     order_disks "$5" "$6"
     local hm
     printf -v hm '%(%H:%M)T' -1
@@ -1172,13 +1209,15 @@ build_frame() {
     # speed, and symbols 1 on / 0 off; netp = "sort;order;hidden;icons;bar", "" = network pages off
     local -a np
     IFS=';' read -ra np <<< "$netp"
-    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$nodata" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv" "$headcol" "$timefmt" "$screens" "$lines" "$porder" "$thead" "$hfill")   # field 30: header, gaps between the boxes filled 1 / 0; field 29: the time page with the header line 1 / without 0 (default); field 28: page order; field 27: inverted header, divider line at its bottom 1 / 0; field 26: screens shown (1 start, 2 nothing to ink, 4 no connection); field 25: 0 24 hours, 12 hours 1 with AM/PM / 2 without; field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0, 24: its highlighted boxes in the third colour 1 / 0
+    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$nodata" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv" "$headcol" "$timefmt" "$screens" "$lines" "$porder" "$thead" "$hfill" "$([[ -n "$netp" ]] && echo 1 || echo 0)")   # field 31: network pages on 1 / 0 (without interfaces "No interfaces"); field 30: header, gaps between the boxes filled 1 / 0; field 29: the time page with the header line 1 / without 0 (default); field 28: page order; field 27: inverted header, divider line at its bottom 1 / 0; field 26: screens shown (1 start, 2 nothing to ink, 4 no connection); field 25: 0 24 hours, 12 hours 1 with AM/PM / 2 without; field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0, 24: its highlighted boxes in the third colour 1 / 0
     # header: uptime instead of the page number (minutes after the full months, months)
     [[ "$header" == 1 && "$UP_REST" =~ ^[0-9]+$ ]] && sv[5]=$UP_REST sv[6]=$UP_MONTHS
-    local n=23
+    local n=24
     while (( n > 0 )) && [[ "${sv[n-1]}" == "${defs[n-1]}" ]]; do n=$((n - 1)); done
     for (( i = 0; i < n; i++ )); do head+="|${sv[i]}"; done
     FRAME=("#BEGIN" "$head")
+    # the pictures: A|<flags C I A>|<Sobriety>|<card order>|<time windows> (only when not the defaults)
+    [[ -n "$pics" ]] && FRAME+=("A|$pics")
     # time page: C|<local date and time>|<date>|<weekday>|<date format>|<NTP>|<NTP server>|<POSIX zone>|<time in colour>|<outline>
     if [[ -n "$clock" ]]; then
         local dt
@@ -1240,6 +1279,9 @@ frame_for() {
     # a display without settings yet: every page, the system page with all components (like a new
     # display on the settings page)
     [[ -z "${CFG_PAGES[$1]+set}" ]] && sysp="cpu,ram,net,nvme,ssd,hdd" pages=",system,disks,network,time,wifi,"
+    # ... and the pictures with header, caption and in the page turn (like a new display on the settings page)
+    local pics="${CFG_PICS[$id]:-}"
+    [[ -z "${CFG_PAGES[$1]+set}" ]] && pics="777|1|TSDNWCIA|1800-1900,1200-1300,2300-0700"
     local pins="${CFG_PINS[$1]:-}"
     (( fastcap )) && fast="${CFG_FAST[$id]:-0}"
     # "NO DATA" after two of its updates missed plus 2 minutes, at least 10 minutes
@@ -1258,10 +1300,10 @@ frame_for() {
     [[ "$pages" == *,time,* ]] && clock="${CFG_CLOCK[$id]:-1|1|1|0|-|-|0|0}"   # time page switched on
     build_frame "${title:-$DEFAULT_TITLE}" "$types" "${CFG_BOXES[$id]:-$DEFAULT_BOXES}" "${CFG_ROWS[$id]:-0}" \
         "${CFG_SORT[$id]:-pool}" "${CFG_ORDER[$id]:-}" "${CFG_WARN[$id]:-$DEFAULT_WARN}" "${CFG_ROT[$id]:-0}" \
-        "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-0,0,1,1,0,1}" "${CFG_HIDDEN[$id]:-}" \
+        "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-1,1,1,1,1,1}" "${CFG_HIDDEN[$id]:-}" \
         "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-0}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-1}" \
-        "${CFG_LAYOUT[$id]:-CTU}" "$netp" "${CFG_DRIVETEMP[$id]:-1}" "${CFG_STBY[$id]:-1}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}" "$nodata" \
-        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-0}" "${CFG_PORDER[$id]:-TSDNW}" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}"
+        "${CFG_LAYOUT[$id]:-CTU}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-1}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}" "$nodata" \
+        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-0}" "${CFG_PORDER[$id]:-TSDNW}" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}" "$pics"
 }
 
 # Display with fast refresh: remember it (port or wifi) for the fast runs in between
@@ -1510,7 +1552,7 @@ write_state() {
     local tmp d sep="" pool temp
     tmp="$(mktemp "$DATA_DIR/.state.XXXXXX")" || return 1
     {
-        printf '{\n  "host": %s,\n  "updated": %s,\n  "disks": [' "$(json_str "$HOST")" "$NOW"
+        printf '{\n  "host": %s,\n  "version": "%s",\n  "updated": %s,\n  "disks": [' "$(json_str "$HOST")" "$VERSION" "$NOW"
         for d in "${POOL_ORDER[@]}"; do
             pool="${D_POOL[$d]}"; [[ "$pool" == "-" ]] && pool=""
             temp="${D_TEMP[$d]:-null}"; [[ "$temp" == -1 ]] && temp=null   # -2 = asleep stays
