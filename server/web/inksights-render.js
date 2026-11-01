@@ -125,7 +125,7 @@
   const WDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const two = n => String(n).padStart(2, "0");
   // hours and minutes as the main text and AM/PM ("" for 24 hours)
-  const clockText = (h, mi, h12) => (h12 ? { main: `${h % 12 || 12}:${two(mi)}`, ampm: h < 12 ? "AM" : "PM" } : { main: `${two(h)}:${two(mi)}`, ampm: "" });
+  const clockText = (h, mi, h12) => (h12 ? { main: `${two(h % 12 || 12)}:${two(mi)}`, ampm: h < 12 ? "AM" : "PM" } : { main: `${two(h)}:${two(mi)}`, ampm: "" });
   // the header time "HH:MM" of the frame in the chosen format: fmt 0 24 hours, 1 12 hours with AM/PM
   // ("1:37PM"), 2 12 hours without ("1:37")
   function headTime(hhmm, fmt) {
@@ -711,7 +711,7 @@
   // with the 2.13" bottle (longer neck, one row higher, like on the "Check connection" picture; user),
   // NOTHING_ART_S 96 x 49 for narrow panels (2.13" upright), all sampled from the same drawing.
   // red = x0, y0, x1, y1 of the bottle's content, in the third colour on colour panels (user)
-  const NOTHING_ART = { w: 118, h: 60, red: [70, 14, 73, 27], bottle: [70, 14, 73, 25], cut: [[70, 18, -1], [73, 18, 1]], rows: [
+  const NOTHING_ART = { w: 118, h: 60, red: [70, 14, 73, 27], bottle: [70, 14, 73, 25], cut: [[70, 18, -1], [73, 18, 1]], cup: [71, 25], rows: [
     "0000f8000000001fc00000000c0000",
     "0001fc000000003fa0000001fe0000",
     "0003fe00000000ff90000003ff8000",
@@ -772,7 +772,7 @@
     "00c003006f8243fef003f604001800",
     "0000000067c2c1f26007e600000000",
     "0000000000078003c0000000000000"] };
-  const NOTHING_ART_M = { w: 118, h: 60, red: [70, 13, 73, 26], bottle: [70, 13, 73, 24], rows: [
+  const NOTHING_ART_M = { w: 118, h: 60, red: [70, 13, 73, 26], bottle: [70, 13, 73, 24], cup: [71, 24], rows: [
     "0000f8000000001fc00000000c0000",
     "0001fc000000003fa0000001fe0000",
     "0003fe00000000ff90000003ff8000",
@@ -833,7 +833,7 @@
     "00c003006f8243fef003f604001800",
     "0000000067c2c1f26007e600000000",
     "0000000000078003c0000000000000"] };
-  const NOTHING_ART_S = { w: 96, h: 49, red: [57, 12, 59, 22], bottle: [57, 12, 59, 20], rows: [
+  const NOTHING_ART_S = { w: 96, h: 49, red: [57, 12, 59, 22], bottle: [57, 12, 59, 20], cup: [58, 20], rows: [
     "000780000000fc0000006000",
     "000fc0000001f8000007f000",
     "001fe0000007fa00000ff800",
@@ -886,7 +886,7 @@
   // The Intermission: the pictures of the "Check connection" screen (NO DATA), the same table and
   // chairs without the people and the bottle of the "Nothing to ink" picture (red = the bottle, third
   // colour; user): 172 x 93 in the pixels of the 4.2" (drawn 1x), the same tables as in the firmware
-  const NODATA_ART = { w: 172, h: 93, red: [108, 5, 115, 32], bottle: [108, 5, 115, 32], glass: [117, 24, 123, 32], rows: [
+  const NODATA_ART = { w: 172, h: 93, red: [108, 5, 115, 32], bottle: [108, 5, 115, 32], glass: [117, 24, 123, 32], cup: [116, 32], rows: [
     "fff00000000000000000000000000000000000000000",
     "fff00000000000000000000000000000000000000000",
     "fff00000000000000000000000000000000000000000",
@@ -981,7 +981,7 @@
     "0000000000000003f000000318000000000000000000",
     "0000000000000003f0000003f8000000000000000000"] };
   // the same at half size for the 2.13" (landscape and upright)
-  const NODATA_ART_M = { w: 86, h: 47, red: [54, 2, 57, 15], bottle: [54, 2, 57, 15], glass: [59, 12, 61, 15], rows: [
+  const NODATA_ART_M = { w: 86, h: 47, red: [54, 2, 57, 15], bottle: [54, 2, 57, 15], glass: [59, 12, 61, 15], cup: [58, 15], rows: [
     "fc00000000000000000000",
     "fc00000000000000000000",
     "c8000000000001800000fc",
@@ -1032,7 +1032,7 @@
   // The Afterhours: the table of The Intermission with one column and a wide foot, both chairs upside down
   // on it, the bottle on the floor (red = the bottle; user); the quiet hours screen. 172 x 80 for the 4.2",
   // the same at half size (86 x 40) for the 2.13"; the floor on the row of the chairs of The Intermission
-  const AFTER_ART = { w: 172, h: 80, red: [103, 52, 110, 79], bottle: [103, 52, 110, 79], rows: [
+  const AFTER_ART = { w: 172, h: 80, red: [103, 52, 110, 79], bottle: [103, 52, 110, 79], cup: [82, 32], cold: true, clock: [40, -36], rows: [
     "0000000000f000000f0000000f000000f00000000000",
     "0000000000f000000f0000000f000000f00000000000",
     "0000000000f000000f0000000f000000f00000000000",
@@ -1113,7 +1113,7 @@
     "0000000000000000000fffff01fe0000000000000000",
     "000000000000000000fffffff1fe0000000000000000",
     "000000000000000000fffffff1fe0000000000000000"] };
-  const AFTER_ART_M = { w: 86, h: 40, red: [52, 26, 55, 39], bottle: [52, 26, 55, 39], rows: [
+  const AFTER_ART_M = { w: 86, h: 40, red: [52, 26, 55, 39], bottle: [52, 26, 55, 39], cup: [41, 15], cold: true, clock: [20, -18], rows: [
     "00000c0030003000c00000",
     "00000c0030003000c00000",
     "0000060033033001800000",
@@ -1157,9 +1157,10 @@
   // draws picture a at x, y with every picture pixel s x s; third = colour of the bottle's content.
   // cut: [x, y, side] pixels that lose their upper outer quarter when drawn 2x or bigger (side -1 left,
   // 1 right): the bottle's step from the neck to the shoulder, half a picture pixel high (user)
-  // sober (Advanced Ink, Sobriety): without the bottle and the glass (a.bottle,
-  // a.glass: the regions they take)
-  function drawArt(fb, a, x, y, s, third, sober) {
+  // drink (Advanced Ink, Beverages): 0 House Wine (bottle and glass), 1 Tabula Rasa (without them; a.bottle,
+  // a.glass: the regions they take), 2 Roast (a coffee cup instead, see drawCup); cup = its pixel size
+  function drawArt(fb, a, x, y, s, third, drink, cup = 1) {
+    const sober = drink === 1 || drink === 2;
     const [rx0, ry0, rx1, ry1] = a.red, gone = sober ? [a.bottle, a.glass].filter(Boolean) : [];
     const off = (c, r) => gone.some(([x0, y0, x1, y1]) => c >= x0 && c <= x1 && r >= y0 && r <= y1);
     a.rows.forEach((hex, r) => {
@@ -1168,7 +1169,50 @@
           fb.fillRect(x + c * s, y + r * s, s, s, !sober && c >= rx0 && c <= rx1 && r >= ry0 && r <= ry1 ? third : BK);   // sober: what is left of its foot black, like the table
     });
     const q = s >> 1;
-    if (q) for (const [c, r, side] of a.cut || []) fb.fillRect(x + c * s + (side > 0 ? s - q : 0), y + r * s, q, q, WH);
+    if (q && !sober) for (const [c, r, side] of a.cut || []) fb.fillRect(x + c * s + (side > 0 ? s - q : 0), y + r * s, q, q, WH);
+    if (drink === 2 && a.cup) drawCup(fb, x + a.cup[0] * s, y + (a.cup[1] + 1) * s - 1, cup, third, !a.cold);
+  }
+  // Roast (Beverages): a coffee cup in display pixels of size z (1 on the 2.13", 2 on the 4.2", the same in
+  // every picture; user), its bottom left pixel at x, y; the cup in the third colour, the steam black
+  // (none on The Afterhours: a cold cup left at closing time)
+  // The Afterhours, Got the time?: a wall clock 19 x 19 in pixels of size z (1 on the 2.13", 2 on the 4.2", like
+  // the cup), centred on x, y, black: ring, a tick for every hour, hands for h:mi (the time now; user). The
+  // ticks and the hand tips come from tables (the same in the firmware), so both draw the same pixels:
+  // x, y from the middle; the tips per 6 degrees (minute hand 7 px, hour hand 5 px, its place = hour * 5 +
+  // minutes / 12)
+  const CLOCK_TICKS = [0, -7, 3, -6, 6, -4, 7, 0, 6, 3, 3, 6, 0, 7, -4, 6, -6, 4, -7, 0, -6, -4, -4, -6];
+  const CLOCK_MIN = [0, -7, 1, -7, 1, -7, 2, -7, 3, -6, 3, -6, 4, -6, 5, -5, 5, -5, 6, -4, 6, -4, 6, -3, 7, -2, 7, -1, 7, -1, 7, 0, 7, 1, 7, 1, 7, 2, 6, 3, 6, 3, 6, 4, 5, 5, 5, 5, 4, 6, 3, 6, 3, 6, 2, 7, 1, 7, 1, 7, 0, 7, -1, 7, -1, 7, -2, 7, -3, 6, -4, 6, -4, 6, -5, 5, -5, 5, -6, 4, -6, 4, -6, 3, -7, 2, -7, 1, -7, 1, -7, 0, -7, -1, -7, -1, -7, -2, -6, -3, -6, -4, -6, -4, -5, -5, -5, -5, -4, -6, -4, -6, -3, -6, -2, -7, -1, -7, -1, -7];
+  const CLOCK_HOUR = [0, -5, 1, -5, 1, -5, 2, -5, 2, -5, 2, -4, 3, -4, 3, -4, 4, -3, 4, -3, 4, -3, 5, -2, 5, -2, 5, -1, 5, -1, 5, 0, 5, 1, 5, 1, 5, 2, 5, 2, 4, 2, 4, 3, 4, 3, 3, 4, 3, 4, 2, 4, 2, 5, 2, 5, 1, 5, 1, 5, 0, 5, -1, 5, -1, 5, -2, 5, -2, 5, -3, 4, -3, 4, -3, 4, -4, 3, -4, 3, -4, 3, -5, 2, -5, 2, -5, 1, -5, 1, -5, 0, -5, -1, -5, -1, -5, -2, -5, -2, -4, -3, -4, -3, -4, -3, -3, -4, -3, -4, -3, -4, -2, -5, -2, -5, -1, -5, -1, -5];
+  function lineTo(x1, y1) {   // the pixels from 0, 0 to x1, y1 (Bresenham)
+    const pts = [], dx = Math.abs(x1), dy = -Math.abs(y1), sx = x1 > 0 ? 1 : -1, sy = y1 > 0 ? 1 : -1;
+    let x = 0, y = 0, err = dx + dy;
+    for (;;) {
+      pts.push([x, y]);
+      if (x === x1 && y === y1) return pts;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; x += sx; }
+      if (e2 <= dx) { err += dx; y += sy; }
+    }
+  }
+  function drawWallClock(fb, x, y, z, h, mi) {
+    const c = 9, pts = [];
+    for (let dy = -c; dy <= c; dy++)
+      for (let dx = -c; dx <= c; dx++) {
+        const d2 = dx * dx + dy * dy;
+        if (d2 > c * c - c && d2 <= c * c + c) pts.push([dx, dy]);
+      }
+    for (let k = 0; k < 12; k++) pts.push([CLOCK_TICKS[2 * k], CLOCK_TICKS[2 * k + 1]]);
+    const hi = (h % 12) * 5 + Math.floor(mi / 12);
+    pts.push(...lineTo(CLOCK_HOUR[2 * hi], CLOCK_HOUR[2 * hi + 1]), ...lineTo(CLOCK_MIN[2 * mi], CLOCK_MIN[2 * mi + 1]));
+    for (const [dx, dy] of pts) fb.fillRect(x + dx * z, y + dy * z, z, z, BK);
+  }
+  const CUP = ["###..", "####.", "####.", "###.."];
+  const STEAM = [".s..s", "s..s.", ".s..s", "....."];
+  function drawCup(fb, x, y, z, third, steam) {
+    const shape = (steam ? STEAM : []).concat(CUP), top = y + 1 - shape.length * z;
+    shape.forEach((row, r) => [...row].forEach((c, k) => {
+      if (c !== ".") fb.fillRect(x + k * z, top + r * z, z, z, c === "#" ? third : BK);
+    }));
   }
 
   // message, text size, picture and its scale of the "Check connection" (noData) or "Nothing to ink"
@@ -1228,8 +1272,8 @@
       const pic = Math.max(...K.map(o => o.A.h * o.as)), bh = pic + 10 * C;
       const top = MH + Math.trunc((fb.h - MH - bh) / 2), base = top + pic + 3 * C;
       // The Afterhours in its time window with Caption (m.until = its end): "Closed until 07:00" in the
-      // time format of the display; too wide for 4 font pixels to each edge: the time in a second line
-      // below (user: the time is never left out)
+      // time format of the display ("07:00AM"); too wide for 4 font pixels to each edge: the time in a
+      // second line below (user: the time is never left out)
       let msg, msg2;
       if (m.art === "Q" && m.until) {
         const until = headTime(m.until, m.timeFmt);
@@ -1237,7 +1281,14 @@
         if (textW(msg) * C > W - 8 * C) { msg = "Closed until"; msg2 = until; }
       }
       const L = msgArt(art, W, fb.h, MH, wide, msg);
-      if (L.as) drawArt(fb, L.A, Math.trunc((W - L.A.w * L.as) / 2), top + pic - L.A.h * L.as, L.as, m.mono ? BK : RD, !!m.sober);
+      const ax = Math.trunc((W - L.A.w * L.as) / 2), ay = top + pic - L.A.h * L.as;
+      if (L.as) drawArt(fb, L.A, ax, ay, L.as, m.mono ? BK : RD, m.sober ?? 1, wide ? 2 : 1);
+      // Got the time? (m.wallArts: the pictures with it, m.wallTime: the time now): a wall clock, in every
+      // picture at the same place of the display, the one above the left chair of The Afterhours (user)
+      const Q = K[2];
+      if (L.as && Q.as && m.wallTime && (m.wallArts || "").includes(art))
+        drawWallClock(fb, Math.trunc((W - Q.A.w * Q.as) / 2) + Q.A.clock[0] * Q.as, top + pic - Q.A.h * Q.as + Q.A.clock[1] * Q.as,
+          wide ? 2 : 1, m.wallTime.h, m.wallTime.mi);
       if (msg || (!m.art && (m.artCap || "").includes(art))) fb.text(Math.trunc((W - textW(L.msg) * C) / 2), base, L.msg, BK, C);
       if (msg2) fb.text(Math.trunc((W - textW(msg2) * C) / 2), base + 9 * C, msg2, BK, C);
       return;
@@ -1653,11 +1704,13 @@
           rx: num(9, 2147483647), tx: num(10, 2147483647), link: num(11, 1000000), nvme: tl(f[12]), ssd: tl(f[13]),
         };
       } else if (line.startsWith("A|")) {
-        // the pictures: A|<flags C I A, hex>|<Sobriety 1/0>|<card order>|<windows HHMM-HHMM,...>
-        const f = splitFields(line, 5);
+        // the pictures: A|<flags C I A, hex>|<drinks 0 House Wine / 1 Tabula Rasa / 2 Roast>|<card order>|<windows HHMM-HHMM,...>
+        // [|<Got the time? per picture C I A, 1/0>|<the Refresh of the display in s>]
+        const f = splitFields(line, 7);
         if (f.length >= 5 && /^[0-9a-f]{3}$/.test(f[1]) && cardOrderOk(f[3]) && /^(\d{4}-\d{4},){2}\d{4}-\d{4}$/.test(f[4]))
-          rx.pics = { flags: [...f[1]].map(c => parseInt(c, 16)), sober: f[2] === "0" ? 0 : 1, card: f[3],
-            win: f[4].split(",").map(w => [w.slice(0, 2) + ":" + w.slice(2, 4), w.slice(5, 7) + ":" + w.slice(7, 9)]) };
+          rx.pics = { flags: [...f[1]].map(c => parseInt(c, 16)), sober: f[2] === "0" ? 0 : f[2] === "2" ? 2 : 1, card: f[3],
+            win: f[4].split(",").map(w => [w.slice(0, 2) + ":" + w.slice(2, 4), w.slice(5, 7) + ":" + w.slice(7, 9)]),
+            clocks: f.length >= 7 && /^[01]{3}$/.test(f[5]) ? f[5] : "000", clock: f.length >= 7 ? clamp(atoi(f[6]), 0, 86400) : 0 };
       } else if (line.startsWith("C|")) {
         // time page: C|<local date and time YYYYMMDDHHMMSS>|<date 1/0>|<weekday 1/0>|<date format 0-3>|<NTP 1/0>|<NTP server>|<POSIX time zone>
         //   [|<time in the third colour 1/0>|<black outline around it 1/0>]
@@ -1768,14 +1821,17 @@
     const head = [`H|${title}|${time}|${s.rows || 0}|${s.warn ?? L.WARN_PCT}|${Math.trunc((s.rot || 0) / 90)}|${s.page ?? 600}`, ...extra].join("|");
     const lines = ["#BEGIN", head];
     // A line, the pictures (only when not the defaults): per picture C I A one hex digit (1 caption, 2 header,
-    // 4 in the page turn, 8 scheduled; 0 when its Ink is off), Sobriety, the card order (the pages and the
+    // 4 in the page turn, 8 scheduled; 0 when its Ink is off), Beverages, the card order (the pages and the
     // pictures: their place in the page turn), the time windows HHMM-HHMM
     const po = orderOk(s.pageOrder) ? s.pageOrder : PAGE_ORDER, card = cardOrderOk(s.cardOrder) ? s.cardOrder : po + "CIA";
     const flags = PICS.map(([p, , , cap]) => (s[p + "Ink"] === 0 ? 0 : ((s[p + "Cap"] ?? cap) === 1 ? 1 : 0) | (s[p + "Head"] === 1 ? 2 : 0)
       | (s[p + "Rot"] === 1 ? 4 : 0) | (s[p + "Sched"] === 1 ? 8 : 0)).toString(16)).join("");
     const win = PICS.map(([p, f, t]) => `${(s[p + "From"] || f).replace(":", "")}-${(s[p + "To"] || t).replace(":", "")}`).join(",");
-    const sober = s.sober === 0 ? 0 : 1;
-    if (flags !== PIC_FLAGS || sober !== 1 || card !== po + "CIA" || win !== PIC_WIN) lines.push(`A|${flags}|${sober}|${card}|${win}`);
+    const sober = s.sober === 0 || s.sober === 2 ? s.sober : 1;   // Beverages: 0 House Wine, 1 Tabula Rasa, 2 Roast
+    // Got the time?: the wall clock per picture; the board redraws it every minute (black/white) or every Refresh
+    const clocks = PICS.map(([p]) => (s[p + "Clock"] === 1 ? 1 : 0)).join(""), clock = clocks !== "000";
+    if (flags !== PIC_FLAGS || sober !== 1 || card !== po + "CIA" || win !== PIC_WIN || clock)
+      lines.push(`A|${flags}|${sober}|${card}|${win}${clock ? `|${clocks}|${Math.max(1, s.refresh || 600)}` : ""}`);
     if (s.showTime === 1) {   // the time page: date and time of the data, what it shows, NTP (WiFi boards)
       let when = /^\d{14}$/.test(dt) ? dt : "";
       if (!when) { const n = new Date(), hm = /^(\d\d):(\d\d)$/.exec(time || ""); when = `${n.getFullYear()}${two(n.getMonth() + 1)}${two(n.getDate())}${hm ? hm[1] + hm[2] : two(n.getHours()) + two(n.getMinutes())}00`; }

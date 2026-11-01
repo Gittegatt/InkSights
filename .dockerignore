@@ -1,4 +1,6 @@
-# The image (server/docker/Dockerfile) only needs the settings page
+# The image (server/docker/Dockerfile) only needs the settings page and the script
 *
 !server/web/
+!server/inksights.sh
+!server/docker/script-entry.sh
 server/web/__pycache__/

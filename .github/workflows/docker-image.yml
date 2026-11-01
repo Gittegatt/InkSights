@@ -1,6 +1,6 @@
 name: Build Docker image
 
-# The settings page (WebUI) as an image on the GitHub Container Registry:
+# The settings page (WebUI) and the script as an image on the GitHub Container Registry:
 # ghcr.io/gittegatt/inksights:<version> and :latest, for amd64 and arm64.
 # Only in the public repository, on a version tag (v1.0, ...) or by hand.
 
@@ -30,8 +30,30 @@ jobs:
           if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME#v}" != "$app" ]; then
             echo "Tag ${GITHUB_REF_NAME} does not match the WebUI version ${app}"; exit 1
           fi
+          fw=$(sed -n 's/.*FW_VERSION\[\] *= *"\([0-9.]*\)".*/\1/p' firmware/InkSights/InkSights.ino)
+          if [ "$fw" != "$app" ]; then echo "Firmware ${fw} and WebUI ${app} differ"; exit 1; fi
+          sh=$(sed -n 's/^VERSION="\([0-9.]*\)".*/\1/p' server/inksights.sh)
+          if [ "$sh" != "$app" ]; then echo "Script ${sh} and WebUI ${app} differ"; exit 1; fi
           echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/inksights" >> "$GITHUB_OUTPUT"
           echo "version=${app}" >> "$GITHUB_OUTPUT"
+
+      # the firmware of every board with WiFi goes into the image (server/web/fw): the settings page
+      # updates those boards over WiFi with it
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: pip install platformio intelhex
+
+      - name: Build the firmware for updates over WiFi
+        run: |
+          args=""
+          for env in seeed-xiao-esp32-c3 seeed-xiao-esp32-s3 esp32-s3-supermini esp32-s3-zero esp32-c3-supermini esp32-c3-zero adafruit-qtpy-esp32-s3-n4r2 adafruit-qtpy-esp32-s3-nopsram; do
+            args="$args --environment $env"
+          done
+          python scripts/build_release.py $args --ota-dir server/web/fw
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

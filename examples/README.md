@@ -116,7 +116,6 @@ top line.
 ![4.2″ WiFi page](example_13_4-2_wifi_page.png)
 
 The WiFi network the board is connected to, its IP address and how long it has been connected without a break.
-Shown in the preview so far; the firmware does not draw this page yet.
 
 ## Time page
 
@@ -124,7 +123,7 @@ Shown in the preview so far; the firmware does not draw this page yet.
 
 ![4.2″ time page](example_14_4-2_time_page.png)
 
-**Just give me time** in the Advanced Ink card: the display shows only the time page, in 24 hours, with the weekday
+**Just give me time** in the Time card: the display shows only the time page, in 24 hours, with the weekday
 and the date (`2026-10-26`, the default).
 
 ### 2.13″ time page in red, 12 hours
@@ -132,64 +131,68 @@ and the date (`2026-10-26`, the default).
 ![2.13″ time page in red, 12 hours](example_15_2-13_time_page_12h.png)
 
 **Color highlight** and **Time frame** in the Time card: the time in red with a black outline, weekday and date in
-black. **12h** with AM/PM in the Display card, the date as `26.10.2026`. The time page comes first (the default
+black. **12h** with AM/PM in the Time card, the date as `28.10.2026`. The time page comes first (the default
 order); the other pages follow, with their top line.
 
 ## Special screens
 
-The pictures of this part without the top line (the default; the caption in 5x7 on the 2.13″). On the right
-each one without the bottle and the glass (**Sobriety**, ticked by default in Advanced Ink).
+The pictures of this part without the top line (the default), three per screen: **House Wine** (the bottle and the
+glass, no caption), **Roast** (a coffee cup, the default of **Beverages** in Advanced Ink, with its **Caption**, 5x7
+on the 2.13″) and **Tabula Rasa** (nothing on the table) with its **Caption** and **Got the time?** (a wall clock
+with the time now).
 
-### 2.13″ without connection
+### The Conversation: 4.2″ with nothing to show
 
-<img align="top" src="example_16_2-13_no_connection.png" alt="A yellow 2.13″ display without fresh data: Check connection below the empty table" width="49%"> <img align="top" src="example_16_2-13_no_connection_sober.png" alt="The same without the bottle and the glass" width="49%">
-
-The display got no fresh data for too long: **The Intermission**, the empty table, with **Check connection**
-below it; on this yellow panel the bottle in yellow. With its **Header** ticked the top line shows **NO DATA**.
-
-### 4.2″ with nothing to show
-
-<img align="top" src="example_17_4-2_nothing_to_ink.png" alt="A 4.2″ display with nothing to show: Nothing to ink below three people at a table" width="49%"> <img align="top" src="example_17_4-2_nothing_to_ink_sober.png" alt="The same without the bottle" width="49%">
+<img align="top" src="example_17_4-2_nothing_to_ink.png" alt="A 4.2″ display with every page switched off: three people at a table, the bottle and the glass (House Wine)" width="32%"> <img align="top" src="example_17_4-2_nothing_to_ink_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="32%"> <img align="top" src="example_17_4-2_nothing_to_ink_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="32%">
 
 Every page of this display is switched off (no system, drive, network, time or WiFi page): **The Conversation**,
-three people at a table, with **Nothing to ink** below it, so the display never looks broken.
+three people at a table, with **Nothing to ink** as its caption, so the display never looks broken.
 
-### 2.13″ with nothing to show, without the picture
+### The Intermission: 2.13″ without connection
+
+<img align="top" src="example_16_2-13_no_connection.png" alt="A red 2.13″ display without fresh data: the empty table, the bottle and the glass (House Wine)" width="32%"> <img align="top" src="example_16_2-13_no_connection_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="32%"> <img align="top" src="example_16_2-13_no_connection_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="32%">
+
+The display got no fresh data for too long: **The Intermission**, the empty table, with **Check connection** as
+its caption; on this red panel the bottle and the cup in red. With its **Header** ticked the top line shows
+**NO DATA**.
+
+### The Afterhours: 2.13″ in its quiet hours
+
+<img align="top" src="example_21_2-13_closed.png" alt="A yellow 2.13″ display in its quiet hours: two chairs upside down on a table, the bottle and the glass (House Wine)" width="32%"> <img align="top" src="example_21_2-13_closed_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="32%"> <img align="top" src="example_21_2-13_closed_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="32%">
+
+**The Afterhours** with **Scheduled** 23:00 to 07:00, at 23:37: only its picture, the chairs up on the table, with
+its caption **Closed until 07:00AM** (**12h** with AM/PM in the Time card); on this yellow panel the bottle and the
+cup in yellow. With **Roast** a cold cup (no steam) stands between the chairs.
+
+### InkSights: 2.13″ with nothing to show, without the picture
 
 ![2.13″ with the logo screen](example_20_2-13_logo_screen.png)
 
 Every page switched off and **The Conversation** with **On cue** off: the product name with its logo, in the
 place it keeps with or without the top line.
 
-### 2.13″ in its quiet hours
-
-<img align="top" src="example_21_2-13_closed.png" alt="A red 2.13″ display in its quiet hours: Closed until 07:00" width="49%"> <img align="top" src="example_21_2-13_closed_sober.png" alt="The same without the bottle" width="49%">
-
-The time window of **The Afterhours** (23:00 to 07:00) at 23:37: only its picture, the chairs up on the table, with
-its caption **Closed until 07:00**; on this red panel the bottle in red.
-
 ## Settings page and simulator
 
 ### The settings page
 
-<img src="example_18_settings_page_2-13.png" alt="The settings page with the 2.13″ display and its Display card open" width="49%"> <img src="example_18_settings_page_4-2.png" alt="The settings page with the 4.2″ display and its Header card open" width="49%">
+<img align="top" src="example_18_settings_page_2-13.png" alt="The settings page with the 2.13″ display and its Display card open" width="49%"> <img align="top" src="example_18_settings_page_4-2.png" alt="The settings page with the 4.2″ display and its Header card open" width="49%">
 
 The settings page of two displays, each shown on its own: at the top the versions of the WebUI, the script and the
 firmware on each controller, then the display with its live preview and below it its cards. On the left the 2.13″
-with its **Display** card open (names, time format, Live display, panel, rotation, rows per page, page turn,
-refresh, display pins), on the right the 4.2″ with its **Header** card open (title, colours, divider line, places). The other cards
-are folded, each with its **Ink** tick that switches that page on or off and its grip (two lines) to change the
+with its **Display** card open (names, panel, rotation, rows per page, refresh, page turn, Sync with display,
+display pins), on the right the 4.2″ with its **Header** card open (title, colours, divider line, places). The
+other cards are folded, each with its **Ink** tick that switches that page on or off and its grip (two lines) to change the
 order of the pages. Below the page cards the cards of the three pictures (**The Conversation**, **The
 Intermission**, **The Afterhours**) and **Advanced Ink**. At the bottom the **About** card (folded): versions,
-project links, license, support. The version line, The Afterhours and the About card are only in the simulator so
-far.
+project links, license, support.
 
 ### The simulator
 
 <img src="example_19_simulator.png" alt="The Value simulation card" width="70%">
 
-`simulator/simulator.html` is the same settings page with simulated data; its **Value simulation** card sets them: where
-the data come from (disk list or a pasted frame), the time and host name, a controller that does not answer, per
-display the board, panel, connection, WiFi network and **Connected** / **No data** / **Start screen**, the system
-values (**Live values** = a running system) and the drives with storage, usage, temperature and spindown state.
+`simulator/simulator.html` is the same settings page with simulated data; its **Value simulation** card sets
+them: where the data come from (disk list or a pasted frame), the time and host name, a controller that does not
+answer, per display the board, panel, connection, WiFi network and **Connected** / **No data** / **Start screen**,
+the system values (**Live values** = a running system) and the drives with storage, usage, temperature and
+spindown state.
 **Update notice · Test** shows the line about a new version.

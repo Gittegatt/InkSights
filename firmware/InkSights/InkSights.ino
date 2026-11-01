@@ -57,7 +57,7 @@
  *              number ("2M 1W 3d", "3d 4h 5m"): minutes after the full calendar months; missing / -1 =
  *              page number
  *     months : (14th field) full calendar months of the uptime, missing = 0
- *     wifi   : (15th field) WiFi page 0 off / 1 with symbols / 2 without (not drawn here yet)
+ *     wifi   : (15th field) WiFi page 0 off / 1 with symbols / 2 without (boards with WiFi only)
  *     nodata : (16th field) seconds without a fresh frame (one that differs, its time included)
  *              before the display shows "NO DATA" in the header and "Check connection" instead
  *              of the pages; 0 / missing = never
@@ -129,8 +129,17 @@
  *   P|<cs>|<dc>|<rst>|<busy>[|<panel>]
  *                              (optional) pin numbers of the board (D numbers on the SAMD21, GPIO
  *                              numbers on the ESP32 boards), rst/busy -1 = not connected, and
- *                              the panel type 1-5 (PANELS, missing = keep); new values are saved
+ *                              the panel type 1-8 (PANELS, missing = keep); new values are saved
  *                              and the board restarts
+ *   A|...|<C I A>|<Refresh s>  (optional 6th and 7th field of the A line) Got the time?: the pictures with a
+ *                              wall clock showing the time now (1/0 each), the same place in all three;
+ *                              redrawn every minute (black/white panels) or every Refresh, at least 3
+ *                              minutes (colour panels); missing = none
+ *   U|<size>|<md5>             (WiFi only, optional) a firmware update is waiting: the board fetches
+ *                              <server>/api/firmware?id=<chip id>, writes it into its free firmware
+ *                              slot, checks size and MD5 and restarts with it; anything wrong: the old
+ *                              firmware stays. The result goes with the next fetch (&ota=done /
+ *                              &ota=failed:<why>)
  *   R                          (optional) redraw now, even if nothing changed and
  *                              before MIN_REFRESH_MS ("Redraw now" on the web page)
  *   W|<ssid>|<password>|<hostname>|<server>|<ap>|<ap ssid>|<ap password>[|<ap delay>]
@@ -138,9 +147,12 @@
  *                              field hex encoded (UTF-8), "-" = empty; password "*" = keep;
  *                              ap 1 = setup access point allowed; ap delay = seconds without
  *                              connection before it opens (0-3600, missing = 30). Saved when different.
- *   Answer: "OK disks=<n> page=<p>/<n> refresh=now|later|no" (+ " pins=saved restart")
+ *   Answer: "OK disks=<n> page=<p>/<n> refresh=now|later|no shown=<p> drawn=<s> turn=<s>" (+ " pins=saved restart")
+ *              shown = the page on the panel (place in the page turn, 0 = start screen), drawn = seconds
+ *              since the last redraw, turn = seconds until the next page turn is due (-1 = none); the
+ *              preview of the settings page (Sync with display) follows the panel with them (WiFi: sent with each fetch)
  *   "PING" -> "PONG InkSights id=<chip id> size=<w>x<h> colors=<2|3> rows=<n>
- *              pins=<cs>,<dc>,<rst>,<busy> panel=<1-5> board=<board id> wifi=<0|1> fw=<version>
+ *              pins=<cs>,<dc>,<rst>,<busy> panel=<1-8> board=<board id> wifi=<0|1> fw=<version>
  *              [fast=1] [net=<sta|ap|off> ip=<address> ssid=<hex> host=<hex> server=<hex> ap=<1|0>
  *              apssid=<hex> apdelay=<s> pass=<1|0>]"   (fast=1: the panel can do fast refreshes; WiFi
  *              boards: the stored WiFi settings, texts UTF-8 hex encoded and only when set, never the
@@ -163,6 +175,7 @@
   #include <HTTPClient.h>
   #include <ESPmDNS.h>
   #include <DNSServer.h>
+  #include <Update.h>
 #endif
 
 const char PRODUCT_NAME[] = "InkSights";  // name in the start screen header (display name only;
@@ -185,8 +198,8 @@ const char FW_VERSION[]   = "1.0";             // shown on the start screen and 
 #ifndef DEFAULT_PANEL
 #define DEFAULT_PANEL 1
 #endif
-#if DEFAULT_PANEL < 1 || DEFAULT_PANEL > 5
-  #error "DEFAULT_PANEL must be 1 to 5"
+#if DEFAULT_PANEL < 1 || DEFAULT_PANEL > 8
+  #error "DEFAULT_PANEL must be 1 to 8"
 #endif
 
 #define ROTATION 1               // orientation for 0° (1 = landscape); the web page turns it further
@@ -225,14 +238,18 @@ struct PanelInfo {
   const char* name;
   bool        color;   // black / white / colour (red or yellow)
   bool        fast;    // partial refresh in under a second without flashing (black / white panels)
+  bool        yellow;  // the third colour is yellow: text on it is black
 };
-const uint8_t PANEL_COUNT = 5;
-const PanelInfo PANELS[PANEL_COUNT] = {   // panel type 1 to 5
-  { "GDEW0213Z16", true,  false },
-  { "GDEH0213Z19", true,  false },
-  { "GDEY0213Z98", true,  false },
-  { "GDEY0213B74", false, true  },
-  { "GDEY042T81",  false, true  },
+const uint8_t PANEL_COUNT = 8;
+const PanelInfo PANELS[PANEL_COUNT] = {   // panel type 1 to 8
+  { "GDEW0213Z16", true,  false, false },
+  { "GDEH0213Z19", true,  false, false },
+  { "GDEY0213Z98", true,  false, false },
+  { "GDEY0213B74", false, true,  false },
+  { "GDEY042T81",  false, true,  false },
+  { "GDEW0213Z16", true,  false, true  },   // 6 to 8: the yellow versions of 1 to 3, same drivers
+  { "GDEH0213Z19", true,  false, true  },
+  { "GDEY0213Z98", true,  false, true  },
 };
 
 GxEPD2_GFX* epd = nullptr;   // created in setup() with the panel type and pins from flash
@@ -241,10 +258,12 @@ GxEPD2_GFX* epd = nullptr;   // created in setup() with the panel type and pins 
 // panels: 2.13" GDEY0213B74, 4.2" GDEY042T81; three-colour panels only do a full refresh)
 bool hasColor = true;
 bool fastPanel = false;
+bool yellowPanel = false;   // third colour yellow (panel types 6 to 8)
 
 const uint16_t BK = GxEPD_BLACK;
 const uint16_t WH = GxEPD_WHITE;
 uint16_t RD = GxEPD_RED;   // third colour (red or yellow panel); black on black / white panels
+uint16_t onRD = GxEPD_WHITE;   // text on the third colour: white, black on yellow (white on yellow is hard to read; user)
 
 // Control pins (pin numbers of the board) and the panel type, kept in flash (survive power-off)
 struct PinConfig {
@@ -311,21 +330,25 @@ struct Head {
   uint8_t  headFill; // header: the gaps between the highlighted boxes filled 1 / 0
   char     order[6]; // order of the pages: S system, D drives, N network, T time, W WiFi
   uint8_t  netPages; // network pages on 1 / off 0 (on without interfaces: the page "No interfaces")
+  uint8_t  wifiPage; // WiFi page 0 off, 1 with symbols, 2 without (boards with WiFi only)
 };
 
 // The pictures (A line): per picture C The Conversation, I The Intermission, A The Afterhours its flags
-// (1 caption, 2 header, 4 in the page turn, 8 scheduled; 0 when its Ink is off), Sobriety (without the
-// bottle and the glass), the card order (the pages and the pictures, their place in the page turn; "" =
+// (1 caption, 2 header, 4 in the page turn, 8 scheduled; 0 when its Ink is off), Beverages (sober: what
+// stands on the table, 0 House Wine the bottle and the glass, 1 Tabula Rasa nothing, 2 Roast a coffee cup), the card order (the pages and the pictures, their place in the page turn; "" =
 // the page order + CIA) and the time windows in minutes of the day (from, to of each picture)
 struct Pics {
   uint8_t  flags[3];
   uint8_t  sober;
   char     card[9];
   uint16_t win[6];
+  uint8_t  clocks;  // Got the time?: the pictures with a wall clock, 1 The Conversation, 2 The Intermission, 4 The Afterhours
+  uint32_t clock;   // ... and the Refresh of the display in s (colour panels redraw it that often)
 };
 
 // A picture of a screen: its text, the text size it allows, the bitmap and its size, its scale, the
-// regions of the bottle's content (third colour), of the bottle and of the glass (Sobriety)
+// regions of the bottle's content (third colour), of the bottle and of the glass (Tabula Rasa, Roast), the
+// place of the coffee cup (Roast)
 struct ArtInfo {
   const char*    msg;
   uint8_t        ms;
@@ -335,6 +358,9 @@ struct ArtInfo {
   const int16_t* glass;
   int16_t        w, h, s;
   bool           cut;   // the bottle's step: only the 4.2" picture of The Conversation has it
+  int16_t        cupX, cupY;   // Roast: the picture pixel of the cup's bottom left
+  bool           cold;         // Roast: a cup without steam (The Afterhours)
+  int16_t        clockX, clockY;   // Got the time?: the centre of the wall clock in The Afterhours, picture pixels
 };
 
 // Kept in flash: whether the start screen is shown after power-up (Advanced Ink)
@@ -379,12 +405,14 @@ struct NetIf {
 };
 
 // One row of the system page and the network pages
-enum SysIcon : uint8_t { SI_CPU, SI_RAM, SI_NET, SI_CHIP, SI_WIFI, SI_HDD, SI_HDD_ASLEEP };
+enum SysIcon : uint8_t { SI_CPU, SI_RAM, SI_NET, SI_CHIP, SI_WIFI, SI_HDD, SI_HDD_ASLEEP, SI_CLOCK };
 struct SysRow {
   SysIcon icon;
   char    label[16], info[40], value[24], barText[8];
   bool    hasBar, pair, inl;   // pair: down and up belong together; inl: temperatures, no bar
   int16_t p1, p2;              // bar: black up to p1 %, grey up to p2 %
+  bool    hasDur;              // info is a duration of dur minutes (-1 = unknown: "--"), as many units as fit
+  int32_t dur;
 };
 
 #if HAS_WIFI
@@ -417,7 +445,12 @@ uint32_t disconnectedSince = 0, lastApAttempt = 0, lastMdnsAttempt = 0, lastPoll
 bool     pollDone = false;
 String   activeApSsid, activeApPass;
 String   lastAnswer;          // answer to the last frame, sent with the next poll
+uint32_t staSinceMs = 0;      // connected to the WiFi network since (WiFi page: "Connected")
+uint32_t shownWifiSig = 0;    // what the WiFi page shows (redraw when it changes)
 String   lastPoll = "never";  // result of the last poll, shown on the setup page
+uint32_t otaSize = 0;         // U line: a firmware update waits (its size and MD5), 0 = none
+char     otaMd5[33] = "";
+String   otaReport;           // sent once with the next fetch: "done" after an update, "failed:<why>"
 char     netShown[48] = "";   // WiFi line on the start screen, redrawn when it changes
 #endif
 bool     fromWifi = false;    // the line being handled came over WiFi
@@ -491,6 +524,7 @@ int32_t  sysDays = 0, sysSecs = 0;   // the local time of the server at sysAtMs:
 uint32_t sysAtMs = 0;
 bool     sysClockSet = false;
 uint32_t shownClockMin = 0xFFFFFFFFUL;   // minute shown on the time page
+int16_t  shownWallMin = -1;              // minute shown on a wall clock (Got the time?)
 #if HAS_WIFI
 char     ntpApplied[92] = "";   // server and zone the clock was set up with
 ClockCfg savedClock;            // the clock kept in flash for running without the server
@@ -646,6 +680,7 @@ const PanelInfo& panelInfo() { return PANELS[pins.panel - 1]; }
 
 // The display object for a panel type (GxEPD2 class, full-screen buffer)
 GxEPD2_GFX* newDisplay(int8_t panel, int8_t cs, int8_t dc, int8_t rst, int8_t busy) {
+  if (panel > 5) panel -= 5;   // yellow panels: the drivers of the red ones
   switch (panel) {
     case 2:  return new GxEPD2_3C<GxEPD2_213_Z19c, GxEPD2_213_Z19c::HEIGHT>(GxEPD2_213_Z19c(cs, dc, rst, busy));
     case 3:  return new GxEPD2_3C<GxEPD2_213_Z98c, GxEPD2_213_Z98c::HEIGHT>(GxEPD2_213_Z98c(cs, dc, rst, busy));
@@ -683,24 +718,28 @@ uint8_t rowsPerPage() {
 
 int16_t rowHeight() { return rowsArea() / rowsPerPage(); }
 
+// The WiFi page is on (H field 15; only boards with WiFi draw it)
+bool wifiOn() { return HAS_WIFI && head.wifiPage > 0; }
+
 // Pages: the system page (S line), the disk pages, the network pages (N lines, as many rows per
-// page as the disk pages) and the time page (C line), in the order of H field 28 (the WiFi page is
-// not drawn by the firmware yet); without disks the others are the only pages
+// page as the disk pages), the time page (C line) and the WiFi page, in the order of H field 28;
+// without disks the others are the only pages
 uint8_t pagesOf(char kind) {
   const uint8_t rows = rowsPerPage();
   switch (kind) {
     case 'S': return sys.on ? 1 : 0;
     // network pages on without interfaces: one page "No interfaces", only when nothing else is there
-    case 'N': return netCount ? (netCount + rows - 1) / rows : head.netPages && !sys.on && !clockCfg.on && diskCount == 0 ? 1 : 0;
+    case 'N': return netCount ? (netCount + rows - 1) / rows : head.netPages && !sys.on && !wifiOn() && !clockCfg.on && diskCount == 0 ? 1 : 0;
     case 'T': return clockCfg.on ? 1 : 0;
-    case 'D': return diskCount == 0 ? (sys.on || netCount || clockCfg.on || (head.netPages && !head.diskPages) ? 0 : 1) : (diskCount + rows - 1) / rows;
+    case 'W': return wifiOn() ? 1 : 0;
+    case 'D': return diskCount == 0 ? (sys.on || netCount || wifiOn() || clockCfg.on || (head.netPages && !head.diskPages) ? 0 : 1) : (diskCount + rows - 1) / rows;
     default:  return 0;
   }
 }
 
-uint8_t pageCount() { return pagesOf('S') + pagesOf('D') + pagesOf('N') + pagesOf('T'); }
+uint8_t pageCount() { return pagesOf('S') + pagesOf('D') + pagesOf('N') + pagesOf('T') + pagesOf('W'); }
 
-// The pictures without an A line: caption on for The Intermission and The Afterhours, Sobriety on, the
+// The pictures without an A line: caption on for The Intermission and The Afterhours, Tabula Rasa, the
 // time windows 18-19, 12-13, 23-07 (all with their flags off)
 void picsDefault(Pics& p) {
   memset(&p, 0, sizeof(p));   // the padding too: the frame hash takes the raw bytes
@@ -711,7 +750,7 @@ void picsDefault(Pics& p) {
 }
 
 // Every page switched off: no system, network, time or disk page
-bool nothingOn() { return !sys.on && !netCount && !head.netPages && !clockCfg.on && diskCount == 0 && head.diskPages == 0; }
+bool nothingOn() { return !sys.on && !netCount && !head.netPages && !wifiOn() && !clockCfg.on && diskCount == 0 && head.diskPages == 0; }
 
 // The card order: the pages and the pictures C I A (their place in the page turn)
 const char* cardOrder(char* buf) {
@@ -795,6 +834,39 @@ bool clockPageNow() {
   return dataReceived && clockCfg.on && !noDataShown && !timedArt() && turnAt(page, idx, art) == 'T';
 }
 
+// The WiFi page is on the panel or about to be drawn
+bool wifiPageNow() {
+  uint8_t idx;
+  char art;
+  return dataReceived && wifiOn() && !noDataShown && !timedArt() && turnAt(page, idx, art) == 'W';
+}
+
+// What the panel shows now, for Sync with display on the settings page: " shown=<page> drawn=<s since
+// the last redraw> turn=<s until the next page turn, -1 = none>"
+void panelStatus(char* buf, size_t size) {
+  const bool turns = dataReceived && !noDataShown && !timedArt() && head.page > 0 && turnCount() > 1;
+  const uint32_t since = (millis() - lastPageMs) / 1000UL;
+  snprintf(buf, size, " shown=%u drawn=%lu turn=%ld", refreshed && !screenIsSplash ? (unsigned)shownPage + 1 : 0U,
+           (unsigned long)((millis() - lastRefreshMs) / 1000UL), turns ? (long)(since >= head.page ? 0 : head.page - since) : -1L);
+}
+
+// The picture on the panel (N D Q, 0 = none): the one of a time window first, then its case ("Check
+// connection" without fresh data; "Nothing to ink" when every page is off and On cue), then its page in
+// the page turn (not while "Check connection")
+char shownPicture() {
+  uint8_t idx;
+  char art;
+  turnAt(page, idx, art);
+  const char timed = timedArt();
+  return timed ? timed : noDataShown ? 'D' : art ? art : nothingOn() && (head.screens & 2) ? 'N' : 0;
+}
+// A picture with Got the time? on the panel (its wall clock goes on with the time)
+bool wallClockNow() {
+  if (!dataReceived || !pics.clocks) return false;
+  const char k = shownPicture();
+  return k && (pics.clocks & (k == 'N' ? 1 : k == 'D' ? 2 : 4));
+}
+
 // Fast refresh switched on by the server and possible on this panel
 bool fastMode() { return fastPanel && dataReceived && head.fast > 0; }
 
@@ -820,7 +892,7 @@ bool noDataNow() { return dataReceived && head.noData > 0 && (head.screens & 4) 
 bool canRefreshNow() {
   if (!refreshed || screenIsSplash || forceRedraw) return true;
   // the time page of a black/white panel: every minute (partial refresh, no flashing)
-  const uint32_t minMs = fastMode() ? head.fast * 1000UL - 500 : fastPanel && clockPageNow() ? 50000UL : MIN_REFRESH_MS;   // a little early is fine
+  const uint32_t minMs = fastMode() ? head.fast * 1000UL - 500 : fastPanel && (clockPageNow() || wifiPageNow() || wallClockNow()) ? 50000UL : MIN_REFRESH_MS;   // a little early is fine
   return millis() - lastRefreshMs >= minMs;
 }
 
@@ -941,6 +1013,7 @@ void netLoop() {
   const bool connected = WiFi.status() == WL_CONNECTED;
   if (!net.apOn && apModeOn()) stopAp();
   if (connected) {
+    if (!stationWasConnected) staSinceMs = millis();   // connected (again): the WiFi page counts from here
     stationWasConnected = true;
     WiFi.setAutoReconnect(true);
     disconnectTimerActive = false;
@@ -1236,7 +1309,8 @@ void pollServer() {
          "&colors=" + String(hasColor ? 3 : 2) + "&rows=" + String(rowsPerPage()) + "&pins=" + urlEncode(pinsBuf) +
          "&panel=" + String(pins.panel) + "&board=" BOARD_ID "&fw=" + String(FW_VERSION) + (fastPanel ? "&fast=1" : "") +
          "&ip=" + netIp() + ssidArg +
-         "&answer=" + urlEncode(lastAnswer);
+         "&answer=" + urlEncode(lastAnswer) + "&live=" + liveArg() +
+         (otaReport.length() ? "&ota=" + urlEncode(otaReport) : String(""));
   HTTPClient http;
   http.setTimeout(8000);
   if (!http.begin(url)) { lastPoll = "address not usable"; return; }
@@ -1257,12 +1331,59 @@ void pollServer() {
     }
     fromWifi = false;
     lastPoll = "ok";
+    otaReport = "";
   } else if (code == 204) {
     lastPoll = "no frame yet (settings page has not seen this display)";
+    otaReport = "";
   } else {
     lastPoll = code > 0 ? "HTTP " + String(code) : String("no connection to the settings page");
   }
   http.end();
+}
+
+// Firmware update over WiFi (U line): fetch the file from the settings page, write it into the free
+// firmware slot, check its size and MD5 and restart with it; when anything fails the old firmware
+// stays and the next fetch says why
+void runOta() {
+  const uint32_t size = otaSize;
+  otaSize = 0;
+  String url = net.server;
+  while (url.endsWith("/")) url.remove(url.length() - 1);
+  url += "/api/firmware?id=" + String(chipId);
+  HTTPClient http;
+  http.setTimeout(15000);
+  String why;
+  if (!http.begin(url)) why = "address not usable";
+  else {
+    const int code = http.GET();
+    if (code != 200) why = code > 0 ? "HTTP " + String(code) : String("no connection to the settings page");
+    else if (http.getSize() != (int)size) why = "wrong size";
+    else if (!Update.begin(size, U_FLASH)) why = Update.errorString();   // e.g. too big for the slot
+    else {
+      Update.setMD5(otaMd5);
+      WiFiClient* s = http.getStreamPtr();
+      static uint8_t buf[1024];
+      uint32_t got = 0, last = millis();
+      while (got < size && millis() - last < 20000) {
+        const size_t n = s->available();
+        if (!n) { delay(2); continue; }
+        const int r = s->readBytes(buf, min(n, min(sizeof(buf), (size_t)(size - got))));
+        if (r <= 0) continue;
+        if (Update.write(buf, r) != (size_t)r) break;
+        got += r;
+        last = millis();
+      }
+      if (got < size) { why = Update.hasError() ? String(Update.errorString()) : String("download interrupted"); Update.abort(); }
+      else if (!Update.end()) why = Update.errorString();   // checks the MD5 and the image too
+    }
+  }
+  http.end();
+  if (why.length()) { otaReport = "failed:" + why.substring(0, 60); return; }
+  prefs.begin("inksights", false);
+  prefs.putBool("otaDone", true);   // the next start reports the update as done
+  prefs.end();
+  delay(200);
+  ESP.restart();
 }
 #endif
 
@@ -1322,12 +1443,14 @@ void drawBar(int16_t x, int16_t y, int16_t w, int16_t h, int pct, bool warn, con
   const int16_t iw = w - 2, ih = h - 2;
   int16_t uw = (int32_t)iw * pct / 100;
   if (pct > 0 && uw == 0) uw = 1;
-  if (uw > 0) epd->fillRect(x + 1, y + 1, uw, ih, warn && hasColor ? RD : BK);
+  const bool third = warn && hasColor;
+  if (uw > 0) epd->fillRect(x + 1, y + 1, uw, ih, third ? RD : BK);
   fillRaster(x + 1 + uw, y + 1, iw - uw, ih);  // free part
-  barText(x, y, w, h, uw, text, pctSize);
+  barText(x, y, w, h, uw, text, pctSize, third ? onRD : WH);
 }
-// Text centred in a bar of w x h with uw px used (see drawBar); also the network bars
-void barText(int16_t x, int16_t y, int16_t w, int16_t h, int16_t uw, const char* text, int16_t pctSize) {
+// Text centred in a bar of w x h with uw px used (see drawBar); also the network bars; onUsed: the
+// text colour over the used part
+void barText(int16_t x, int16_t y, int16_t w, int16_t h, int16_t uw, const char* text, int16_t pctSize, uint16_t onUsed) {
   if (!text || !*text) return;
   const int16_t iw = w - 2, ih = h - 2;
   const char* t = text;
@@ -1345,7 +1468,7 @@ void barText(int16_t x, int16_t y, int16_t w, int16_t h, int16_t uw, const char*
   if (rx <= rx2) epd->fillRect(rx, ry, rx2 - rx + 1, ry2 - ry + 1, WH);
   for (int16_t py = ty; py < ty + th; py++)
     for (int16_t pX = tx; pX < tx + tw; pX++)
-      if (pctOn(t, tx, ty, z, pX, py)) px(pX, py, pX < usedEnd ? WH : BK);
+      if (pctOn(t, tx, ty, z, pX, py)) px(pX, py, pX < usedEnd ? onUsed : BK);
 }
 
 // Inside a rectangle with corners rounded by radius r (r limited so the corner centres never cross)
@@ -1902,7 +2025,7 @@ void drawSysBar(int16_t x, int16_t y, int16_t w, int16_t h, int16_t p1, int16_t 
   u2 = imin(imax(u2, u1), iw);
   if (u1 > 0) fillBox(x + 1, y + 1, u1, ih, BK);
   fillRaster(x + 1 + u1, y + 1, u2 - u1, ih);
-  barText(x, y, w, h, u1, text, size);
+  barText(x, y, w, h, u1, text, size, WH);
 }
 
 // Symbols of the system page in a box of B px (odd):
@@ -1965,14 +2088,72 @@ void drawSysIcon(SysIcon kind, int16_t x, int16_t y, int16_t B, bool deep, bool 
   else if (kind == SI_RAM) drawRam(x, y, B);
   else if (kind == SI_NET) drawNet(x, y, B);
   else if (kind == SI_WIFI) drawWifiIcon(x, y, B);
+  else if (kind == SI_CLOCK) drawClockIcon(x, y, B);
   else drawChip(x, y, B, deep);
+}
+// Clock: a ring with two hands (up and to the right)
+void drawClockIcon(int16_t x, int16_t y, int16_t B) {
+  const int16_t t = B >= 27 ? 3 : B >= 15 ? 2 : 1, c = (B - 1) / 2, ri = c - t;
+  for (int16_t dy = -c; dy <= c; dy++)
+    for (int16_t dx = -c; dx <= c; dx++) {
+      const int32_t d2 = (int32_t)dx * dx + (int32_t)dy * dy;
+      if (d2 <= (int32_t)c * c + c && d2 > (int32_t)ri * ri + ri) px(x + c + dx, y + c + dy, BK);
+    }
+  const int16_t hand = imax(1, ri - 1), w = t > 1 ? t - 1 : 1;
+  fillBox(x + c - (w - 1) / 2, y + c - hand + 1, w, hand, BK);           // up
+  fillBox(x + c, y + c - (w - 1) / 2, imax(1, hand - 1), w, BK);         // to the right
 }
 
 void drawSystem(int16_t HH, bool wide, bool stacked) {
   SysRow rows[6];   // CPU, RAM, network, NVMe, SSD, HDD
   const uint8_t n = sysRows(rows);
-  drawRows(rows, n, 0, HH, wide, stacked, sys.icons);
+  drawRows(rows, n, 0, HH, wide, stacked, sys.icons, false);
 }
+
+#if HAS_WIFI
+// The panel status for the fetch: <shown>,<drawn>,<turn> (see panelStatus)
+String liveArg() {
+  char st[48];
+  unsigned shown;
+  unsigned long drawn;
+  long turn;
+  panelStatus(st, sizeof(st));
+  if (sscanf(st, " shown=%u drawn=%lu turn=%ld", &shown, &drawn, &turn) != 3) return "";
+  return String(shown) + "," + String(drawn) + "," + String(turn);
+}
+// What the WiFi page shows: connected or the setup access point, network, address, minutes connected
+uint32_t wifiSig() {
+  const bool sta = WiFi.status() == WL_CONNECTED;
+  const String s = String(sta ? 1 : apActive ? 2 : 0) + "|" + (sta ? WiFi.SSID() + "|" + WiFi.localIP().toString() + "|" +
+                   String((millis() - staSinceMs) / 60000UL) : net.apSsid);
+  return fnv1a(s.c_str(), s.length(), 2166136261UL);
+}
+// The WiFi page: the network the board is connected to (with the setup access point open its name and
+// 192.168.4.1), its address and for how long it has been connected without a break; rows like the
+// temperature rows of the system page (like wifiRows in the preview)
+void drawWifiPage(int16_t HH, bool wide, bool stacked) {
+  SysRow rows[3];
+  memset(rows, 0, sizeof(rows));
+  const bool sta = WiFi.status() == WL_CONNECTED, ap = !sta && apActive;
+  const SysIcon icon[3] = { SI_WIFI, SI_NET, SI_CLOCK };
+  const char* label[3] = { "WiFi", "IP", "Connected" };
+  for (uint8_t i = 0; i < 3; i++) {
+    rows[i].icon = icon[i];
+    rows[i].inl = true;
+    copyStr(rows[i].label, label[i], sizeof(rows[i].label));
+  }
+  if (sta) copyStr(rows[0].info, WiFi.SSID().length() ? WiFi.SSID().c_str() : "--", sizeof(rows[0].info));
+  else if (ap) snprintf(rows[0].info, sizeof(rows[0].info), "AP %s", net.apSsid.c_str());
+  else copyStr(rows[0].info, "not connected", sizeof(rows[0].info));
+  copyStr(rows[1].info, sta ? WiFi.localIP().toString().c_str() : ap ? "192.168.4.1" : "--", sizeof(rows[1].info));
+  copyStr(rows[2].info, "--", sizeof(rows[2].info));
+  rows[2].hasDur = true;
+  rows[2].dur = sta ? (int32_t)((millis() - staSinceMs) / 60000UL) : -1;
+  // nothing stands beside the labels, so they may take a third of the width (upright the whole first line)
+  drawRows(rows, 3, 0, HH, wide, stacked, head.wifiPage == 1, true);
+  shownWifiSig = wifiSig();
+}
+#endif
 
 // Network page np (0 = the first): its interfaces, every page sized for as many rows as the fullest one
 void drawNetPage(uint8_t np, int16_t HH, bool wide, bool stacked) {
@@ -1981,12 +2162,13 @@ void drawNetPage(uint8_t np, int16_t HH, bool wide, bool stacked) {
   SysRow rows[MAX_NETS];
   uint8_t n = 0;
   for (uint8_t i = from; i < netCount && n < per && n < MAX_NETS; i++) netRow(nets[i], head.netBar, rows[n++]);
-  drawRows(rows, n, imin(netCount, per), HH, wide, stacked, head.netIcons);
+  drawRows(rows, n, imin(netCount, per), HH, wide, stacked, head.netIcons, false);
 }
 
-// Rows of the system page and the network pages; slots: sized for this many rows (network pages:
-// the last page keeps the size), 0 = as many as given
-void drawRows(SysRow* rows, uint8_t count, uint8_t slots, int16_t HH, bool wide, bool stacked, bool icons) {
+// Rows of the system page, the network pages and the WiFi page; slots: sized for this many rows
+// (network pages: the last page keeps the size), 0 = as many as given; longLabels: the labels may
+// take a third of the width (upright the whole first line; WiFi page), else a quarter (half a line)
+void drawRows(SysRow* rows, uint8_t count, uint8_t slots, int16_t HH, bool wide, bool stacked, bool icons, bool longLabels) {
   const int16_t W = epd->width();
   const uint8_t n = slots ? slots : count;
   if (!n) { printAt(wide ? 4 : 2, HH + 6, "No values", BK, wide ? 2 : 1); return; }
@@ -2005,7 +2187,7 @@ void drawRows(SysRow* rows, uint8_t count, uint8_t slots, int16_t HH, bool wide,
   int16_t labelW = 0;
   for (uint8_t i = 0; i < count; i++) {
     char t[16];
-    fFit(sc.dev, rows[i].label, stacked ? (end - x0) / 2 : W / 4, t, sizeof(t));
+    fFit(sc.dev, rows[i].label, stacked ? (longLabels ? end - x0 : (end - x0) / 2) : W / (longLabels ? 3 : 4), t, sizeof(t));
     copyStr(rows[i].label, t, sizeof(rows[i].label));
     labelW = imax(labelW, fW(sc.dev, rows[i].label));
   }
@@ -2032,7 +2214,13 @@ void drawRows(SysRow* rows, uint8_t count, uint8_t slots, int16_t HH, bool wide,
     fText(sc.dev, x0, base - fAsc(sc.dev), r.label, BK);
     if (r.inl) {   // temperatures: landscape after the name (info column), upright in the second line
       const int16_t ix = stacked ? x0 : x0 + labelW + colGap;
-      fFit(sc.pool, r.info, end - ix, t, sizeof(t));
+      char info[40];
+      copyStr(info, r.info, sizeof(info));
+      if (r.hasDur && r.dur >= 0) {   // a duration drops its smallest units instead of being cut
+        uptimeText(0, r.dur, (end - ix + 1) / (fAsc(sc.pool) == 14 ? 12 : 6), info, sizeof(info));
+        if (!info[0]) copyStr(info, "--", sizeof(info));
+      }
+      fFit(sc.pool, info, end - ix, t, sizeof(t));
       fText(sc.pool, ix, (stacked ? base + line2 : base) - fAsc(sc.pool), t, BK);
       continue;
     }
@@ -2226,10 +2414,13 @@ void drawHeader(int16_t W, bool wide) {
   // third colour too, white text (user)
   const int16_t boxY = inv ? 0 : hy - hs;
   const bool col = inv && head.headCol == 1;
+  // "NO DATA" on a yellow panel: a yellow box with black text in the black header too (yellow text
+  // on white is hard to read; user)
+  const bool ndBox = inv || yellowPanel;
   auto put = [&](uint8_t i, int16_t px, const char* s) {
     const bool nd = item[i] == 'N';
-    if (lit[i] || nd) epd->fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, (!inv && !head.headLines ? HH : hy - hs + 9 * hs) - boxY, nd ? (inv ? RD : WH) : col ? RD : fg);
-    printAt(px, hy, s, nd ? (inv ? WH : RD) : lit[i] ? (col ? WH : bg) : fg, hs);
+    if (lit[i] || nd) epd->fillRect(px - 2 * hs, boxY, textW(s) * hs + 4 * hs, (!inv && !head.headLines ? HH : hy - hs + 9 * hs) - boxY, nd ? (ndBox ? RD : WH) : col ? RD : fg);
+    printAt(px, hy, s, nd ? (ndBox ? onRD : RD) : lit[i] ? (col ? onRD : bg) : fg, hs);
   };
   // Fill gaps: the whole line in the colour of the boxes, every place drawn like a highlighted one
   if (head.headFill) {
@@ -2596,7 +2787,7 @@ const uint8_t NODATA_ART_M[517] = {
 };
 const int16_t NODATA_RED[4] = { 108, 5, 115, 32 }, NODATA_RED_M[4] = { 54, 2, 57, 15 };   // the bottle
 const int16_t NODATA_GLASS[4] = { 117, 24, 123, 32 }, NODATA_GLASS_M[4] = { 59, 12, 61, 15 };   // the glass
-// The regions the bottle takes (Sobriety); in The Conversation without its foot, which runs into the table
+// The regions the bottle takes (Tabula Rasa, Roast); in The Conversation without its foot, which runs into the table
 // edge and the hand beside it
 const int16_t NOTHING_BOTTLE[4] = { 70, 14, 73, 25 }, NOTHING_BOTTLE_M[4] = { 70, 13, 73, 24 }, NOTHING_BOTTLE_S[4] = { 57, 12, 59, 20 };
 
@@ -2748,19 +2939,66 @@ const uint8_t AFTER_ART_M[440] = {
 
 bool inRect(const int16_t* r, int16_t c, int16_t y) { return r && c >= r[0] && c <= r[2] && y >= r[1] && y <= r[3]; }
 
+// Got the time? (The Afterhours): a wall clock 19 x 19 in pixels of size z (1 on the 2.13", 2 on the 4.2"),
+// centred on x, y, black: ring, a tick for every hour, hands for h:mi; ticks and hand tips from tables, the
+// same as in inksights-render.js (x, y from the middle; the tips per 6 degrees, minute hand 7 px, hour hand
+// 5 px at hour * 5 + minutes / 12)
+const int8_t CLOCK_TICKS[24] = { 0, -7, 3, -6, 6, -4, 7, 0, 6, 3, 3, 6, 0, 7, -4, 6, -6, 4, -7, 0, -6, -4, -4, -6 };
+const int8_t CLOCK_MIN[120] = { 0, -7, 1, -7, 1, -7, 2, -7, 3, -6, 3, -6, 4, -6, 5, -5, 5, -5, 6, -4, 6, -4, 6, -3, 7, -2, 7, -1, 7, -1, 7, 0, 7, 1, 7, 1, 7, 2, 6, 3, 6, 3, 6, 4, 5, 5, 5, 5, 4, 6, 3, 6, 3, 6, 2, 7, 1, 7, 1, 7, 0, 7, -1, 7, -1, 7, -2, 7, -3, 6, -4, 6, -4, 6, -5, 5, -5, 5, -6, 4, -6, 4, -6, 3, -7, 2, -7, 1, -7, 1, -7, 0, -7, -1, -7, -1, -7, -2, -6, -3, -6, -4, -6, -4, -5, -5, -5, -5, -4, -6, -4, -6, -3, -6, -2, -7, -1, -7, -1, -7 };
+const int8_t CLOCK_HOUR[120] = { 0, -5, 1, -5, 1, -5, 2, -5, 2, -5, 2, -4, 3, -4, 3, -4, 4, -3, 4, -3, 4, -3, 5, -2, 5, -2, 5, -1, 5, -1, 5, 0, 5, 1, 5, 1, 5, 2, 5, 2, 4, 2, 4, 3, 4, 3, 3, 4, 3, 4, 2, 4, 2, 5, 2, 5, 1, 5, 1, 5, 0, 5, -1, 5, -1, 5, -2, 5, -2, 5, -3, 4, -3, 4, -3, 4, -4, 3, -4, 3, -4, 3, -5, 2, -5, 2, -5, 1, -5, 1, -5, 0, -5, -1, -5, -1, -5, -2, -5, -2, -4, -3, -4, -3, -4, -3, -3, -4, -3, -4, -3, -4, -2, -5, -2, -5, -1, -5, -1, -5 };
+void clockHand(int16_t x, int16_t y, int16_t z, int16_t x1, int16_t y1) {   // a line from the middle (Bresenham)
+  const int16_t dx = abs(x1), dy = -abs(y1), sx = x1 > 0 ? 1 : -1, sy = y1 > 0 ? 1 : -1;
+  int16_t px0 = 0, py0 = 0, err = dx + dy;
+  for (;;) {
+    epd->fillRect(x + px0 * z, y + py0 * z, z, z, BK);
+    if (px0 == x1 && py0 == y1) return;
+    const int16_t e2 = 2 * err;
+    if (e2 >= dy) { err += dy; px0 += sx; }
+    if (e2 <= dx) { err += dx; py0 += sy; }
+  }
+}
+void drawWallClock(int16_t x, int16_t y, int16_t z, int16_t h, int16_t mi) {
+  const int16_t c = 9;
+  for (int16_t dy = -c; dy <= c; dy++)
+    for (int16_t dx = -c; dx <= c; dx++) {
+      const int16_t d2 = dx * dx + dy * dy;
+      if (d2 > c * c - c && d2 <= c * c + c) epd->fillRect(x + dx * z, y + dy * z, z, z, BK);
+    }
+  for (uint8_t k = 0; k < 12; k++) epd->fillRect(x + CLOCK_TICKS[2 * k] * z, y + CLOCK_TICKS[2 * k + 1] * z, z, z, BK);
+  const int16_t hi = (h % 12) * 5 + mi / 12;
+  clockHand(x, y, z, CLOCK_HOUR[2 * hi], CLOCK_HOUR[2 * hi + 1]);
+  clockHand(x, y, z, CLOCK_MIN[2 * mi], CLOCK_MIN[2 * mi + 1]);
+}
+
+// Roast: a coffee cup in display pixels of size z (1 on the 2.13", 2 on the 4.2", the same in every
+// picture; user), its bottom left pixel at x, y; the cup in the third colour, the steam black (none on
+// The Afterhours: a cold cup left at closing time; like drawCup() in inksights-render.js)
+void drawCup(int16_t x, int16_t y, int16_t z, bool steam) {
+  static const char* const CUP[4] = { "###..", "####.", "####.", "###.." };
+  static const char* const STEAM[4] = { ".s..s", "s..s.", ".s..s", "....." };
+  const int16_t rows = steam ? 8 : 4, top = y + 1 - rows * z;
+  for (int16_t r = 0; r < rows; r++) {
+    const char* row = steam ? (r < 4 ? STEAM[r] : CUP[r - 4]) : CUP[r];
+    for (int16_t k = 0; row[k]; k++)
+      if (row[k] != '.') epd->fillRect(x + k * z, top + r * z, z, z, row[k] == '#' ? RD : BK);
+  }
+}
+
 // draws picture a at x, y with every picture pixel a.s x a.s; the bottle's content in the third colour;
-// sober (Sobriety): without the bottle and the glass, what is left of the red region black; the bottle's
-// step: its upper outer pixels lose their upper outer quarter when drawn 2x or bigger (like drawArt() in
-// inksights-render.js)
-void drawArt(const ArtInfo& a, int16_t x, int16_t y, bool sober) {
+// drink (Beverages): 0 House Wine the bottle and the glass, 1 Tabula Rasa without them (what is left of
+// the red region black), 2 Roast a coffee cup of pixel size z instead; the bottle's step: its upper outer
+// pixels lose their upper outer quarter when drawn 2x or bigger (like drawArt() in inksights-render.js)
+void drawArt(const ArtInfo& a, int16_t x, int16_t y, uint8_t drink, int16_t z) {
+  const bool sober = drink == 1 || drink == 2;
   const int16_t bpr = (a.w + 7) / 8, s = a.s;
   for (int16_t r = 0; r < a.h; r++)
     for (int16_t c = 0; c < a.w; c++)
       if ((a.bm[r * bpr + (c >> 3)] & (0x80 >> (c & 7))) && !(sober && (inRect(a.bottle, c, r) || inRect(a.glass, c, r))))
         epd->fillRect(x + c * s, y + r * s, s, s, !sober && inRect(a.red, c, r) ? RD : BK);
   const int16_t q = s >> 1;
-  if (q && a.cut) for (uint8_t i = 0; i < 2; i++)
+  if (q && a.cut && !sober) for (uint8_t i = 0; i < 2; i++)
     epd->fillRect(x + NOTHING_CUT[3 * i] * s + (NOTHING_CUT[3 * i + 2] > 0 ? s - q : 0), y + NOTHING_CUT[3 * i + 1] * s, q, q, WH);
+  if (drink == 2) drawCup(x + a.cupX * s, y + (a.cupY + 1) * s - 1, z, !a.cold);
 }
 
 // The picture of kind k (D The Intermission "Check connection", N The Conversation "Nothing to ink", Q The
@@ -2776,18 +3014,25 @@ ArtInfo msgArt(char k, int16_t W, int16_t H, int16_t HH, bool wide, const char* 
   const bool bigArt = NOTHING_ART_W <= W - 4;
   a.cut = false;
   a.glass = nullptr;
+  a.cold = false;
+  a.clockX = a.clockY = 0;
+  // the cup (Roast): at the right edge of the table, The Afterhours on the table between the chairs
   if (k == 'D') {
     a.bm = wide ? NODATA_ART : NODATA_ART_M; a.red = a.bottle = wide ? NODATA_RED : NODATA_RED_M; a.glass = wide ? NODATA_GLASS : NODATA_GLASS_M;
     a.w = wide ? NODATA_ART_W : NODATA_ART_M_W; a.h = wide ? NODATA_ART_H : NODATA_ART_M_H;
+    a.cupX = wide ? 116 : 58; a.cupY = wide ? 32 : 15;
   } else if (k == 'Q') {
     a.bm = wide ? AFTER_ART : AFTER_ART_M; a.red = a.bottle = wide ? AFTER_RED : AFTER_RED_M;
     a.w = wide ? AFTER_ART_W : AFTER_ART_M_W; a.h = wide ? AFTER_ART_H : AFTER_ART_M_H;
+    a.cupX = wide ? 82 : 41; a.cupY = wide ? 32 : 15; a.cold = true;
+    a.clockX = wide ? 40 : 20; a.clockY = wide ? -36 : -18;   // above the left chair (user)
   } else {
     a.bm = wide ? NOTHING_ART : bigArt ? NOTHING_ART_M : NOTHING_ART_S;
     a.red = wide ? NOTHING_RED : bigArt ? NOTHING_RED_M : NOTHING_RED_S;
     a.bottle = wide ? NOTHING_BOTTLE : bigArt ? NOTHING_BOTTLE_M : NOTHING_BOTTLE_S;
     a.w = bigArt ? NOTHING_ART_W : NOTHING_ART_S_W; a.h = bigArt ? NOTHING_ART_H : NOTHING_ART_S_H;
     a.cut = wide;
+    a.cupX = wide || bigArt ? 71 : 58; a.cupY = wide ? 25 : bigArt ? 24 : 20;
   }
   a.s = 0;
   for (int16_t s = 1; a.w * s <= W - 4 && a.h * s + 10 * a.ms <= H - HH - 8 && (s == 1 || (k == 'N' && a.w * s <= textW(a.msg) * a.ms)); s++) a.s = s;
@@ -2817,14 +3062,22 @@ void drawPicture(char k, bool fromCase, bool timed, int16_t W, int16_t H, bool w
     if (cap) {
       const uint16_t e = pics.win[5];
       if (head.timeFmt == 0) snprintf(msg2, sizeof(msg2), "%02u:%02u", e / 60, e % 60);
-      else snprintf(msg2, sizeof(msg2), "%u:%02u%s", (e / 60) % 12 ? (e / 60) % 12 : 12, e % 60, head.timeFmt == 1 ? (e < 720 ? "AM" : "PM") : "");
+      else snprintf(msg2, sizeof(msg2), "%02u:%02u%s", (e / 60) % 12 ? (e / 60) % 12 : 12, e % 60, head.timeFmt == 1 ? (e < 720 ? "AM" : "PM") : "");
       snprintf(msg, sizeof(msg), "Closed until %s", msg2);
       if (textW(msg) * C > W - 8 * C) copyStr(msg, "Closed until", sizeof(msg));
       else msg2[0] = '\0';
     }
   }
   const ArtInfo L = msgArt(k, W, H, MH, wide, msg[0] ? msg : nullptr);
-  if (L.s) drawArt(L, (W - L.w * L.s) / 2, top + pic - L.h * L.s, pics.sober == 1);
+  const int16_t ax = (W - L.w * L.s) / 2, ay = top + pic - L.h * L.s;
+  if (L.s) drawArt(L, ax, ay, pics.sober, wide ? 2 : 1);
+  // Got the time?: a wall clock with the time now, in every picture at the place it has in The Afterhours
+  // (above its left chair; user)
+  if (L.s && Q.s && (pics.clocks & (k == 'N' ? 1 : k == 'D' ? 2 : 4))) {
+    const int16_t m = minuteNow();
+    if (m >= 0) drawWallClock((W - Q.w * Q.s) / 2 + Q.clockX * Q.s, top + pic - Q.h * Q.s + Q.clockY * Q.s, wide ? 2 : 1, m / 60, m % 60);
+    shownWallMin = m;
+  }
   if (cap) printAt((W - textW(L.msg) * C) / 2, base, L.msg, BK, C);
   if (msg2[0]) printAt((W - textW(msg2) * C) / 2, base + 9 * C, msg2, BK, C);
 }
@@ -2912,7 +3165,8 @@ uint32_t clockMinute(const ClockNow& t) { return ((uint32_t)t.y * 400 + t.mo * 3
 const char* const MONTHS[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 const char* const WDAYS[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 
-// The header time "HH:MM" of the frame in the chosen format (12 hours: "1:37PM" or "1:37")
+// The header time "HH:MM" of the frame in the chosen format (12 hours: "01:37PM" or "01:37"; the hour always
+// with two digits, user)
 void headTime(char* out, size_t n) {
   int h, m;
   ClockNow c;
@@ -2921,7 +3175,7 @@ void headTime(char* out, size_t n) {
     h = c.h; m = c.mi;
   }
   if (head.timeFmt == 0) { snprintf(out, n, "%02d:%02d", h, m); return; }
-  snprintf(out, n, "%d:%02d%s", h % 12 ? h % 12 : 12, m, head.timeFmt == 1 ? (h < 12 ? "AM" : "PM") : "");
+  snprintf(out, n, "%02d:%02d%s", h % 12 ? h % 12 : 12, m, head.timeFmt == 1 ? (h < 12 ? "AM" : "PM") : "");
 }
 
 // The time page: the time as big as fits, in the middle; below it weekday and date (each when
@@ -2934,7 +3188,7 @@ void drawClockPage(int16_t HH) {
   shownClockMin = clockMinute(t);
   char main[8], ampm[3] = "", date[16] = "", sub[24] = "";
   if (head.timeFmt) {
-    snprintf(main, sizeof(main), "%u:%02u", t.h % 12 ? t.h % 12 : 12, t.mi);
+    snprintf(main, sizeof(main), "%02u:%02u", t.h % 12 ? t.h % 12 : 12, t.mi);   // the hour always with two digits (user)
     if (head.timeFmt == 1) copyStr(ampm, t.h < 12 ? "AM" : "PM", sizeof(ampm));
   } else {
     snprintf(main, sizeof(main), "%02u:%02u", t.h, t.mi);
@@ -3087,7 +3341,7 @@ void drawScreen() {
   // its page in the page turn (not while "Check connection")
   const char timed = timedArt();
   const bool nothing = nothingOn();
-  const char show = timed ? timed : noDataShown ? 'D' : art ? art : nothing && (head.screens & 2) ? 'N' : 0;
+  const char show = shownPicture();
   shownTimed = timed;
   if (show) { drawPicture(show, !timed && (noDataShown || (!art && nothing)), timed != 0, W, H, wide); return; }
   // the time page without the header line (H field 29: Show header off)
@@ -3100,6 +3354,9 @@ void drawScreen() {
   // the header moves nothing (user)
   if (kind == 'T') { drawClockPage(wide ? 20 : HEADER_H); return; }
   if (kind == 'N') { drawNetPage(idx, HH, wide, stacked); return; }
+#if HAS_WIFI
+  if (kind == 'W') { drawWifiPage(HH, wide, stacked); return; }
+#endif
   if (diskCount == 0) { printAt(hx, HH + 6, "No drives", BK, hs); return; }
 
   const uint8_t rows = rowsPerPage();
@@ -3151,7 +3408,7 @@ void drawScreen() {
 // the whole screen (no flashing); full again on page turns, "Redraw now" and every FULL_REFRESH_MS
 void refresh() {
   epd->setRotation(currentRotation());
-  const bool fast = fastMode() || (fastPanel && clockPageNow());
+  const bool fast = fastMode() || (fastPanel && (clockPageNow() || wifiPageNow() || wallClockNow()));
   const bool full = !fast || !refreshed || screenIsSplash || forceRedraw || page != shownPage ||
                     millis() - lastFullMs >= FULL_REFRESH_MS;
   noDataShown = noDataNow();
@@ -3171,10 +3428,11 @@ void refresh() {
 
 // -------------------------------------------------------------- receiving
 
-// A|<flags C I A, hex>|<Sobriety 1/0>|<card order>|<HHMM-HHMM,HHMM-HHMM,HHMM-HHMM>: the pictures
+// A|<flags C I A, hex>|<Beverages 0 House Wine / 1 Tabula Rasa / 2 Roast>|<card order>|<HHMM-HHMM,HHMM-HHMM,HHMM-HHMM>: the pictures
 void parsePics(char* line) {
-  char* f[5];
-  if (splitFields(line, f, 5) < 5 || strlen(f[1]) != 3 || strlen(f[3]) != 8 || strlen(f[4]) != 29) return;
+  char* f[7];
+  const uint8_t nf = splitFields(line, f, 7);
+  if (nf < 5 || strlen(f[1]) != 3 || strlen(f[3]) != 8 || strlen(f[4]) != 29) return;
   Pics p;
   picsDefault(p);
   for (uint8_t i = 0; i < 3; i++) {
@@ -3182,7 +3440,7 @@ void parsePics(char* line) {
     if (!isxdigit((unsigned char)c)) return;
     p.flags[i] = c <= '9' ? c - '0' : c - 'a' + 10;
   }
-  p.sober = strcmp(f[2], "0") == 0 ? 0 : 1;
+  p.sober = strcmp(f[2], "0") == 0 ? 0 : strcmp(f[2], "2") == 0 ? 2 : 1;
   for (const char* k = "SDNTWCIA"; *k; k++) if (!strchr(f[3], *k)) return;
   copyStr(p.card, f[3], sizeof(p.card));
   for (uint8_t i = 0; i < 6; i++) {
@@ -3191,6 +3449,10 @@ void parsePics(char* line) {
     const int hh = (w[0] - '0') * 10 + (w[1] - '0'), mm = (w[2] - '0') * 10 + (w[3] - '0');
     if (hh > 23 || mm > 59) return;
     p.win[i] = (uint16_t)(hh * 60 + mm);
+  }
+  if (nf >= 7 && strlen(f[5]) == 3) {   // Got the time?: the pictures with a wall clock, the Refresh in s
+    for (uint8_t i = 0; i < 3; i++) if (f[5][i] == '1') p.clocks |= 1 << i;
+    p.clock = (uint32_t)constrain(atol(f[6]), 0L, 86400L);
   }
   rxPics = p;
 }
@@ -3306,7 +3568,7 @@ void parseSys(char* line) {
 
 void commitFrame() {
   // settings field by field (the struct may contain padding bytes)
-  const uint32_t hv[14] = { (uint32_t)rxHead.netPages << 27 | (uint32_t)rxHead.headCol << 26 | (uint32_t)rxHead.headInv << 25 | (uint32_t)rxHead.stby << 24 | (uint32_t)rxHead.driveTemp << 16 | (uint32_t)rxHead.netBar << 8 | rxHead.netIcons, rxCount, rxHead.rows, rxHead.warn, rxHead.rot, rxHead.timer, rxHead.ringDir,
+  const uint32_t hv[14] = { (uint32_t)rxHead.wifiPage << 28 | (uint32_t)rxHead.netPages << 27 | (uint32_t)rxHead.headCol << 26 | (uint32_t)rxHead.headInv << 25 | (uint32_t)rxHead.stby << 24 | (uint32_t)rxHead.driveTemp << 16 | (uint32_t)rxHead.netBar << 8 | rxHead.netIcons, rxCount, rxHead.rows, rxHead.warn, rxHead.rot, rxHead.timer, rxHead.ringDir,
                             rxHead.icons, rxHead.pctBar, rxHead.fast, rxHead.page, (uint32_t)rxHead.uptime,
                             rxHead.upMonths,
                             (uint32_t)rxHead.diskPages << 24 | (uint32_t)rxHead.layout[0] << 16 |
@@ -3354,7 +3616,7 @@ void commitFrame() {
   if (changed) pending = true;
   if (rxRedraw) forceRedraw = true;
 
-  char answer[80];
+  char answer[112];
   snprintf(answer, sizeof(answer), "OK disks=%u page=%u/%u refresh=%s", diskCount,
            (unsigned)((turnPage ? (page + 1) % pages : page) + 1), (unsigned)pages,
            !changed ? "no" : canRefreshNow() ? "now" : "later");
@@ -3362,10 +3624,15 @@ void commitFrame() {
   // them on boot
   const bool newPins = rxPinsGiven && pinsValid(rxPins) && panelValid(rxPins.panel) && !samePins(rxPins, pins);
   if (newPins) strncat(answer, " pins=saved restart", sizeof(answer) - strlen(answer) - 1);
-  if (!fromWifi) Serial.println(answer);
 #if HAS_WIFI
-  lastAnswer = answer;
+  lastAnswer = answer;   // without the panel status: that goes with every fetch (&live=)
 #endif
+  if (!fromWifi) {
+    char st[48];
+    panelStatus(st, sizeof(st));
+    Serial.print(answer);
+    Serial.println(st);
+  }
   if (newPins) {
     rxPins.magic = PIN_MAGIC;
     Serial.flush();
@@ -3412,6 +3679,12 @@ void handleLine(char* line) {
 #if HAS_WIFI
   } else if (line[0] == 'W' && line[1] == '|') {
     if (!fromWifi) applyWifiLine(line);   // WiFi settings only over USB
+  } else if (line[0] == 'U' && line[1] == '|') {   // a firmware update waits (WiFi only)
+    char* f[3];
+    if (fromWifi && splitFields(line, f, 3) == 3 && strlen(f[2]) == 32) {
+      otaSize = strtoul(f[1], nullptr, 10);
+      copyStr(otaMd5, f[2], sizeof(otaMd5));
+    }
 #endif
   } else if (strcmp(line, "#BEGIN") == 0) {
     rxActive = true;
@@ -3448,7 +3721,8 @@ void handleLine(char* line) {
       rxHead.fast    = n >= 12 ? constrain(atoi(f[11]), 0, 30) : 0;
       rxHead.uptime  = n >= 13 && isdigit((unsigned char)f[12][0]) ? (int32_t)min(atol(f[12]), 99999999L) : -1;
       rxHead.upMonths = n >= 14 ? (uint16_t)constrain(atol(f[13]), 0L, 9999L) : 0;
-      // field 15: WiFi page (not drawn by the firmware yet); field 16: seconds until "NO DATA"
+      rxHead.wifiPage = n >= 15 ? constrain(atoi(f[14]), 0, 2) : 0;   // WiFi page 0 off, 1 with symbols, 2 without
+      // field 16: seconds until "NO DATA"
       rxHead.noData  = n >= 16 ? (uint32_t)constrain(atol(f[15]), 0L, 604800L) : 0;
       // header layout; without it (earlier version) the uptime stands where the page number would
       if (n >= 17 && layoutValid(f[16])) copyStr(rxHead.layout, f[16], sizeof(rxHead.layout));
@@ -3503,7 +3777,9 @@ void setup() {
   loadPins();                     // pins and panel type from flash (written by the web page), otherwise the defaults
   hasColor  = panelInfo().color;
   fastPanel = panelInfo().fast;
-  RD        = hasColor ? GxEPD_RED : GxEPD_BLACK;
+  yellowPanel = panelInfo().yellow;
+  RD        = hasColor ? GxEPD_RED : GxEPD_BLACK;   // GxEPD2 draws GxEPD_RED in the panel's third colour (also yellow)
+  onRD      = yellowPanel ? BK : WH;
 
 #if defined(ARDUINO_ARCH_ESP32)
   // Hardware SPI on the board's SCLK and SDI pins without MISO, so that pin stays free as a
@@ -3525,6 +3801,9 @@ void setup() {
   readChipId();
 #if HAS_WIFI
   loadNet();
+  prefs.begin("inksights", false);
+  if (prefs.getBool("otaDone", false)) { prefs.remove("otaDone"); otaReport = "done"; }   // started after an update
+  prefs.end();
   netBegin();
   web.on("/", HTTP_GET, handleRoot);
   web.on("/save", HTTP_POST, handleSave);
@@ -3554,6 +3833,7 @@ void loop() {
   if (apActive) dns.processNextRequest();
   web.handleClient();
   pollServer();
+  if (otaSize) runOta();   // after the frame it came with
   // Start screen: redraw when the WiFi line changes (e.g. the setup access point opened)
   if (!dataReceived && screenIsSplash && !pending) {
     char now[48];
@@ -3576,11 +3856,20 @@ void loop() {
     pending  = true;
   }
 
+  // The Afterhours with Got the time?: redraw when the minute changes, on colour panels only every Refresh
+  // (at least 3 minutes, the flashing full refresh)
+  if (wallClockNow() && !pending && minuteNow() != shownWallMin &&
+      (fastPanel || millis() - lastRefreshMs >= (pics.clock > 180 ? pics.clock : (uint32_t)180) * 1000UL)) pending = true;
+
   // the time page: redraw when the minute changes
   if (clockPageNow() && !pending) {
     ClockNow t;
     if (clockNow(t) && clockMinute(t) != shownClockMin) pending = true;
   }
+#if HAS_WIFI
+  // the WiFi page: redraw when what it shows changes (network, address, minutes connected)
+  if (wifiPageNow() && !pending && wifiSig() != shownWifiSig) pending = true;
+#endif
 
   if (pending && canRefreshNow()) {
     pending = false;

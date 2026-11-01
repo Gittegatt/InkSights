@@ -44,7 +44,7 @@ p { margin: 0; }
 .msg { min-height: 1.5em; font-size: 0.92rem; }
 .msg.warn { color: var(--warn); }
 .msg.ok { color: var(--ok); }
-.alert { border: 1px solid var(--warn); color: var(--warn); border-radius: var(--r); padding: 10px 14px; font-size: 0.92rem; }
+.alert { border: 1px solid var(--warn); color: var(--warn); border-radius: var(--r); padding: 10px 14px; font-size: 0.92rem; line-height: 21px; }   /* whole pixels: hiding it moves the page by whole pixels (Hide notice keeps everything in place) */
 /* a newer release: text and its buttons in one framed line, wrapping on narrow screens */
 .update { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; border: 1px solid var(--accent); border-radius: var(--r); padding: 10px 14px; font-size: 0.92rem; }
 .update[hidden] { display: none; }
@@ -104,6 +104,35 @@ input:disabled, select:disabled { opacity: 0.45; }
 .pair-row { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; min-width: 0; }
 @media (max-width: 980px) { .pair-row { grid-template-columns: minmax(0, 1fr); } }
 .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-content: start; min-width: 0; }
+/* one tab per display (simulator so far): the tabs, then the display card on the left (stays in view while
+   the page scrolls) and its cards on the right in one column; one column on narrow screens */
+.displays.tabbed { display: block; }
+/* a password field with its eye button (Login card): shows / hides the password */
+.pw { position: relative; display: block; width: 16em; max-width: 100%; }   /* fixed width: the field must not jump when it turns into plain text */
+.pw input { width: 100%; padding-right: 36px; box-sizing: border-box; }
+.pw .reveal { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 28px; height: 28px;
+  padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.pw .reveal:hover { color: var(--fg); }
+.pw .reveal[aria-pressed="true"] { color: var(--accent); }
+/* a button whose label changes: all its labels in one grid cell, so it keeps the width of the longest */
+.login-row { align-items: center; flex-wrap: nowrap; }
+.login-note { flex: 1; min-width: 0; }   /* the feedback beside Change password; Hide notice stays at the right edge */
+.btn.same-width { display: inline-grid; }
+.btn.same-width > span { grid-area: 1 / 1; }
+.btn.same-width > .sizer { visibility: hidden; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.tab { display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 0.9rem; color: var(--muted); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.tab:hover { color: var(--fg); }
+.tab.on { color: var(--fg); border-color: var(--accent); }
+.tab .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.6; }
+.tab .dot.on { background: var(--ok); opacity: 1; }
+.tab-view { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }   /* preview | cards, 1:1 (user) */
+.tab-view[hidden] { display: none; }
+.tab-preview { position: sticky; top: 12px; min-width: 0; }
+.tabbed .shot { grid-template-rows: auto auto; }   /* the frame only as high as the panel */
+.tabbed .card-head { flex-wrap: wrap; }   /* the narrow column: name, pills and Redraw now may wrap */
+@media (max-width: 900px) { .tab-view { grid-template-columns: minmax(0, 1fr); } .tab-preview { position: static; } }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-content: start; min-width: 0; }
 .card-head { display: flex; flex-wrap: nowrap; gap: 6px 14px; align-items: center; }
 .pill { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; color: var(--muted); }
@@ -136,6 +165,7 @@ input:disabled, select:disabled { opacity: 0.45; }
 .about-text { margin: 0; color: var(--muted); font-size: 0.9rem; }
 .about-text.warn { color: var(--warn); }
 .about-text.good { color: var(--ok); }   /* OTA Update: New firmware available! */
+.choices > .about-text { align-self: center; }   /* OTA Update: the status right of the button */
 .ota-note { align-self: center; color: var(--warn); font-size: 0.9rem; }   /* next to Upload: the click flashes the file */
 .ota-note.plain { color: var(--muted); }   /* next to Update firmware: in the colour of the other texts (user) */
 .page-toggle { position: absolute; top: 16px; right: 20px; font-size: 0.9rem; }
@@ -159,6 +189,9 @@ html:has(.sub-card.dragging) { overflow-anchor: none; }   /* the page must not s
 .sub-card.dragging .grip { cursor: grabbing; }
 .sub-card.off .sub-body { opacity: 0.5; }
 .sub-card.off.keep-on .sub-body { opacity: 1; }
+/* a frame that applies with the page off too (Time format): not dimmed, the rest of the card is */
+.sub-card.off .sub-body:has(.keep-on) { opacity: 1; }
+.sub-card.off .sub-body:has(.keep-on) .form > :not(.keep-on) { opacity: 0.5; }
 fieldset { border: 0; padding: 0; margin: 0; display: contents; }
 .field { display: grid; gap: 6px; align-content: start; min-width: 0; }
 /* text fields never wider than their box (narrow cards); their max-width stays as set */

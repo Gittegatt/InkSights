@@ -16,6 +16,11 @@ folder with the server:
   redraw-request        chip IDs to redraw now ("Redraw now"), picked up by inksights.sh
   wifi/<id>.info, .seen written here when a WiFi display fetches its frame (GET /api/frame)
   wifi/<id>.redraw      "Redraw now" for a WiFi display, sent with its next frame
+  login.json            the password set on the page (a salted hash only), readable for the app only
+
+Firmware updates over WiFi (OTA) are kept in memory only: the firmware the image carries
+(fw/<board>.bin with fw/manifest.json next to this file) or a file uploaded on the page; the
+display gets a U line with its next frame and fetches the file (GET /api/firmware).
 
 It also reads, from the run folder of inksights.sh (--run, mounted read-only; in memory):
 
@@ -25,6 +30,9 @@ It also reads, from the run folder of inksights.sh (--run, mounted read-only; in
 Standard library only.
 """
 import argparse
+import base64
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -71,12 +79,12 @@ MAX_NETS = 32                          # interfaces in the order and hidden list
 NET_SORTS = ("name", "manual")
 NET_BARS = (0, 1, 2)                   # details in the bar of the network pages: none, percentage of the link, link speed
 SYS_PARTS = ("cpu", "ram", "net", "nvme", "ssd", "hdd")       # system page components (rows); none = no system page
-CONF_COLS = 66
+CONF_COLS = 68
 # Time page: NTP server (boards with WiFi), time zone name and its POSIX rule for the board
 NTP_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$")
 TZ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_+/-]{0,39}$")
 TZPOSIX_RE = re.compile(r"^[A-Za-z<][A-Za-z0-9<>+,./:-]{0,47}$")
-PANELS = (1, 2, 3, 4, 5)              # panel types (GDEW0213Z16, GDEH0213Z19, GDEY0213Z98, GDEY0213B74, GDEY042T81)
+PANELS = (1, 2, 3, 4, 5, 6, 7, 8)    # panel types (GDEW0213Z16, GDEH0213Z19, GDEY0213Z98, GDEY0213B74, GDEY042T81; 6-8 = 1-3 with yellow)
 # Header layout: what stands left, in the middle and right; T title, P page number, U uptime,
 # C time, - nothing; lower case = that place highlighted; each of T, P, U, C at most once
 # (like layout_valid in inksights.sh)
@@ -99,7 +107,8 @@ def page_order_ok(v):
 
 # The pictures: The Conversation (C, "Nothing to ink"), The Intermission (I, "Check connection"), The Afterhours
 # (A, quiet hours). Per picture Ink (used at all), Caption, Header, Page turn candidate, Scheduled with From/To; the
-# card order (the pages and the pictures, their place in the page turn) and Sobriety (without the bottle).
+# card order (the pages and the pictures, their place in the page turn) and Beverages (what stands on the table:
+# 0 House Wine, the bottle and the glass; 1 Tabula Rasa, nothing; 2 Roast, a coffee cup, the default of a new display).
 PICS = (("conv", "18:00", "19:00", 0), ("inter", "12:00", "13:00", 1), ("after", "23:00", "07:00", 1))   # prefix, window, caption
 PIC_BITS = (("Cap", 1), ("Head", 2), ("Rot", 4), ("Sched", 8))   # bits of a picture in conf column picflags
 HHMM_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
@@ -129,7 +138,8 @@ def pics_from_conf(parts, page_order):
     ink = ink if re.match(r"^[01]{3}$", ink) else "111"
     flags = flags if re.match(r"^[0-9a-f]{3}$", flags) else "".join(str(c) for _, _, _, c in PICS)
     wins = win.split(",") if re.match(r"^([0-9]{4}-[0-9]{4},){2}[0-9]{4}-[0-9]{4}$", win) else []
-    out = {"cardOrder": card_order_fix(card, page_order), "sober": 0 if sober == "0" else 1}
+    # older lines without the column keep Tabula Rasa, their earlier default
+    out = {"cardOrder": card_order_fix(card, page_order), "sober": int(sober) if sober in ("0", "1", "2") else 1}
     for i, (p, f0, t0, _) in enumerate(PICS):
         out[p + "Ink"] = int(ink[i])
         bits = int(flags[i], 16)
@@ -146,13 +156,13 @@ def pics_to_conf(s):
     flags = "".join(format(sum(b for k, b in PIC_BITS if s.get(p + k, c if k == "Cap" else 0)), "x") for p, _, _, c in PICS)
     win = ",".join((s.get(p + "From", f0) + "-" + s.get(p + "To", t0)).replace(":", "") for p, f0, t0, _ in PICS)
     card = card_order_fix(s.get("cardOrder", ""), s.get("pageOrder") if page_order_ok(s.get("pageOrder")) else DEFAULT_PAGE_ORDER)
-    return [ink, flags, card, win, str(s.get("sober", 1))]
+    return [ink, flags, card, win, str(s.get("sober", 2))]
 
 
 def validate_pics(did, s, page_order):
     """The picture settings of a display, checked like the page does (time windows must not overlap)."""
-    out = {"sober": s.get("sober", 1)}
-    if out["sober"] not in (0, 1) or isinstance(out["sober"], bool):
+    out = {"sober": s.get("sober", 2)}   # Beverages: 2 Roast for a new display (user)
+    if out["sober"] not in (0, 1, 2) or isinstance(out["sober"], bool):
         raise SettingsError(f"Display {did}: invalid sober.")
     for p, f0, t0, cap in PICS:
         # a new display (user, 2026-10-27): Header, Caption, Turn candidate on, Scheduled off (the conf
@@ -227,6 +237,9 @@ FRAMES_DIR = "frames"
 LIVE_DIR = "live"   # frames of the USB displays with fast refresh (live preview only)
 
 WEB_DIR = os.path.dirname(os.path.abspath(__file__))
+FW_DIR = os.path.join(WEB_DIR, "fw")   # firmware for the OTA updates (built into the Docker image)
+MAX_FW = 4 * 1024 * 1024               # bytes; the biggest firmware slot is 3.2 MB
+BOARD_RE = re.compile(r"^[a-z0-9-]{1,40}$")
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/index.html": ("index.html", "text/html; charset=utf-8"),
@@ -336,6 +349,9 @@ def read_conf(path):
                     "lineBottom": 1 if parts[54] == "1" else 0,
                     "pageOrder": parts[55] if page_order_ok(parts[55]) else DEFAULT_PAGE_ORDER,
                     "justTime": 1 if parts[56] == "1" else 0,   # Advanced Ink: only the time page
+                    "ota": 0 if parts[66] == "0" else 1,   # Advanced Ink: firmware updates from this page allowed
+                    # Got the time? (a wall clock) per picture C I A; a single digit (earlier): The Afterhours
+                    **{p + "Clock": int(c) for (p, _, _, _), c in zip(PICS, parts[67] if re.match(r"^[01]{3}$", parts[67]) else "00" + ("1" if parts[67] == "1" else "0"))},
                     "timeHead": 1 if parts[57] == "1" else 0,   # the time page with the header line (default without)
                     "headFill": 1 if parts[58] == "1" else 0,   # header: the gaps between the boxes filled
                     # time page: the time in the third colour, with a black outline
@@ -343,7 +359,7 @@ def read_conf(path):
                     "timeFrame": 1 if parts[60] == "1" else 0,
                     # the pictures (columns 62-66)
                     **pics_from_conf(parts, parts[55] if page_order_ok(parts[55]) else DEFAULT_PAGE_ORDER),
-                    "panel": int(parts[29]) if parts[29] in ("1", "2", "3", "4", "5") else None,
+                    "panel": int(parts[29]) if parts[29] in ("1", "2", "3", "4", "5", "6", "7", "8") else None,
                     "wifiIcons": 0 if parts[30] == "0" else 1,
                     # missing (earlier version): title, time, then the page number or the uptime
                     "layout": parts[31] if layout_ok(parts[31]) else "TCU" if parts[28] == "1" else DEFAULT_LAYOUT,
@@ -423,7 +439,7 @@ def validate(displays, old_conf=None):
         for key, default in (("showSys", 1), ("showDisks", 1), ("showWifi", 1), ("wifiIcons", 1), ("sysIcons", 1), ("showHeader", 1),
                              ("showNet", 1), ("netIcons", 1), ("driveTemp", 0), ("stby", 1), ("headInv", 0), ("headCol", 0),
                              ("showTime", 1), ("timeFmt", 0), ("ampm", 1), ("timeDate", 1), ("timeWday", 1), ("ntp", 0),
-                             ("inkSplash", 1), ("inkNothing", 1), ("inkNoData", 1), ("lineBottom", 0), ("justTime", 0), ("timeHead", 0), ("headFill", 0), ("timeColor", 0), ("timeFrame", 0)):
+                             ("inkSplash", 1), ("inkNothing", 1), ("inkNoData", 1), ("lineBottom", 0), ("justTime", 0), ("timeHead", 0), ("headFill", 0), ("timeColor", 0), ("timeFrame", 0), ("ota", 1), ("convClock", 0), ("interClock", 0), ("afterClock", 0)):
             v = s.get(key, default)
             if v not in (0, 1) or isinstance(v, bool):
                 raise SettingsError(f"Display {did}: invalid {key}.")
@@ -546,7 +562,7 @@ def write_conf(path, conf, interval, page_name=""):
         "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted<TAB>header color<TAB>refresh"
         "<TAB>time format<TAB>date<TAB>weekday<TAB>date format<TAB>ntp<TAB>ntp server<TAB>time zone<TAB>posix time zone"
         "<TAB>start screen<TAB>nothing to ink<TAB>no connection<TAB>divider line<TAB>page order<TAB>just time<TAB>time header<TAB>header fill<TAB>time color<TAB>time frame"
-        "<TAB>picture ink<TAB>picture flags<TAB>card order<TAB>picture windows<TAB>sober",
+        "<TAB>picture ink<TAB>picture flags<TAB>card order<TAB>picture windows<TAB>sober<TAB>ota<TAB>picture clocks",
         "#   '-' = empty. boxes 0 = timer off, rows 0 = auto, warn = highlight from % used (0 = never),",
         "#   rot = degrees clockwise (0, 90, 180, 270), page = seconds between page turns (0 = off),",
         "#   pins = cs,dc,rst,busy (rst/busy -1 = none, '-' = keep the pins of the display),",
@@ -560,7 +576,7 @@ def write_conf(path, conf, interval, page_name=""):
         "#   zfs = ZFS cache on the system page 1 = shown / 0 = hidden,",
         "#   pages = pages switched on: system,disks,network,time,wifi (the settings below a page stay when it is off),",
         "#   system icons = symbols on the system page 1 = on / 0 = off, header = 1 the layout shows the uptime,",
-        "#   panel = panel type 1-5 (1 GDEW0213Z16, 2 GDEH0213Z19, 3 GDEY0213Z98, 4 GDEY0213B74, 5 GDEY042T81;",
+        "#   panel = panel type 1-8 (1 GDEW0213Z16, 2 GDEH0213Z19, 3 GDEY0213Z98, 4 GDEY0213B74, 5 GDEY042T81, 6-8 = 1-3 yellow;",
         "#   '-' = keep the panel type of the display), wifi icons = symbols on the WiFi page 1 = on / 0 = off,",
         "#   layout = header left, middle, right: T title, P page number, U uptime, C time, - nothing",
         "#   (lower case = highlighted; default TCP), header on = header line 1 = shown / 0 = off",
@@ -582,7 +598,9 @@ def write_conf(path, conf, interval, page_name=""):
         "#   picture ink = The Conversation, The Intermission, The Afterhours used 1 / 0 (default 111),",
         "#   picture flags = per picture one hex digit: 1 caption, 2 header, 4 in the page turn, 8 scheduled (default 011),",
         "#   card order = the pages and the pictures C I A, each once (their place in the page turn),",
-        "#   picture windows = HHMM-HHMM of each picture (scheduled: only that picture), sober = without the bottle 1 / 0",
+        "#   picture windows = HHMM-HHMM of each picture (scheduled: only that picture), sober = Beverages 0 House Wine / 1 Tabula Rasa / 2 Roast,",
+        "#   ota = firmware updates of this display from the settings page 1 allowed / 0 off,",
+        "#   picture clocks = Got the time? (a wall clock showing the time now) for C I A, 1 / 0 each (default 000)",
     ]
     for did, s in sorted(conf.items()):
         order = ",".join(s["order"]) or "-"
@@ -613,7 +631,8 @@ def write_conf(path, conf, interval, page_name=""):
                                 str(s.get("lineBottom", 0)),
                                 s.get("pageOrder") if page_order_ok(s.get("pageOrder")) else DEFAULT_PAGE_ORDER,
                                 str(s.get("justTime", 0)), str(s.get("timeHead", 0)), str(s.get("headFill", 0)),
-                                str(s.get("timeColor", 0)), str(s.get("timeFrame", 0)), *pics_to_conf(s)]))
+                                str(s.get("timeColor", 0)), str(s.get("timeFrame", 0)), *pics_to_conf(s), str(s.get("ota", 1)),
+                                "".join(str(s.get(p + "Clock", 0)) for p, _, _, _ in PICS)]))
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".conf.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
@@ -644,7 +663,7 @@ FRAME_ARGS = {   # what a WiFi display reports when it fetches its frame
     "colors": re.compile(r"^[23]$"),
     "rows": re.compile(r"^[0-9]{1,2}$"),
     "pins": re.compile(r"^-?[0-9]{1,2},-?[0-9]{1,2},-?[0-9]{1,2},-?[0-9]{1,2}$"),
-    "panel": re.compile(r"^[1-5]$"),
+    "panel": re.compile(r"^[1-8]$"),
     "board": re.compile(r"^[a-z0-9-]{1,40}$"),
     "fw": re.compile(r"^[0-9.]{1,10}$"),
     "ip": re.compile(r"^[0-9.]{7,15}$"),
@@ -653,6 +672,10 @@ FRAME_ARGS = {   # what a WiFi display reports when it fetches its frame
 }
 SEEN_EVERY = 10   # seconds; fast displays fetch every few seconds, the data folder is only written this often
 WIFI_LOCK = threading.Lock()
+# What the panel of a WiFi display shows, reported with every fetch (live=<page>,<s since the last
+# redraw>,<s until the next page turn>): kept in memory only, for Sync with display on the page
+PANEL_NOW = {}
+PANEL_NOW_RE = re.compile(r"^([0-9]{1,3}),([0-9]{1,8}),(-1|[0-9]{1,6})$")
 
 
 def wifi_frame(data_dir, run_dir, query):
@@ -665,6 +688,13 @@ def wifi_frame(data_dir, run_dir, query):
     if "size" not in info:
         return None, 400
     answer = "".join(c for c in q.get("answer", "")[:100] if 32 <= ord(c) < 127)
+    ota_line = ota_note(did, "".join(c for c in q.get("ota", "")[:80] if 32 <= ord(c) < 127), info.get("fw", ""))
+    m = PANEL_NOW_RE.match(q.get("live", ""))
+    if m:
+        with WIFI_LOCK:
+            PANEL_NOW[did] = {"at": int(time.time()), "shown": int(m[1]), "drawn": int(m[2]), "turn": int(m[3])}
+            while len(PANEL_NOW) > 64:
+                PANEL_NOW.pop(next(iter(PANEL_NOW)))
     wdir = os.path.join(data_dir, WIFI_DIR)
     with WIFI_LOCK:
         os.makedirs(wdir, exist_ok=True)
@@ -698,7 +728,196 @@ def wifi_frame(data_dir, run_dir, query):
         if os.path.exists(redraw) and "#END" in frame:   # "Redraw now": once, with this frame
             frame = frame.replace("#END", "R\n#END", 1)
             os.unlink(redraw)
+    if ota_line and ota_allowed() and ota_display_on(data_dir, did) and "#END" in frame:   # a firmware update waits: fetched after this frame
+        frame = frame.replace("#END", ota_line + "\n#END", 1)
     return frame, 200
+
+
+# ------------------------------------------------------------ firmware updates over WiFi (OTA)
+OTA = {}           # display id -> {"state", "version", "pct", "error", "at", "size", "md5", "data"}
+OTA_LOCK = threading.Lock()
+OTA_WAIT = 600     # seconds a display may take to fetch the update (it asks every 30 s)
+OTA_KEEP = 600     # seconds "done" / "failed" stay on the page
+OTA_OFF_TEXT = "Firmware updates are switched off on the server (OTA in the Docker settings)."
+OTA_DISPLAY_OFF_TEXT = "Firmware updates are switched off for this display (OTA in its Advanced Ink card)."
+
+
+def ota_display_on(data_dir, did):
+    """OTA of the saved settings of display did (Advanced Ink card), on unless switched off"""
+    conf, _, _ = read_conf(os.path.join(data_dir, CONF_NAME))
+    return conf.get(did, {}).get("ota", 1) != 0
+
+
+def ota_switch(text):
+    """--ota / INKSIGHTS_OTA: on (default) or off; off = no firmware updates from this page at all"""
+    return (text or "on").strip().lower() not in ("off", "0", "no", "false")
+
+
+OTA_ON = [True]   # set in main(): --ota / INKSIGHTS_OTA
+
+# ------------------------------------------------------------ login
+# The page asks for a user name and password (the browser's login window). Set in the Docker settings
+# (LOGIN_USER / LOGIN_PASSWORD -> INKSIGHTS_USER / INKSIGHTS_PASSWORD); the boards fetch their frame and
+# their firmware without it. The password can be changed on the page (Login card): login.json in the data
+# folder then holds its salted hash and a mark of the Docker password of that moment. The newer change wins:
+# when LOGIN_PASSWORD in the Docker settings differs from that mark at the start (changed there since), the
+# page password is dropped and the Docker one counts again (forgotten password: set a new one there).
+DEFAULT_USER = "inksights"
+DEFAULT_PASSWORD = "ink!1234"
+OPEN_PATHS = ("/api/frame", "/api/firmware", "/api/health")   # the boards cannot log in; health: the Docker check
+LOGIN_NAME = "login.json"
+LOGIN_ROUNDS = 200000
+LOGIN_LOCK = threading.Lock()
+
+
+def env_mark(password):
+    return hashlib.sha256(("inksights-login:" + password).encode("utf-8")).hexdigest()
+
+
+def pw_hash(password, salt=None):
+    salt = salt or os.urandom(16).hex()
+    return f"pbkdf2_sha256${LOGIN_ROUNDS}${salt}$" + hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), LOGIN_ROUNDS).hex()
+
+
+def pw_check(password, stored):
+    try:
+        kind, rounds, salt, digest = stored.split("$")
+        got = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), int(rounds)).hex()
+    except (ValueError, TypeError):
+        return False
+    return kind == "pbkdf2_sha256" and hmac.compare_digest(got, digest)
+
+
+class Login:
+    """The login of the page: the Docker password, or the one set on the page (login.json)"""
+    def __init__(self, data_dir, user, password):
+        self.path, self.user, self.env = os.path.join(data_dir, LOGIN_NAME), user, password
+        self.hash, self.ok = None, set()   # ok: Authorization headers already checked (PBKDF2 is slow)
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                d = json.load(f)
+            if d.get("env") == env_mark(password) and isinstance(d.get("hash"), str):
+                self.hash = d["hash"]
+            else:   # the Docker password was changed since: it counts again
+                os.unlink(self.path)
+                print("InkSights: the password in the Docker settings changed, the one set on the page is dropped", flush=True)
+        except (OSError, ValueError, AttributeError):
+            pass
+        self.default = self.user == DEFAULT_USER and self.check(DEFAULT_PASSWORD)   # api/state asks often: kept
+
+    def check(self, password):
+        return pw_check(password, self.hash) if self.hash else hmac.compare_digest(password.encode(), self.env.encode())
+
+    def header_ok(self, header):
+        """Authorization: Basic <user:password> matches"""
+        key = hashlib.sha256(header.encode("utf-8", "replace")).hexdigest()
+        with LOGIN_LOCK:
+            if key in self.ok:
+                return True
+        if not header.startswith("Basic "):
+            return False
+        try:
+            given = base64.b64decode(header[6:].strip(), validate=True).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return False
+        u, sep, p = given.partition(":")
+        # compare_digest: the time taken tells nothing about how much of it was right
+        good = bool(sep) and hmac.compare_digest(u.encode(), self.user.encode()) & self.check(p)
+        if good:
+            with LOGIN_LOCK:
+                if len(self.ok) > 64:
+                    self.ok.clear()
+                self.ok.add(key)
+        return good
+
+    def is_default(self):
+        return self.default
+
+    def change(self, current, new):
+        if not self.check(current):
+            raise SettingsError("The current password is wrong.")
+        if not isinstance(new, str) or not 8 <= len(new) <= 64 or any(ord(c) < 32 for c in new):
+            raise SettingsError("The new password needs 8 to 64 characters.")
+        h = pw_hash(new)
+        write_atomic(self.path, json.dumps({"hash": h, "env": env_mark(self.env)}) + "\n", mode=0o600)
+        with LOGIN_LOCK:
+            self.hash = h
+            self.ok.clear()   # the old password does not work any more
+            self.default = self.user == DEFAULT_USER and new == DEFAULT_PASSWORD
+
+
+def ota_allowed():
+    return OTA_ON[0]
+
+
+def firmware_catalog():
+    """The firmware the WebUI carries: {board: {"version", "size"}} from fw/manifest.json, only boards whose
+    file is there"""
+    try:
+        with open(os.path.join(FW_DIR, "manifest.json"), encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for board, e in manifest.items() if isinstance(manifest, dict) else []:
+        if (BOARD_RE.match(board) and isinstance(e, dict) and isinstance(e.get("version"), str)
+                and is_int(e.get("size")) and os.path.isfile(os.path.join(FW_DIR, board + ".bin"))):
+            out[board] = {"version": e["version"], "size": e["size"]}
+    return out
+
+
+def wifi_board(data_dir, did):
+    """board= of a WiFi display (wifi/<id>.info), "" when it never fetched a frame"""
+    try:
+        with open(os.path.join(data_dir, WIFI_DIR, did + ".info"), encoding="utf-8") as f:
+            for line in f.read(4096).splitlines():
+                if line.startswith("board=") and BOARD_RE.match(line[6:]):
+                    return line[6:]
+    except OSError:
+        pass
+    return ""
+
+
+def ota_request(did, data, version):
+    """An update for display did: waits for its next frame"""
+    if not data or data[0] != 0xE9:
+        raise SettingsError("Not an ESP32 firmware file.")
+    with OTA_LOCK:
+        OTA[did] = {"state": "pending", "version": version, "pct": 0, "error": "", "at": time.time(),
+                    "size": len(data), "md5": hashlib.md5(data).hexdigest(), "data": data}
+
+
+def ota_note(did, report, fw):
+    """A frame fetch of display did: its report of the update (&ota=) and its firmware; returns the U line to
+    send with the frame, "" for none"""
+    now = time.time()
+    with OTA_LOCK:
+        o = OTA.get(did)
+        if not o:
+            return ""
+        if o["state"] in ("done", "failed"):
+            if now - o["at"] > OTA_KEEP:
+                del OTA[did]
+            return ""
+        if report == "done" or (o["state"] == "loading" and o["pct"] >= 100 and o["version"] and fw == o["version"]):
+            o.update(state="done", at=now, data=None, version=o["version"] or fw)
+        elif report.startswith("failed"):
+            o.update(state="failed", at=now, data=None, error=report[7:60] or "unknown")
+        elif o["state"] == "loading":   # fetching frames again without restarting: the update broke off
+            if now - o["at"] > 60:
+                o.update(state="failed", at=now, data=None, error="the board kept its firmware")
+        elif now - o["at"] > OTA_WAIT:
+            o.update(state="failed", at=now, data=None, error="the board did not fetch it")
+        elif o["state"] == "pending":
+            return f"U|{o['size']}|{o['md5']}"
+    return ""
+
+
+def ota_public(did):
+    """What the page shows of an update: {"state", "version", "pct", "error"} or None"""
+    with OTA_LOCK:
+        o = OTA.get(did)
+        return {k: o[k] for k in ("state", "version", "pct", "error")} if o else None
 
 
 def live_frame(run_dir, query):
@@ -809,9 +1028,26 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, code, obj):
         self._send(code, json.dumps(obj).encode("utf-8"), "application/json; charset=utf-8")
 
+    def _logged_in(self, path):
+        """The page and its API need the login; else answer 401 (the browser then asks for it)"""
+        if path in OPEN_PATHS or self.server.login.header_ok(self.headers.get("Authorization", "")):
+            return True
+        if self.headers.get("Authorization"):
+            time.sleep(1)   # a wrong password: slows down guessing
+        body = b"Login required."
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="InkSights", charset="UTF-8"')
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return False
+
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         data_dir = self.server.data_dir
+        if not self._logged_in(path):
+            return
         if path in STATIC:
             name, ctype = STATIC[path]
             try:
@@ -819,12 +1055,49 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, f.read(), ctype)
             except OSError:
                 self._json(404, {"error": f"{name} is missing next to inksights-web.py"})
+        elif path == "/api/health":   # the Docker health check (no login, tells nothing)
+            self._json(200, {"ok": True})
         elif path == "/api/state":
             conf, interval, page_name = read_conf(os.path.join(data_dir, CONF_NAME))
-            self._json(200, {"state": load_state(data_dir), "config": public_conf(conf), "interval": interval,
+            state = load_state(data_dir)
+            with WIFI_LOCK:   # WiFi displays: what their panel shows (Sync with display)
+                for d in state.get("displays", []) if isinstance(state, dict) else []:
+                    if isinstance(d, dict) and d.get("transport") == "wifi" and d.get("id") in PANEL_NOW:
+                        d["panelNow"] = PANEL_NOW[d["id"]]
+            for d in state.get("displays", []) if isinstance(state, dict) else []:   # firmware updates running
+                if isinstance(d, dict) and isinstance(d.get("id"), str) and ota_public(d["id"]):
+                    d["ota"] = ota_public(d["id"])
+            self._json(200, {"state": state, "config": public_conf(conf), "interval": interval,
                              "pagename": page_name, "defaultPagename": DEFAULT_PAGE_NAME,
                              "problem": data_problem(data_dir), "version": VERSION,
-                             "versionCheck": True})   # the version line and the About card: WebUI, script and firmware
+                             "versionCheck": True,   # the version line and the About card: WebUI, script and firmware
+                             # still the login of the defaults: the page says so
+                             "defaultLogin": self.server.login.is_default(),
+                             "otaEnabled": self.server.ota_on,   # OTA switched off in the Docker settings: no updates
+                             "firmware": self.server.firmware})   # the firmware the WebUI carries per board (OTA)
+        elif path == "/api/firmware":   # a WiFi display fetches its update
+            did = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "").get("id", [""])[0]
+            with OTA_LOCK:
+                o = OTA.get(did) if ID_RE.match(did) else None
+                data = o["data"] if o and o["state"] in ("pending", "loading") else None
+                if data:
+                    o.update(state="loading", pct=0, at=time.time())
+            if not data:
+                return self._json(404, {"error": "No update waiting."})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                for i in range(0, len(data), 4096):
+                    self.wfile.write(data[i:i + 4096])
+                    with OTA_LOCK:
+                        o.update(pct=min(100, (i + 4096) * 100 // len(data)), at=time.time())
+                self.log_message("firmware sent to display %s (%d bytes)", did, len(data))
+            except OSError:
+                with OTA_LOCK:
+                    o.update(state="failed", at=time.time(), data=None, error="download interrupted")
         elif path == "/api/frame":
             try:
                 frame, code = wifi_frame(data_dir, self.server.run_dir, self.path.split("?", 1)[1] if "?" in self.path else "")
@@ -840,6 +1113,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?", 1)[0]
         data_dir = self.server.data_dir
+        if not self._logged_in(path):
+            return
+        if path in ("/api/ota", "/api/ota-file") and not self.server.ota_on:
+            return self._json(403, {"error": OTA_OFF_TEXT})
+        if path == "/api/ota-file":   # manual update: the firmware file itself (not a form: no other website can send it)
+            return self._ota_file(data_dir)
         # JSON only: another website cannot send this from your browser without asking first
         if not self.headers.get("Content-Type", "").startswith("application/json"):
             return self._json(415, {"error": "Only JSON is accepted."})
@@ -873,9 +1152,45 @@ class Handler(BaseHTTPRequestHandler):
                 write_conf(os.path.join(data_dir, CONF_NAME), conf, interval, page_name)
                 self.log_message("settings saved for %d display(s)", len(conf))
                 self._json(200, {"ok": True})
+            elif path == "/api/ota":   # update a WiFi display with the firmware the WebUI carries for its board
+                try:
+                    data = json.loads(raw or b"{}")
+                except ValueError:
+                    return self._json(400, {"error": "Invalid data."})
+                did = data.get("id") if isinstance(data, dict) else None
+                if not isinstance(did, str) or not ID_RE.match(did):
+                    return self._json(400, {"error": "Invalid display ID."})
+                if not ota_display_on(data_dir, did):
+                    return self._json(403, {"error": OTA_DISPLAY_OFF_TEXT})
+                board = wifi_board(data_dir, did)
+                if not board:
+                    return self._json(400, {"error": "This display has not fetched a frame over WiFi."})
+                fw = self.server.firmware.get(board)
+                if not fw:
+                    return self._json(400, {"error": "The WebUI carries no firmware for this board."})
+                try:
+                    with open(os.path.join(FW_DIR, board + ".bin"), "rb") as f:
+                        ota_request(did, f.read(MAX_FW + 1)[:MAX_FW], fw["version"])
+                except SettingsError as e:
+                    return self._json(400, {"error": str(e)})
+                self.log_message("firmware %s requested for display %s", fw["version"], did)
+                self._json(200, {"ok": True})
             elif path == "/api/refresh":
                 with open(os.path.join(data_dir, REFRESH_NAME), "w", encoding="utf-8"):
                     pass
+                self._json(200, {"ok": True})
+            elif path == "/api/password":   # the Login card: a new password for the page
+                try:
+                    data = json.loads(raw or b"{}")
+                    if not isinstance(data, dict) or not isinstance(data.get("current"), str):
+                        raise ValueError
+                    self.server.login.change(data["current"], data.get("next"))
+                except SettingsError as e:
+                    time.sleep(1)   # a wrong password: slows down guessing
+                    return self._json(400, {"error": str(e)})
+                except ValueError:
+                    return self._json(400, {"error": "Invalid data."})
+                self.log_message("password of the settings page changed")
                 self._json(200, {"ok": True})
             elif path == "/api/redraw":
                 try:
@@ -897,6 +1212,27 @@ class Handler(BaseHTTPRequestHandler):
             self.log_message("cannot write to %s: %s", data_dir, e)
             self._json(500, {"error": "Cannot write to the data folder. Does user 568 (apps) have write access?"})
 
+    def _ota_file(self, data_dir):
+        did = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "").get("id", [""])[0]
+        if self.headers.get("Content-Type", "") != "application/octet-stream":
+            return self._json(415, {"error": "Only a firmware file is accepted."})
+        if not ID_RE.match(did) or not wifi_board(data_dir, did):
+            return self._json(400, {"error": "This display has not fetched a frame over WiFi."})
+        if not ota_display_on(data_dir, did):
+            return self._json(403, {"error": OTA_DISPLAY_OFF_TEXT})
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if not 0 < length <= MAX_FW:
+            return self._json(413, {"error": "The file is too big for a firmware."})
+        try:
+            ota_request(did, self.rfile.read(length), "")
+        except SettingsError as e:
+            return self._json(400, {"error": str(e)})
+        self.log_message("firmware file uploaded for display %s (%d bytes)", did, length)
+        self._json(200, {"ok": True})
+
     def log_message(self, fmt, *args):
         # The page asks for the state every 10 s; keep those requests out of the log
         if self.command == "GET" and not fmt.startswith("cannot"):
@@ -910,12 +1246,21 @@ def main():
     ap.add_argument("--port", type=int, default=8099)
     ap.add_argument("--run", default="/run/inksights",
                     help="run folder of inksights.sh (/var/run/inksights on the host): frames of the WiFi displays")
+    ap.add_argument("--user", default=os.environ.get("INKSIGHTS_USER") or DEFAULT_USER,
+                    help=f"user name of the login (also INKSIGHTS_USER; default {DEFAULT_USER})")
+    ap.add_argument("--password", default=os.environ.get("INKSIGHTS_PASSWORD") or DEFAULT_PASSWORD,
+                    help=f"password of the login (also INKSIGHTS_PASSWORD; default {DEFAULT_PASSWORD})")
+    ap.add_argument("--ota", default=os.environ.get("INKSIGHTS_OTA", "on"),
+                    help="firmware updates over WiFi from this page: on (default) or off (also INKSIGHTS_OTA)")
     args = ap.parse_args()
 
     server = ThreadingHTTPServer(("", args.port), Handler)
     server.data_dir = args.data
     server.run_dir = args.run
-    print(f"InkSights: port {args.port}, data folder {args.data}", flush=True)
+    server.ota_on = OTA_ON[0] = ota_switch(args.ota)
+    server.login = Login(args.data, args.user, args.password)
+    server.firmware = firmware_catalog() if server.ota_on else {}   # the files do not change while the app runs
+    print(f"InkSights: port {args.port}, data folder {args.data}, firmware updates {'on' if server.ota_on else 'off'}", flush=True)
     prepare_data_dir(args.data)
     server.serve_forever()
 

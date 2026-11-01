@@ -40,6 +40,7 @@ document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}"
       <div class="field wide boxed"><span class="label">Tests</span>
         <div class="choices header-sec">
           <div class="field"><span class="label">Versions</span><span class="choices" id="versions-sim"></span></div>
+          <div class="field"><span class="label">OTA</span><span class="choices" id="ota-sim"></span></div>
           <div class="field"><span class="label">Update notice</span><span class="choices"><button class="btn" id="testUpdate" type="button">Test</button></span></div>
           <div class="field"><span class="label">Controller without answer</span><span class="choices" id="oldfw"></span></div>
         </div>
@@ -94,9 +95,9 @@ const DISPLAY_NAMES = ["Server rack", "Office desk"];   // their display names w
 const PORTS = ["/dev/ttyACM0", "/dev/ttyACM1"];
 const IPS = ["192.168.1.51", "192.168.1.52"];
 
-// Panel types: the table of the settings page (InkSightsUI.PANELS) and the yellow colour panels; the
+// Panel types: the table of the settings page (InkSightsUI.PANELS, with the yellow colour panels); the
 // board reports the one it runs
-const PANELS = InkSightsUI.PANELS.concat(InkSightsUI.YELLOW_PANELS);
+const PANELS = InkSightsUI.PANELS;
 const panelById = id => PANELS.find(p => p.id === id) || PANELS[0];
 const OLD_PANELS = { "212x104x3": 1, "250x122x3": 3, "250x122x2": 4, "400x300x2": 5 };   // saved by earlier versions
 
@@ -343,9 +344,16 @@ function publicConfig() {
 let usb = null;   // the USB card, mounted below
 const ui = InkSightsUI.start({
   root: $("app"),
-  yellowPanels: true,   // also offer the colour panels with yellow
+  tabs: true,           // one tab per display, the preview beside its cards
+  // Login card: the password of the settings page (the simulator keeps it in its stored settings)
+  changePassword: async (current, next) => {
+    if (current !== (sim.loginPass || "ink!1234")) throw new Error("The current password is wrong.");
+    sim.loginPass = next;
+    save();
+  },
   offlineNoData: true,  // "Connected" off: the display shows "NO DATA" / "Check connection"
-  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights", version: sim.appVer || "1.0", versionCheck: true, afterhours: true,
+  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights", version: sim.appVer || "1.0", versionCheck: true, afterhours: true, otaEnabled: !sim.otaOff,
+    defaultLogin: (sim.loginPass || "ink!1234") === "ink!1234",
     // the firmware the WebUI carries: one per board with WiFi, the version of the WebUI
     firmware: Object.fromEntries(Object.entries(InkSightsUI.BOARDS).filter(([, b]) => b.wifi).map(([k]) => [k, { version: sim.appVer || "1.0", size: 1147760 }])) }),
   // OTA update: the board waits for its next fetch, loads the firmware and restarts with it (not kept)
@@ -498,6 +506,8 @@ $("testUpdate").addEventListener("click", () => ui.testUpdate());
 $("versions-sim").replaceChildren(
   el("label", { class: "check" }, "WebUI ", verSel(sim.appVer || "1.0", v => { sim.appVer = v; update(true); }, "Version of the WebUI")),
   el("label", { class: "check" }, "Script ", verSel(sim.scriptVer || "1.0", v => { sim.scriptVer = v; update(true); }, "Version of the script")));
+// OTA in the Docker settings of the server: off = no firmware updates from the page
+$("ota-sim").replaceChildren(simRadios("simota", [[1, "On"], [0, "Off"]], sim.otaOff ? 0 : 1, v => { sim.otaOff = v === 0; update(true); }));
 $("paste").value = sim.paste;
 $("paste").addEventListener("input", e => { sim.paste = e.target.value; update(); });
 $("add").addEventListener("click", () => {

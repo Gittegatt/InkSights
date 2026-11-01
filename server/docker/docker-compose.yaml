@@ -1,4 +1,4 @@
-# InkSights - settings page (WebUI) as a Docker app
+# InkSights - settings page (WebUI) and script as a Docker app
 #
 # Settings (optional, in a .env file next to this file, or replace the values below):
 #   DATA_DIR       data folder shared with inksights.sh (settings, state)          (default: ./data)
@@ -6,12 +6,23 @@
 #   PUID/PGID      user the container runs as; needs write access to DATA_DIR      (default: 568 = TrueNAS apps user)
 #   RUN_DIR        run folder of inksights.sh, in memory (frames of the WiFi displays) (default: /var/run/inksights)
 #   INKSIGHTS_TAG  version of the image, e.g. 1.0                                  (default: latest)
+#   OTA            firmware updates of the WiFi boards from the page: on / off     (default: on)
+#   LOGIN_USER     user name of the settings page                                  (default: inksights)
+#   LOGIN_PASSWORD password of the settings page                                   (default: ink!1234; change it)
+#                  a "$" in it is written "$$"
+#   SCRIPT_OPTIONS more options for inksights.sh, e.g. "-x sdz"                     (default: none)
 #
 # The image holds the app and all files of the page; DATA_DIR only keeps the settings file and
 # the state. Keep it on an SSD, otherwise the app wakes your hard disks.
 #
-# The container gets no USB access and no rights on the host; it only shares DATA_DIR and reads
-# RUN_DIR (read-only).
+# Two containers from the same image:
+#   inksights         the settings page: no USB access and no rights on the system; it only shares
+#                     DATA_DIR and reads RUN_DIR (read-only).
+#   inksights-script  inksights.sh: it reads the drives, pools, system values and USB ports of the
+#                     system and sends the displays their frames, so it runs as root with full access
+#                     to the system (privileged, pid: host); it has no port and no network of its own.
+#                     It never wakes hard disks: the same commands as when started on the system.
+#                     Run the script only here, not also with tmux or cron on the system.
 # Stack names must be lowercase, so the stack is "inksights".
 
 name: inksights
@@ -21,9 +32,28 @@ services:
     container_name: inksights
     image: ghcr.io/gittegatt/inksights:${INKSIGHTS_TAG:-latest}
     user: "${PUID:-568}:${PGID:-568}"
+    environment:
+      INKSIGHTS_OTA: ${OTA:-on}
+      INKSIGHTS_USER: ${LOGIN_USER:-inksights}
+      INKSIGHTS_PASSWORD: ${LOGIN_PASSWORD:-ink!1234}
     ports:
       - "${PORT:-8099}:8099"
     volumes:
       - ${DATA_DIR:-./data}:/data
       - ${RUN_DIR:-/var/run/inksights}:/run/inksights:ro
+    restart: unless-stopped
+
+  inksights-script:
+    container_name: inksights-script
+    image: ghcr.io/gittegatt/inksights:${INKSIGHTS_TAG:-latest}
+    command: /app/script-entry.sh -l ${SCRIPT_OPTIONS:-}
+    user: "0:0"
+    privileged: true
+    pid: host
+    network_mode: none
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+    healthcheck:
+      disable: true
+    stop_grace_period: 30s
     restart: unless-stopped

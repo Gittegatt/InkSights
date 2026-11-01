@@ -15,7 +15,8 @@
 # shows SSD temperatures: smartctl -n standby for drives the kernel reports as non-rotational
 # (SSDs), never for hard disks.
 #
-# Runs once and exits; start it every minute (cron) or let it loop (-l, e.g. in tmux). A full
+# Runs once and exits; start it every minute (cron) or let it loop (-l: in the Docker app
+# "inksights-script" next to the settings page, see docker/script-entry.sh, or in tmux). A full
 # update only happens every INTERVAL minutes (the shortest refresh of the displays), when the
 # settings changed, a display was plugged in or the web page asked for it ("Update now", "Redraw
 # now"). Every display gets a new frame as often as its own refresh is set (1 minute to 4 hours),
@@ -46,7 +47,7 @@
 #                              S SSD, I = symbols; -1 = unknown, "-" = none; at most 6 temperatures each)
 #   P|<cs>|<dc>|<rst>|<busy>[|<panel>]
 #                              (only when pins or the panel type are set on the web page; panel type
-#                              1-5; new values make the board save them and restart)
+#                              1-8; new values make the board save them and restart)
 #   R                          (only after "Redraw now": redraw right away, even without changes)
 #   W|<ssid>|<password>|<host>|<server>|<ap>|<ap ssid>|<ap password>|<ap delay>
 #                              (USB only, boards with WiFi, when WiFi is set on the web page; texts hex
@@ -69,6 +70,7 @@
 #   live/        frames of the USB displays with fast refresh, only for the live preview of the
 #                settings page (<id>.txt, without WiFi settings)
 #   stamp, lock  time and signature of the last full update, one run at a time
+#   loop.lock    one loop (-l) at a time
 #   inksights.log  what the script did and problems (also on stderr); trimmed to the last
 #                  LOG_LINES lines, not written in a dry run
 #
@@ -167,10 +169,20 @@ if [ "$LOOP" = true ] && [[ -z "${INKSIGHTS_CHILD:-}" ]]; then
     export INKSIGHTS_CHILD=1
     child_args=()
     for a in "${ORIG_ARGS[@]}"; do [[ "$a" == "-l" || "$a" == "-f" ]] || child_args+=("$a"); done
+    # Stopped (docker stop, Ctrl+C): the run that is busy finishes first, so no display gets half a frame
+    trap 'log "Loop stopped"; exit 0' TERM INT
+    # One loop at a time: a second one (tmux and the Docker app "inksights-script") waits until the
+    # first one stops, so the displays do not get every frame twice
+    exec 8>"$RUN_DIR/loop.lock" || exit 1
+    if ! flock -n 8; then
+        log "Another loop runs already (tmux, or the Docker app inksights-script): waiting until it stops"
+        flock 8 & wait $!   # the lock belongs to the open file, so it stays with this loop
+    fi
     log "Loop started"
     while :; do
-        /bin/bash "$SCRIPT_PATH" "${child_args[@]}"
-        if [[ -s "$FAST_FILE" ]]; then sleep 1; else sleep 10; fi
+        /bin/bash "$SCRIPT_PATH" "${child_args[@]}" 8>&-
+        if [[ -s "$FAST_FILE" ]]; then sleep 1 8>&- & else sleep 10 8>&- & fi
+        wait $!
     done
 fi
 
@@ -363,7 +375,8 @@ fi
 #   system icons : symbols on the system page 1 = on / 0 = off
 #   header : 1 = the layout shows the uptime (written by the web page; earlier version: 1 = uptime
 #            instead of the page number, used when the layout is missing)
-#   panel : panel type 1-5 (1 GDEW0213Z16, 2 GDEH0213Z19, 3 GDEY0213Z98, 4 GDEY0213B74, 5 GDEY042T81)
+#   panel : panel type 1-8 (1 GDEW0213Z16, 2 GDEH0213Z19, 3 GDEY0213Z98, 4 GDEY0213B74, 5 GDEY042T81;
+#           6-8 = 1-3 with yellow as the third colour)
 #           or - = keep the panel type of the display
 #   layout: header left, middle, right: T title, P page number, U uptime, C time, - nothing (default TCP);
 #           lower case = that place highlighted; each of T, P, U, C at most once
@@ -390,7 +403,7 @@ fi
 # -----------------------
 NTP_RE='^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$'              # time page: NTP server
 TZPOSIX_RE='^[A-Za-z<][A-Za-z0-9<>+,./:-]{0,47}$'      # time page: POSIX time zone for the board
-declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH CFG_TIMEFMT CFG_CLOCK CFG_SCREENS CFG_LINES CFG_PORDER CFG_THEAD CFG_HFILL CFG_PICS
+declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH CFG_TIMEFMT CFG_CLOCK CFG_SCREENS CFG_LINES CFG_PORDER CFG_THEAD CFG_HFILL CFG_PICS CFG_WIFIICONS CFG_PICSALL CFG_ACLOCK
 IFLIST_RE='^[A-Za-z0-9._-]{1,15}(,[A-Za-z0-9._-]{1,15}){0,31}$'
 NAME_RE='^[A-Za-z0-9 ._+/-]{0,12}$'
 ORDER_RE='^[A-Za-z0-9._-]{1,40}(,[A-Za-z0-9._-]{1,40}){0,31}$'
@@ -450,7 +463,7 @@ order_valid() {
 }
 
 if [[ -r "$CONF_FILE" ]]; then
-    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc tcolc tframec picinkc picflagc cardc picwinc soberc; do
+    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc tcolc tframec picinkc picflagc cardc picwinc soberc _otac aclockc; do
         name="${name%$'\r'}"; wappass="${wappass%$'\r'}"; wapdelay="${wapdelay%$'\r'}"
         fastc="${fastc%$'\r'}"; sysc="${sysc%$'\r'}"; netc="${netc%$'\r'}"; zfsc="${zfsc%$'\r'}"; pagesc="${pagesc%$'\r'}"; sysiconc="${sysiconc%$'\r'}"; headerc="${headerc%$'\r'}"; panelc="${panelc%$'\r'}"
         layoutc="${layoutc%$'\r'}"; headonc="${headonc%$'\r'}"
@@ -464,7 +477,8 @@ if [[ -r "$CONF_FILE" ]]; then
         theadc="${theadc%$'\r'}"
         hfillc="${hfillc%$'\r'}"; tcolc="${tcolc%$'\r'}"
         tframec="${tframec%$'\r'}"; picinkc="${picinkc%$'\r'}"; picflagc="${picflagc%$'\r'}"; cardc="${cardc%$'\r'}"; picwinc="${picwinc%$'\r'}"
-        soberc="${soberc%%[$'\t\r']*}"   # last column: also cut anything after it
+        aclockc="${aclockc%%[$'\t\r']*}"   # last column: also cut anything after it
+        soberc="${soberc%$'\r'}"
         # Just give me time: the header line as the Time card's Header tick says (default off)
         if [[ "$justc" == 1 ]]; then [[ "$theadc" == 1 ]] && headonc=1 || headonc=0; fi
         [[ "$id" =~ ^[0-9A-F]{8}$ ]] || continue
@@ -496,8 +510,9 @@ if [[ -r "$CONF_FILE" ]]; then
         fastc=$(( refreshc < 60 ? refreshc : 0 ))
         [[ "$zfsc" == "0" ]] || zfsc=1
         [[ "$sysiconc" == "0" ]] || sysiconc=1
+        _wifiiconc="${_wifiiconc%$'\r'}"; [[ "$_wifiiconc" == "0" ]] || _wifiiconc=1   # WiFi page: symbols 1 / 0
         [[ "$headerc" == "1" ]] || headerc=0
-        [[ "$panelc" =~ ^[1-5]$ ]] || panelc=""   # - = keep the panel type of the display
+        [[ "$panelc" =~ ^[1-8]$ ]] || panelc=""   # - = keep the panel type of the display
         # header: missing layout (earlier version) = title, time, then the page number or the uptime;
         # switched off = no header line ("---"); the uptime is sent when the layout shows it
         if ! layout_valid "$layoutc"; then [[ "$headerc" == 1 ]] && layoutc=TCU || layoutc=TCP; fi
@@ -551,17 +566,22 @@ if [[ -r "$CONF_FILE" ]]; then
         # Advanced Ink: start screen 1, "Nothing to ink" 2, "Check connection" 4 shown when needed
         # the pictures The Conversation, The Intermission, The Afterhours: Ink 1/0 each (default 111), per
         # picture one hex digit 1 caption, 2 header, 4 in the page turn, 8 scheduled (default 011), the card
-        # order, the time windows, Sobriety (default 1)
+        # order, the time windows, Beverages 0 House Wine / 1 Tabula Rasa / 2 Roast (missing: 1, the earlier default)
         [[ "$picinkc" =~ ^[01]{3}$ ]] || picinkc=111
         [[ "$picflagc" =~ ^[0-9a-f]{3}$ ]] || picflagc=011
         [[ "$picwinc" =~ ^(([01][0-9]|2[0-3])[0-5][0-9]-([01][0-9]|2[0-3])[0-5][0-9],){2}([01][0-9]|2[0-3])[0-5][0-9]-([01][0-9]|2[0-3])[0-5][0-9]$ ]] || picwinc="1800-1900,1200-1300,2300-0700"
-        [[ "$soberc" == 0 ]] || soberc=1
+        [[ "$soberc" =~ ^[012]$ ]] || soberc=1
         # a picture with its Ink off: nothing of it (when needed neither: the screens bits below)
         pf=""
         for (( j = 0; j < 3; j++ )); do [[ "${picinkc:j:1}" == 1 ]] && pf+=${picflagc:j:1} || pf+=0; done
         po=$pordc; order_valid "$po" || po=TSDNW
         card_fix "$cardc" "$po"
         CFG_PICS[$id]=""   # A line only when not the defaults
+        CFG_PICSALL[$id]="$pf|$soberc|$CARD|$picwinc"   # the same, always (with Got the time? on)
+        # Got the time? (a wall clock) for C I A (default 000; a single 1 from earlier: The Afterhours)
+        [[ "$aclockc" == 1 ]] && aclockc=001
+        [[ "$aclockc" =~ ^[01]{3}$ ]] || aclockc=000
+        CFG_ACLOCK[$id]=$aclockc
         [[ "$pf" == 011 && "$soberc" == 1 && "$CARD" == "${po}CIA" && "$picwinc" == "1800-1900,1200-1300,2300-0700" ]] || CFG_PICS[$id]="$pf|$soberc|$CARD|$picwinc"
         # Advanced Ink: start screen 1, "Nothing to ink" 2, "Check connection" 4 shown when needed (and the
         # Ink of The Conversation / The Intermission on)
@@ -581,6 +601,7 @@ if [[ -r "$CONF_FILE" ]]; then
         [[ "$justc" == 1 ]] && pagesc="time"   # Advanced Ink, Just give me time: only the time page
         CFG_PAGES[$id]=$pagesc
         CFG_SYSICONS[$id]=$sysiconc
+        CFG_WIFIICONS[$id]=$_wifiiconc
         CFG_HEADER[$id]=$headerc
         CFG_PANEL[$id]=$panelc
         CFG_LAYOUT[$id]=$layoutc
@@ -1190,7 +1211,7 @@ order_disks() {
 # -----------------------
 build_frame() {
     local title="$1" types=",$2," maxb="$3" rows="$4" warn="$7" turns=$(( ${8:-0} / 90 )) pagesec="${9:-$DEFAULT_PAGE}"
-    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-1}" porder="${30:-SDNTW}" thead="${31:-0}" hfill="${32:-0}" pics="${33:-}"
+    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-1}" porder="${30:-SDNTW}" thead="${31:-0}" hfill="${32:-0}" pics="${33:-}" wifip="${34:-0}"
     local d steps idle tmo poll st remain tsec head i dt pct pdec u t
     local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0 0 7 1 SDNTW 0 0 0)
     order_disks "$5" "$6"
@@ -1202,21 +1223,21 @@ build_frame() {
     # percentage with decimals (style value 6, 0-2), only while the percentage stands in the bar
     pdec=0; (( sv[3] == 1 && ${sv[4]:-0} == 0 )) && pdec=${sv[5]:-0}
     (( sv[3] == 1 && ${sv[4]:-0} == 1 )) && sv[3]=2
-    # field 15: WiFi page (not sent yet, 0 = off); field 16: seconds without a fresh frame before
+    # field 15: WiFi page 0 off / 1 with symbols / 2 without (drawn by WiFi boards only); field 16: seconds without a fresh frame before
     # the display shows "NO DATA"; field 17: header layout (left, middle, right); field 18: disk
     # pages 1 on / 0 off (no disk types: with nothing else the display shows "Nothing to ink")
     # fields 19 and 20: network pages, details in the bar 0 none / 1 percentage of the link / 2 link
     # speed, and symbols 1 on / 0 off; netp = "sort;order;hidden;icons;bar", "" = network pages off
     local -a np
     IFS=';' read -ra np <<< "$netp"
-    sv=("${sv[@]:0:4}" "$fast" -1 0 0 "$nodata" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv" "$headcol" "$timefmt" "$screens" "$lines" "$porder" "$thead" "$hfill" "$([[ -n "$netp" ]] && echo 1 || echo 0)")   # field 31: network pages on 1 / 0 (without interfaces "No interfaces"); field 30: header, gaps between the boxes filled 1 / 0; field 29: the time page with the header line 1 / without 0 (default); field 28: page order; field 27: inverted header, divider line at its bottom 1 / 0; field 26: screens shown (1 start, 2 nothing to ink, 4 no connection); field 25: 0 24 hours, 12 hours 1 with AM/PM / 2 without; field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0, 24: its highlighted boxes in the third colour 1 / 0
+    sv=("${sv[@]:0:4}" "$fast" -1 0 "$wifip" "$nodata" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv" "$headcol" "$timefmt" "$screens" "$lines" "$porder" "$thead" "$hfill" "$([[ -n "$netp" ]] && echo 1 || echo 0)")   # field 31: network pages on 1 / 0 (without interfaces "No interfaces"); field 30: header, gaps between the boxes filled 1 / 0; field 29: the time page with the header line 1 / without 0 (default); field 28: page order; field 27: inverted header, divider line at its bottom 1 / 0; field 26: screens shown (1 start, 2 nothing to ink, 4 no connection); field 25: 0 24 hours, 12 hours 1 with AM/PM / 2 without; field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0, 24: its highlighted boxes in the third colour 1 / 0
     # header: uptime instead of the page number (minutes after the full months, months)
     [[ "$header" == 1 && "$UP_REST" =~ ^[0-9]+$ ]] && sv[5]=$UP_REST sv[6]=$UP_MONTHS
     local n=24
     while (( n > 0 )) && [[ "${sv[n-1]}" == "${defs[n-1]}" ]]; do n=$((n - 1)); done
     for (( i = 0; i < n; i++ )); do head+="|${sv[i]}"; done
     FRAME=("#BEGIN" "$head")
-    # the pictures: A|<flags C I A>|<Sobriety>|<card order>|<time windows> (only when not the defaults)
+    # the pictures: A|<flags C I A>|<Beverages 0/1/2>|<card order>|<time windows>[|<Got the time? C I A>|<Refresh s>] (only when not the defaults)
     [[ -n "$pics" ]] && FRAME+=("A|$pics")
     # time page: C|<local date and time>|<date>|<weekday>|<date format>|<NTP>|<NTP server>|<POSIX zone>|<time in colour>|<outline>
     if [[ -n "$clock" ]]; then
@@ -1281,13 +1302,16 @@ frame_for() {
     [[ -z "${CFG_PAGES[$1]+set}" ]] && sysp="cpu,ram,net,nvme,ssd,hdd" pages=",system,disks,network,time,wifi,"
     # ... and the pictures with header, caption and in the page turn (like a new display on the settings page)
     local pics="${CFG_PICS[$id]:-}"
-    [[ -z "${CFG_PAGES[$1]+set}" ]] && pics="777|1|TSDNWCIA|1800-1900,1200-1300,2300-0700"
+    [[ -z "${CFG_PAGES[$1]+set}" ]] && pics="777|2|TSDNWCIA|1800-1900,1200-1300,2300-0700"
     local pins="${CFG_PINS[$1]:-}"
     (( fastcap )) && fast="${CFG_FAST[$id]:-0}"
     # "NO DATA" after two of its updates missed plus 2 minutes, at least 10 minutes
     local refresh="${CFG_REFRESH[$id]:-$(( INTERVAL * 60 ))}" nodata
     nodata=$(( (refresh >= 60 ? refresh / 60 : 1) * 120 + 120 ))
     (( nodata < 600 )) && nodata=600
+    # Got the time?: the A line with the pictures that have the wall clock and the Refresh (the board
+    # redraws it every minute on black/white panels, every Refresh on colour panels)
+    [[ "${CFG_ACLOCK[$id]:-000}" != 000 ]] && pics="${CFG_PICSALL[$id]}|${CFG_ACLOCK[$id]}|$refresh"
     if [[ -n "${CFG_PANEL[$id]:-}" ]]; then   # panel type chosen: P line with it (pins kept if not set)
         [[ -z "$pins" ]] && pins_valid "$devpins" && pins=$devpins
         [[ -n "$pins" ]] && pins+=",${CFG_PANEL[$id]}"
@@ -1298,12 +1322,14 @@ frame_for() {
     [[ "$pages" == *,network,* ]] && netp="${CFG_NETP[$id]:-name;;;1;1}"   # network pages switched on
     local clock=""
     [[ "$pages" == *,time,* ]] && clock="${CFG_CLOCK[$id]:-1|1|1|0|-|-|0|0}"   # time page switched on
+    local wifip=0
+    [[ "$pages" == *,wifi,* ]] && wifip=$(( ${CFG_WIFIICONS[$id]:-1} == 0 ? 2 : 1 ))   # WiFi page: 1 with symbols, 2 without
     build_frame "${title:-$DEFAULT_TITLE}" "$types" "${CFG_BOXES[$id]:-$DEFAULT_BOXES}" "${CFG_ROWS[$id]:-0}" \
         "${CFG_SORT[$id]:-pool}" "${CFG_ORDER[$id]:-}" "${CFG_WARN[$id]:-$DEFAULT_WARN}" "${CFG_ROT[$id]:-0}" \
         "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-1,1,1,1,1,1}" "${CFG_HIDDEN[$id]:-}" \
         "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-0}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-1}" \
         "${CFG_LAYOUT[$id]:-CTU}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-1}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}" "$nodata" \
-        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-0}" "${CFG_PORDER[$id]:-TSDNW}" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}" "$pics"
+        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-0}" "${CFG_PORDER[$id]:-TSDNW}" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}" "$pics" "$wifip"
 }
 
 # Display with fast refresh: remember it (port or wifi) for the fast runs in between
@@ -1365,7 +1391,7 @@ update_display() {
             size="${BASH_REMATCH[2]}"
             [[ "$line" =~ \ pins=(-?[0-9]+,-?[0-9]+,-?[0-9]+,-?[0-9]+) ]] && devpins="${BASH_REMATCH[1]}"
             [[ "$line" =~ \ colors=([23]) ]] && colors="${BASH_REMATCH[1]}"   # 2 = black/white panel
-            [[ "$line" =~ \ panel=([1-5]) ]] && devpanel="${BASH_REMATCH[1]}"   # panel type, 0 = not reported
+            [[ "$line" =~ \ panel=([1-8]) ]] && devpanel="${BASH_REMATCH[1]}"   # panel type, 0 = not reported
             [[ "$line" =~ \ board=([a-z0-9-]{1,40}) ]] && board="${BASH_REMATCH[1]}"
             [[ "$line" =~ \ wifi=1 ]] && wifi=1
             [[ "$line" =~ \ fw=([0-9.]{1,10}) ]] && fw="${BASH_REMATCH[1]}"
@@ -1435,7 +1461,7 @@ update_display() {
             mv -f "$tmp" "$LIVE_DIR/$id.txt"
         }
     fi
-    DISPLAYS_JSON+=("{\"port\": $(json_str "$port"), \"transport\": \"usb\", \"id\": \"$id\", \"size\": \"$size\", \"colors\": $colors, \"panel\": $devpanel, \"pins\": \"$devpins\", \"board\": \"$board\", \"wifi\": $wifi, \"fw\": \"$fw\", \"net\": \"$netst\", \"ip\": \"$ip\", \"ssidHex\": \"$ssidhex\", \"fast\": $fastcap, \"answer\": $(json_str "$answer"), \"frame\": $(json_str "$(printf '%s\n' "${shown[@]}")")}")
+    DISPLAYS_JSON+=("{\"port\": $(json_str "$port"), \"transport\": \"usb\", \"id\": \"$id\", \"size\": \"$size\", \"colors\": $colors, \"panel\": $devpanel, \"pins\": \"$devpins\", \"board\": \"$board\", \"wifi\": $wifi, \"fw\": \"$fw\", \"net\": \"$netst\", \"ip\": \"$ip\", \"ssidHex\": \"$ssidhex\", \"fast\": $fastcap, \"answer\": $(json_str "$answer"), \"answerAt\": ${SENT[$id]:-0}, \"frame\": $(json_str "$(printf '%s\n' "${shown[@]}")")}")
 }
 
 # -----------------------
@@ -1457,7 +1483,7 @@ update_wifi_display() {
             size)   [[ "$v" =~ ^[0-9]{2,4}x[0-9]{2,4}$ ]] && size=$v ;;
             colors) [[ "$v" =~ ^[23]$ ]] && colors=$v ;;
             pins)   [[ "$v" =~ ^-?[0-9]{1,2},-?[0-9]{1,2},-?[0-9]{1,2},-?[0-9]{1,2}$ ]] && devpins=$v ;;
-            panel)  [[ "$v" =~ ^[1-5]$ ]] && devpanel=$v ;;
+            panel)  [[ "$v" =~ ^[1-8]$ ]] && devpanel=$v ;;
             board)  [[ "$v" =~ ^[a-z0-9-]{1,40}$ ]] && board=$v ;;
             fw)     [[ "$v" =~ ^[0-9.]{1,10}$ ]] && fw=$v ;;
             ip)     [[ "$v" =~ ^[0-9.]{7,15}$ ]] && ip=$v ;;
@@ -1574,9 +1600,9 @@ write_state() {
 }
 
 if [[ -d "$DATA_DIR" ]]; then
-    write_state || log "Cannot write $STATE_FILE"
+    write_state || log "Cannot write ${STATE_FILE#/proc/*/root}"
 else
-    log "Data folder $DATA_DIR not found - web page gets no data"
+    log "Data folder ${DATA_DIR#/proc/*/root} not found - web page gets no data"
 fi
 
 printf '%s %s\n' "$NOW" "$SIGNATURE" > "$STAMP_FILE"

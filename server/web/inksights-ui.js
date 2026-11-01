@@ -15,7 +15,8 @@
  *   backend.frameOverride(id) -> frame text to show instead of the settings (simulator: pasted frame)
  *   backend.serverAddress -> address of this page as a display reaches it (WiFi settings)
  *   backend.titleSuffix   -> appended to the browser tab title
- *   backend.yellowPanels  -> also offer the colour panels with yellow (simulator)
+ *   backend.changePassword(current, next) -> change the password of the settings page (Login card; simulator so far)
+ *   backend.tabs          -> one tab per display: its preview on the left (stays in view), its cards on the right (simulator)
  *   backend.offlineNoData -> a display that is not connected previews its "Check connection" screen (simulator)
  *
  * Drawing: inksights-render.js. No description texts next to the controls (labels only).
@@ -29,7 +30,7 @@
     for (const [k, v] of Object.entries(attrs)) {
       if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
       else if (k === "value") e.value = v;
-      else if (k === "checked" || k === "disabled" || k === "selected" || k === "open") e[k] = !!v;
+      else if (k === "checked" || k === "disabled" || k === "selected" || k === "open" || k === "hidden") e[k] = !!v;
       else e.setAttribute(k, v);
     }
     e.append(...kids);
@@ -165,17 +166,18 @@
   const parseSize = s => { const m = /^(\d+)x(\d+)$/.exec(s || ""); return m ? [Number(m[1]), Number(m[2])] : [212, 104]; };
   // Panel types (PANELS in the firmware): chosen on this page, saved on the board like the pins.
   // size in landscape, colors 3 = black/white/color, fast = fast partial refresh possible
-  const PANELS = [
+  const BASE_PANELS = [
     { id: 1, name: "GDEW0213Z16", size: [212, 104], colors: 3, fast: false },
     { id: 2, name: "GDEH0213Z19", size: [212, 104], colors: 3, fast: false },
     { id: 3, name: "GDEY0213Z98", size: [250, 122], colors: 3, fast: false },
     { id: 4, name: "GDEY0213B74", size: [250, 122], colors: 2, fast: true },
     { id: 5, name: "GDEY042T81", size: [400, 300], colors: 2, fast: true },
   ];
-  // The colour panels with yellow as the third colour (simulator only so far: backend.yellowPanels);
-  // driven like their red twins, only the preview draws the third colour yellow
-  const YELLOW_PANELS = PANELS.filter(p => p.colors === 3).map(p => ({ ...p, id: p.id + 5, yellow: true }));
-  let panels = PANELS;   // the types offered: PANELS, in the simulator with the yellow ones
+  // 6 to 8: the colour panels with yellow as the third colour, driven like their red twins; text
+  // on the third colour is black there
+  const YELLOW_PANELS = BASE_PANELS.filter(p => p.colors === 3).map(p => ({ ...p, id: p.id + 5, yellow: true }));
+  const PANELS = BASE_PANELS.concat(YELLOW_PANELS);
+  const panels = PANELS;   // the types offered
   const panelLabel = p => `${p.size[0] >= 360 ? "4.2″" : "2.13″"} ${p.size[0]} × ${p.size[1]} · ` +
     `${p.colors === 2 ? "black/white" : p.yellow ? "black/white/yellow" : "black/white/red"} · ${p.name}`;
   // The panel of a display: chosen here, else what the board reports, else (older firmware without
@@ -195,11 +197,10 @@
 
   function start(backend) {
     const root = backend.root;
-    panels = backend.yellowPanels ? PANELS.concat(YELLOW_PANELS) : PANELS;
     let state = { host: "", updated: 0, disks: [], displays: [] };
     let config = {};
     let interval = 10, pageName = "", defaultPageName = "InkSights";
-    let dirty = false, lastKey = "", appProblem = "";
+    let dirty = false, lastKey = "", appProblem = "", defaultLogin = false;
     const pages = {}, lastWarn = {};
     let prefs = {};
     try { prefs = JSON.parse(localStorage.getItem(PREFS) || "{}") || {}; } catch (e) { prefs = {}; }
@@ -224,6 +225,7 @@
       el("p", { class: "msg", id: "msg", role: "status", "aria-live": "polite" }),
       el("div", { id: "warnings", class: "displays" }),
       el("section", { class: "displays", id: "displays", "aria-label": "Displays" }),
+      el("section", { id: "login", "aria-label": "Login", hidden: true }),
       el("section", { id: "about", "aria-label": "About InkSights", hidden: true }));
 
     function setMsg(text, kind = "") { const m = $("msg"); m.textContent = text; m.className = `msg ${kind}`; }
@@ -263,7 +265,8 @@
       // one (earlier version) as before: title, time, then the page number or the uptime
       if (!EPD.layoutOk(s.layout)) s.layout = s.headerUp === 1 ? "TCU" : NEW_LAYOUT;
       // a new display: header and system page (all components) on, disk and WiFi pages off
-      for (const [k, d] of [["timer", 1], ["ringDir", 1], ["icons", 1], ["pctBar", 1], ["barCap", 1], ["zfs", 0], ["showSys", 1], ["showDisks", 1], ["sysIcons", 1], ["showWifi", 1], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 1], ["netIcons", 1], ["driveTemp", 0], ["stby", 1], ["headInv", 0], ["headCol", 0], ["timeFmt", 0], ["ampm", 1], ["showTime", 1], ["timeDate", 1], ["timeWday", 1], ["ntp", 0], ["inkSplash", 1], ["inkNothing", 1], ["inkNoData", 1], ["convInk", 1], ["interInk", 1], ["afterInk", 1], ["sober", 1], ["lineBottom", 0], ["justTime", 0], ["timeHead", 0], ["headFill", 0], ["timeColor", 0], ["timeFrame", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      for (const [k, d] of [["timer", 1], ["ringDir", 1], ["icons", 1], ["pctBar", 1], ["barCap", 1], ["zfs", 0], ["showSys", 1], ["showDisks", 1], ["sysIcons", 1], ["showWifi", 1], ["wifiIcons", 1], ["showHeader", 1], ["showNet", 1], ["netIcons", 1], ["driveTemp", 0], ["stby", 1], ["headInv", 0], ["headCol", 0], ["timeFmt", 0], ["ampm", 1], ["showTime", 1], ["timeDate", 1], ["timeWday", 1], ["ntp", 0], ["inkSplash", 1], ["inkNothing", 1], ["inkNoData", 1], ["convInk", 1], ["interInk", 1], ["afterInk", 1], ["lineBottom", 0], ["justTime", 0], ["timeHead", 0], ["headFill", 0], ["timeColor", 0], ["timeFrame", 0], ["ota", 1], ["convClock", 0], ["interClock", 0], ["afterClock", 0]]) if (s[k] !== 0 && s[k] !== 1) s[k] = d;
+      if (![0, 1, 2].includes(s.sober)) s.sober = 2;   // Beverages: 0 House Wine, 1 Tabula Rasa, 2 Roast (default; user)
       // the pictures: header, a time window when only this picture shows (Scheduled, From, To), a page
       // in the page turn; all off for a new display
       for (const a of ARTS) {
@@ -397,16 +400,44 @@
       }
     }
 
-    // Live display (Display card, remembered in this browser): the preview shows what the panel shows, by the
+    // Sync with display (Display card, frame Preview, remembered in this browser): the preview shows what the panel shows, by the
     // rules of the firmware: new data and page turns only at a redraw, at most every 3 minutes (fast refresh:
-    // its seconds), the first data and "Redraw now" at once; in between the old picture stays
+    // its seconds), the first data and "Redraw now" at once; in between the old picture stays. The board
+    // reports what its panel shows (page, last redraw, next page turn): the preview follows that
     const mirror = {};
     const mirrorOn = id => !!pref(id, "mirror", 0);
+    // what the panel showed at a moment: { at (s), shown (place in the page turn, 0 = start screen), drawn (s
+    // since the redraw), turn (s until the next page turn, -1 = none) }; WiFi: with its last fetch, USB: its
+    // answer to the last frame (a redraw right away: the page of the answer, drawn now)
+    function panelNow(live) {
+      if (!live) return null;
+      if (live.panelNow && typeof live.panelNow === "object") return live.panelNow;
+      const m = / shown=(\d+) drawn=(\d+) turn=(-?\d+)/.exec(live.answer || "");
+      if (!m || !live.answerAt) return null;
+      const pg = / page=(\d+)\//.exec(live.answer), now = / refresh=now/.test(live.answer);
+      return now && pg ? { at: live.answerAt, shown: +pg[1], drawn: 0, turn: +m[3], fresh: true }
+        : { at: live.answerAt, shown: +m[1], drawn: +m[2], turn: +m[3] };
+    }
     function mirrorStep(entry, text) {
-      const now = Date.now(), s = settingsFor(entry.id), v = mirror[entry.id];
+      const now = Date.now(), s = settingsFor(entry.id);
       // the firmware compares the frames without their time
       const bare = t => (t || "").replace(/^(H\|[^|\n]*\|)[^|\n]*/m, "$1");
-      if (!v || v.force) return (mirror[entry.id] = { text, page: v ? v.page : 0, drawn: now, turned: now, pc: v ? v.pc : 1 });
+      let v = mirror[entry.id];
+      const made = !v || v.force;
+      if (made) v = mirror[entry.id] = { text, page: v ? v.page : 0, drawn: now, turned: now, pc: v ? v.pc : 1, sync: v ? v.sync : "" };
+      const pn = panelNow(entry.live);
+      if (pn && pn.shown > 0) {   // a new report of the board: its page and times
+        const key = `${pn.at}|${pn.shown}|${pn.drawn}|${pn.turn}`;
+        if (key !== v.sync) {
+          v.sync = key;
+          const at = pn.at * 1000;
+          v.page = pn.shown - 1;
+          v.drawn = at - pn.drawn * 1000;
+          if (pn.turn >= 0 && s.page > 0) v.turned = at + (pn.turn === 0 && pn.fresh ? s.page : pn.turn) * 1000 - s.page * 1000;
+          if (pn.fresh) v.text = text;
+        }
+      }
+      if (made) return v;
       const minMs = panelOf(entry.live, s).fast && s.fast > 0 ? s.fast * 1000 - 500 : 180000;
       const turn = s.page > 0 && v.pc > 1 && now - v.turned >= s.page * 1000;
       if ((turn || bare(text) !== bare(v.text)) && now - v.drawn >= minMs) {
@@ -459,7 +490,7 @@
       const [w, h] = panelSize(panel, s.rot);
       const fresh = frameText(entry), mv = mirrorOn(id) && !fresh.override ? mirrorStep(entry, fresh.text) : null;
       const { text, override } = mv ? { text: mv.text, override: false } : fresh;
-      for (const b of document.querySelectorAll(`#pager-${id} button`)) b.disabled = !!mv;   // Live display: the board turns the pages
+      for (const b of document.querySelectorAll(`#pager-${id} button`)) b.disabled = !!mv;   // Sync with display: the board turns the pages
       document.querySelectorAll(`.set-${id}`).forEach(f => { f.disabled = override; });
       $(`size-${id}`).textContent = `${w} × ${h} px · ${panel.colors === 2 ? "b/w" : "b/w/color"}`;
       $(`frame-${id}`).textContent = text || "";
@@ -505,7 +536,8 @@
       // the screens of the firmware with the pictures: the time page keeps its places without
       // a header, every page off without a picture shows the logo
       model.nextFw = afterhours;
-      model.sober = afterhours && s.sober === 1;   // Sobriety: the pictures without the bottle
+      // Beverages: 0 House Wine, 1 Tabula Rasa (without the bottle and the glass), 2 Roast (a coffee cup instead)
+      model.sober = afterhours ? s.sober : 0;
       const pc = timed ? 1 : turn.length;
       if (mv) { mv.pc = pc; pages[id] = mv.page; }
       pages[id] = (((pages[id] || 0) % pc) + pc) % pc;
@@ -525,12 +557,26 @@
       if (artPage && (timed || !model.noData)) model.art = artPage.kind;
       // The Afterhours in its time window with Caption: "Closed until" its end
       if (timed && timed.kind === "Q" && s.afterCap === 1) model.until = s.afterTo;
+      // Got the time? (per picture, off by default): a wall clock with the time now, the time of the data
+      // counted on; with Sync with display only as often as the panel redraws (black/white every minute,
+      // colour panels every Refresh)
+      model.wallArts = ARTS.filter(a => s[a.p + "Clock"] === 1).map(a => a.kind).join("");
+      const wallNow = model.wallArts ? EPD.clockParts(dataStamp(state), state.updated ? Date.now() / 1000 - state.updated : 0) : null;
+      if (wallNow) {
+        const t = wallNow;
+        if (mv) {
+          const every = panel.colors === 2 ? 60000 : Math.max(180, s.refresh || 600) * 1000;
+          if (!mv.wall || Date.now() - mv.wallAt >= every) { mv.wall = t; mv.wallAt = Date.now(); }
+          model.wallTime = mv.wall;
+        } else model.wallTime = t;
+      }
       if (override) { model.timer = s.timer; model.ringDir = s.ringDir; model.icons = s.icons; model.pctBar = s.pctBar ? (s.barCap ? 2 : 1) : 0; }
       for (const k of ["N", "D", "Q"]) {
         const c = $(`scr-${id}-${k}`);
         if (!c || !c.offsetParent) continue;   // folded
         // The Conversation and The Intermission as their case shows them (with the caption), The Afterhours as itself
-        const sm = { ...model, screens: 7, noData: k === "D", art: k === "Q" ? "Q" : "", until: k === "Q" && s.afterCap === 1 && s.afterSched === 1 ? s.afterTo : "" };
+        const sm = { ...model, screens: 7, noData: k === "D", art: k === "Q" ? "Q" : "", until: k === "Q" && s.afterCap === 1 && s.afterSched === 1 ? s.afterTo : "",
+          wallTime: wallNow };
         if (k !== "D") Object.assign(sm, { sys: null, nets: [], disks: [], diskPages: 0, wifiPage: 0, clock: null });
         const sfb = new EPD.Fb(w, h);
         EPD.drawScreen(sfb, sm);
@@ -709,7 +755,7 @@
       const zfsBox = el("div", { class: "field boxed" }, el("span", { class: "label" }, "ZFS RAM cache"),
         radios("zfs", [[1, "On"], [0, "Off"]], s.zfs, v => { s.zfs = v; }));
       const setDisabled = (box, off) => box.querySelectorAll("input").forEach(i => { i.disabled = off; });
-      // 12 hours: AM / PM shown or not (Display card)
+      // 12 hours: AM / PM shown or not (Time card)
       const ampmBox = field("AM/PM", radios("ampm", [[1, "On"], [0, "Off"]], s.ampm, v => { s.ampm = v; }));
       setDisabled(ampmBox, !s.timeFmt);
       setDisabled(zfsBox, !s.sys.includes("ram"));
@@ -745,12 +791,15 @@
           setMsg(`${nameOf(id, s)}: redraws within a minute (takes about 15 seconds).`, "ok");
         } catch (e) { setMsg(e.message, "warn"); }
       } }, "Redraw now")] : [];
-      // Update firmware (OTA, simulator only so far): only when it fits and is not running already
+      // Update firmware (OTA): only when it fits and is not running already
       const ota = otaCheck(live, board), otaBusy = live && live.ota && (live.ota.state === "pending" || live.ota.state === "loading");
-      if (versionCheck && backend.ota && ota.ok && !otaBusy)
+      if (versionCheck && backend.ota && otaOn && s.ota !== 0 && ota.ok && !otaBusy)
         redrawNow.push(el("button", { class: "btn small redraw", type: "button", onclick: () => startOta(id, s, ota.fw) }, "Update firmware"));
-      const remove = live ? [] : [el("button", { class: "btn link", type: "button",
-        onclick: () => { delete config[id]; changed(); render(true); } }, "Remove settings")];
+      // a display that is not connected (any more): forget it and its settings (with Save); when it comes
+      // back it shows up again with the settings of a new display (Advanced Ink, user)
+      const remove = live ? [] : [el("div", { class: "field boxed" }, el("span", { class: "label" }, "Remove"),
+        el("div", { class: "choices" }, el("button", { class: "btn", type: "button",
+          onclick: () => { delete config[id]; changed(); render(true); } }, "Remove display")))];
 
       const via = live && live.transport === "wifi" ? "WiFi" : "USB";
       const meta = live
@@ -998,17 +1047,8 @@
             el("span", { class: "label" }, "Instance name"),
             el("input", { type: "text", class: "pagename", maxlength: "32", value: pageName, placeholder: defaultPageName, autocomplete: "off", style: "max-width: 14em",
               oninput: e => { pageName = e.target.value; applyPageName(); syncPageName(e.target); changed(); } })),
-          // 12 or 24 hours: the time in the header and on the time page
-          el("div", { class: "field boxed" }, el("div", { class: "choices" },
-            field("Time format", radios("timefmt", [[0, "24h"], [1, "12h"]], s.timeFmt, v => { s.timeFmt = v; setDisabled(ampmBox, !v); })),
-            ampmBox)),
-          // Live display: the preview shows what the panel shows (this browser, no need to save)
-          el("div", { class: "field boxed" }, el("span", { class: "label" }, "Live display"),
-            el("div", { class: "choices" }, el("label", { class: "check" },
-              el("input", { type: "checkbox", checked: mirrorOn(id), onchange: e => { setPref(id, "mirror", e.target.checked ? 1 : 0); delete mirror[id]; drawPreview(entry); } }),
-              "Live display"))),
-          // each in its own frame (user): Panel over the full width, then Rotation | Rows per page,
-          // Auto page turn | Refresh
+          // each in its own frame (user): Panel over the full width, Rotation | Rows per page, Refresh | Auto
+          // page turn, Preview over the full width
           el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Panel"),
             el("div", { class: "choices panel-pick" }, panelSel, el("span", { class: "ro" }, live ? board.name : "not connected"))),
           el("div", { class: "field boxed" }, el("span", { class: "label" }, "Rotation"),
@@ -1016,15 +1056,20 @@
           el("fieldset", { class: `set-${id}` },
             el("div", { class: "field boxed" }, el("span", { class: "label" }, "Rows per page"),
               el("div", { class: "oneline" }, radios("rows", rowOptions, s.rows, v => { s.rows = v; pages[id] = 0; }))),
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Refresh"), refreshSel),
             // the only hint text on the page
             el("div", { class: "field boxed" }, el("span", { class: "label" }, "Auto page turn (HH:MM:SS)"),
               el("div", { class: "choices", style: "flex-wrap: nowrap; gap: 8px" }, pageTurn,
-                el("span", { class: "count", style: "white-space: nowrap" }, "00:00:00 = off"))),
-            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Refresh"), refreshSel)),
+                el("span", { class: "count", style: "white-space: nowrap" }, "00:00:00 = off")))),
+          // Sync with display: the preview shows what the panel shows (this browser, no need to save)
+          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Preview"),
+            el("div", { class: "choices" }, el("label", { class: "check" },
+              el("input", { type: "checkbox", checked: mirrorOn(id), onchange: e => { setPref(id, "mirror", e.target.checked ? 1 : 0); delete mirror[id]; drawPreview(entry); } }),
+              "Sync with display"))),
           el("div", { class: "field wide boxed" },
             el("span", { class: "label" }, "Display pins"),
             el("div", { class: "choices pins" }, ...pinSelects)),
-          ...remove.map(b => el("div", { class: "wide" }, b))));
+          ));
       // the frame the display gets (over USB or WiFi): at the end of the Advanced Ink card (user)
       const frameFold = el("details", { class: "fold boxed" },
         el("summary", {}, `Frame (data received via ${via})`),
@@ -1072,9 +1117,13 @@
       const timeColTick = el("input", { type: "checkbox", checked: s.timeColor === 1, disabled: !colorPanel,
         onchange: e => { s.timeColor = e.target.checked ? 1 : 0; timeFrameTick.disabled = !s.timeColor; redraw(); } });
       const timeCard = subCard("timeOpen", "Time", false, "showTime",
-        // framed sections: Time zone and Date format side by side with Show below (what the page shows),
-        // and NTP with its server
+        // framed sections: Time format (12 or 24 hours: the time in the header, on the time page and in
+        // "Closed until"; so it stays usable with the time page off, keep-on), Time zone and Date format
+        // side by side with Show below (what the page shows), and NTP with its server
         el("div", { class: "form" },
+          el("div", { class: "field wide boxed keep-on" }, el("div", { class: "choices header-sec" },
+            field("Time format", radios("timefmt", [[0, "24h"], [1, "12h"]], s.timeFmt, v => { s.timeFmt = v; setDisabled(ampmBox, !v); })),
+            ampmBox)),
           el("div", { class: "field wide boxed" },
             el("div", { class: "choices header-sec" },
               el("label", { class: "field" }, el("span", { class: "label" }, "Time zone"), tzSel),
@@ -1120,8 +1169,9 @@
         return subCard(a.p + "Open", a.title, false, inkKey(a),
           ...(afterhours ? [el("div", { class: "form" },
             el("div", { class: "field wide boxed" },
-              // the order (user): Header, Caption, Turn candidate, On cue
-              el("div", { class: "choices" }, artTick(a.p + "Head", "Header"), capTick, artTick(a.p + "Rot", "Turn candidate"),
+              // the order (user): Turn candidate, Header, Caption, Got the time? (a wall clock), On cue
+              el("div", { class: "choices" }, artTick(a.p + "Rot", "Turn candidate"), artTick(a.p + "Head", "Header"), capTick,
+                artTick(a.p + "Clock", "Got the time?"),
                 ...(a.auto ? [artTick(a.auto, "On cue", capSync)] : []))),
             el("div", { class: "field wide boxed" },
               el("div", { class: "choices" }, artTick(a.p + "Sched", "Scheduled", () => { times.forEach(t => { t.disabled = s[a.p + "Sched"] !== 1; }); capSync(); }),
@@ -1145,33 +1195,42 @@
             el("div", { class: "field boxed" }, el("span", { class: "label" }, "Bar behaviour"),
               el("div", { class: "choices" }, el("label", { class: "check" },
                 el("input", { type: "checkbox", checked: !!pref(id, "autoFold", 1), onchange: e => setPref(id, "autoFold", e.target.checked ? 1 : 0) }), "Auto collapse"))),
-            // the pictures of The Conversation, The Intermission and The Afterhours without the bottle
-            // (inksights.conf column 66)
-            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Pictures"),
-              el("div", { class: "choices" }, el("label", { class: "check" },
-                el("input", { type: "checkbox", checked: s.sober === 1, onchange: e => { s.sober = e.target.checked ? 1 : 0; redraw(); } }), "Sobriety")))),
+            // what stands on the table of The Conversation, The Intermission and The Afterhours: the bottle
+            // and the glass, a coffee cup (the default) or nothing (inksights.conf column 66)
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Beverages"),
+              radios("drink", [[0, "House Wine"], [2, "Roast"], [1, "Tabula Rasa"]], s.sober, v => { s.sober = v; }))),
           // OTA Update: the check whether the firmware of the WebUI fits this board, the button, the progress
-          ...(versionCheck && backend.ota ? [el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "OTA Update"),
-            ...otaLines(live, ota),
-            ...(otaText(live && live.ota) ? [el("p", { class: `about-text${live.ota.state === "failed" ? " warn" : ""}` }, otaText(live.ota))] : []),
-            el("div", { class: "choices" },
-              el("button", { class: "btn", type: "button", disabled: !ota.ok || otaBusy, onclick: () => startOta(id, s, ota.fw) }, "Update firmware"),
+          // switched off in the Docker settings (OTA=off): only that, nothing to click
+          ...(versionCheck && backend.ota && !otaOn ? [el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "OTA Update"),
+            el("p", { class: "about-text" }, "Switched off on the server."))] : []),
+          // OTA of this display: Off = no firmware updates from this page (saved, behind the login)
+          ...(versionCheck && backend.ota && otaOn && s.ota === 0 ? [el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "OTA Update"),
+            radios("ota", [[1, "On"], [0, "Off"]], 0, v => { s.ota = v; render(true); }))] : []),
+          ...(versionCheck && backend.ota && otaOn && s.ota !== 0 ? [el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "OTA Update"),
+            radios("ota", [[1, "On"], [0, "Off"]], 1, v => { s.ota = v; render(true); }),
+            // the first line (Firmware up to date. / New firmware available!) right of the button (user), the rest below
+            ...((ol => [el("div", { class: "choices" },
+              el("button", { class: "btn", type: "button", disabled: !ota.ok || otaBusy, onclick: () => startOta(id, s, ota.fw) }, "Update firmware"), ol[0],
               // a firmware that fits: what the click does (user)
-              ...(ota.ok && !otaBusy ? [el("span", { class: "ota-note plain" }, "Click initiates the update.")] : [])),
+              ...(ota.ok && !otaBusy ? [el("span", { class: "ota-note plain" }, "Click initiates the update.")] : [])), ...ol.slice(1)])(otaLines(live, ota))),
+            ...(otaText(live && live.ota) ? [el("p", { class: `about-text${live.ota.state === "failed" ? " warn" : ""}` }, otaText(live.ota))] : []),
             // manual update: a firmware file from this computer, checked here before it is uploaded
             ...(backend.otaFile ? [el("span", { class: "label" }, "Manual update"),
-              ...(otaFiles[id] ? [el("p", { class: `about-text${otaFiles[id].ok ? " good" : otaFiles[id].plain ? "" : " warn"}` }, otaFiles[id].why)] : []),
               el("div", { class: "choices" },
                 el("button", { class: "btn", type: "button", disabled: otaBusy || !board.wifi, onclick: () => $(`otafile-${id}`).click() }, "Choose file"),
                 el("button", { class: "btn", type: "button", disabled: !(otaFiles[id] && otaFiles[id].ok) || otaBusy, onclick: () => uploadOta(id, s) }, "Upload"),
                 // a file that fits: what the click does (user)
                 ...(otaFiles[id] && otaFiles[id].ok && !otaBusy ? [el("span", { class: "ota-note" }, "Upload flashes it, the board restarts.")] : []),
-                el("input", { type: "file", id: `otafile-${id}`, accept: ".bin,application/octet-stream", hidden: true, onchange: e => pickOtaFile(id, e.target.files[0], live, board) }))] : []))] : []),
-          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Backup"),
+                el("input", { type: "file", id: `otafile-${id}`, accept: ".bin,application/octet-stream", hidden: true, onchange: e => pickOtaFile(id, e.target.files[0], live, board) })),
+              // the check of the chosen file below the buttons (user)
+              ...(otaFiles[id] ? [el("p", { class: `about-text${otaFiles[id].ok ? " good" : otaFiles[id].plain ? "" : " warn"}` }, otaFiles[id].why)] : [])] : []))] : []),
+          // Backup half the width, Remove beside it (only for a display that is not connected; user)
+          el("div", { class: "field boxed" }, el("span", { class: "label" }, "Backup"),
             el("div", { class: "choices" },
               el("button", { class: "btn", type: "button", onclick: () => doExport(id) }, "Export"),
               el("button", { class: "btn", type: "button", onclick: () => $(`import-${id}`).click() }, "Import"),
-              el("input", { type: "file", id: `import-${id}`, accept: ".json,application/json", hidden: true, onchange: e => doImport(id, e.target.files[0]) })))),
+              el("input", { type: "file", id: `import-${id}`, accept: ".json,application/json", hidden: true, onchange: e => doImport(id, e.target.files[0]) }))),
+          ...remove),
         frameFold);
       // System, Drives, Network, Time and WiFi move with their grip (dragged, or the arrow keys on it);
       // their order is the order of the pages on the display (H field 28). Display, Header and
@@ -1267,8 +1326,28 @@
       // lets the cards below it move up
       const cards = list.map(card).map(c => [c.main, ...c.subs]);
       const rows = [];
-      for (let i = 0; i < cards.length; i += 2)
-        rows.push(el("div", { class: "pair-row" }, ...cards.slice(i, i + 2).map(stack => el("div", { class: "stack" }, ...stack))));
+      if (backend.tabs && list.length) {
+        // one tab per display (user): the display card on the left, staying in view while the page
+        // scrolls, its cards on the right in one column; the tab shown last is remembered
+        box.classList.add("tabbed");
+        let at = list.findIndex(e => e.id === pref("app", "tab", ""));
+        if (at < 0) at = 0;
+        const views = cards.map(([main, ...subs], i) => el("div", { class: "tab-view", hidden: i !== at },
+          el("div", { class: "tab-preview" }, main), el("div", { class: "stack" }, ...subs)));
+        const tabs = list.map((e, i) => el("button", { class: `tab${i === at ? " on" : ""}`, type: "button", role: "tab", "aria-selected": String(i === at),
+          onclick: () => {
+            setPref("app", "tab", e.id);
+            tabs.forEach((t, j) => { t.classList.toggle("on", j === i); t.setAttribute("aria-selected", String(j === i)); });
+            views.forEach((v, j) => { v.hidden = j !== i; });
+            drawAll();
+          } },
+          el("span", { class: `dot${e.live ? " on" : ""}`, "aria-label": e.live ? "connected" : "not connected" }), nameOf(e.id, settingsFor(e.id))));
+        rows.push(el("div", { class: "tabs", role: "tablist" }, ...tabs), ...views);
+      } else {
+        box.classList.remove("tabbed");
+        for (let i = 0; i < cards.length; i += 2)
+          rows.push(el("div", { class: "pair-row" }, ...cards.slice(i, i + 2).map(stack => el("div", { class: "stack" }, ...stack))));
+      }
       box.replaceChildren(...(list.length ? rows
         : [el("div", { class: "empty" }, el("h2", {}, "No display reported yet"))]));
       drawAll();
@@ -1323,7 +1402,11 @@
 
     function updateWarnings() {
       const bad = (state.displays || []).filter(d => !d.id);
-      $("warnings").replaceChildren(...(appProblem ? [el("p", { class: "alert" }, appProblem)] : []), ...bad.map(d =>
+      $("warnings").replaceChildren(...(appProblem ? [el("p", { class: "alert" }, appProblem)] : []),
+        // still the user name and password of the defaults (Docker settings LOGIN_USER / LOGIN_PASSWORD); it
+        // can be hidden in the Login card (this browser)
+        ...(defaultLogin && !pref("app", "hideLoginNote", false) ? [el("p", { class: "alert" }, backend.changePassword ? "The settings page still uses the default login: change the password in the Login card at the bottom."
+          : "The settings page still uses the default login: set LOGIN_PASSWORD in the Docker settings.")] : []), ...bad.map(d =>
         el("p", { class: "alert" }, `${d.port}: ${d.error || "no answer"}. Flash the current firmware onto this controller.`)));
     }
 
@@ -1335,8 +1418,12 @@
         if (!dirty) { config = data.config || {}; interval = data.interval || 10; pageName = data.pagename || ""; }
         defaultPageName = data.defaultPagename || defaultPageName;
         appProblem = typeof data.problem === "string" ? data.problem : "";   // the app cannot write its data folder
+        const wasDefault = defaultLogin;
+        defaultLogin = data.defaultLogin === true;
+        if (defaultLogin !== wasDefault) showLogin();   // Current filled in / the Hide button only with the default login
         versionCheck = data.versionCheck === true;
         firmwareCat = data.firmware && typeof data.firmware === "object" ? data.firmware : {};
+        otaOn = data.otaEnabled !== false;
         const newVersion = typeof data.version === "string" && data.version !== appVersion;
         if (newVersion) appVersion = data.version;   // before render: the cards compare the firmware with it
         applyPageName();
@@ -1391,8 +1478,8 @@
     // Versions: the settings page (this app), inksights.sh (state.json "version") and the firmware of
     // every display; all three belong together. Below the status line, and a notice for every one that
     // differs from the settings page
-    // (simulator only so far: its load() data carry versionCheck)
-    let versionCheck = false, firmwareCat = {};
+    // (the load() data carry versionCheck)
+    let versionCheck = false, firmwareCat = {}, otaOn = true;   // otaOn: firmware updates allowed by the server
     // the pictures with all their settings (once the simulator only: its load() data carried afterhours); now
     // the settings page, inksights.sh and the firmware know them
     const afterhours = true;
@@ -1486,8 +1573,8 @@
     function otaText(o) {
       if (!o || !o.state) return "";
       if (o.state === "pending") return "Waiting for the board (it asks every 30 seconds) …";
-      if (o.state === "loading") return `Loading firmware ${o.version || ""} … ${Math.round(o.pct || 0)} %`;
-      if (o.state === "done") return `Updated to firmware ${o.version || ""}; the board has restarted.`;
+      if (o.state === "loading") return `Loading firmware${o.version ? ` ${o.version}` : ""} … ${Math.round(o.pct || 0)} %`;
+      if (o.state === "done") return `Updated${o.version ? ` to firmware ${o.version}` : ""}; the board has restarted.`;
       if (o.state === "failed") return `Update failed${o.error ? `: ${o.error}` : ""}. The old firmware stays.`;
       return "";
     }
@@ -1559,6 +1646,73 @@
                 el("div", { class: "choices" }, link(`${REPO}/blob/main/LICENSE`, "License"))),
               frame("Support", el("div", { class: "choices" },
                 link(REPO, "Star on GitHub"), link("https://ko-fi.com/gittegatt", "Ko-fi"), link("https://paypal.me/gittegatt", "PayPal"))))))));
+    }
+
+    const DEFAULT_LOGIN_PASSWORD = "ink!1234";   // the default of LOGIN_PASSWORD (docker-compose.yaml)
+    let loginNote = ["", ""];   // the last feedback of the Login card
+    // Login (the whole page, not one display; user): change the password of the settings page. Folded like
+    // About; the current password, the new one twice; live feedback below the button
+    function showLogin() {
+      const sec = $("login");
+      sec.hidden = !backend.changePassword;
+      if (!backend.changePassword) return;
+      const pw = (label, auto) => el("input", { type: "password", autocomplete: auto, maxlength: "64", "aria-label": label });
+      const cur = pw("Current password", "current-password"), next = pw("New password", "new-password"), again = pw("Repeat new password", "new-password");
+      // still the default login: Current already holds the default password (it is public in the README; user)
+      if (defaultLogin) cur.value = DEFAULT_LOGIN_PASSWORD;
+      // the red notice about the default login at the top: hide or show it again (this browser; user). The
+      // button keeps its width (both labels in one grid cell, the other one invisible) and its place on the
+      // screen (the page scrolls by the height the notice takes or gives back)
+      const noteLabel = () => (pref("app", "hideLoginNote", false) ? "Show notice" : "Hide notice");
+      const noteText = el("span", {}, noteLabel());
+      const noteBtn = el("button", { class: "btn same-width", type: "button", onclick: () => {
+        const before = noteBtn.getBoundingClientRect().top;
+        setPref("app", "hideLoginNote", !pref("app", "hideLoginNote", false));
+        noteText.textContent = noteLabel();
+        updateWarnings();
+        window.scrollBy(0, noteBtn.getBoundingClientRect().top - before);
+      } }, noteText, el("span", { class: "sizer", "aria-hidden": "true" }, "Hide notice"), el("span", { class: "sizer", "aria-hidden": "true" }, "Show notice"));
+      // the feedback right of Change password (user); Hide notice at the right edge, so it never moves
+      const note = el("span", { class: "about-text login-note", role: "status" });
+      // the feedback outlives a rebuild of the card (after a change the default login is gone: rebuilt)
+      const say = (text, kind) => { loginNote = [text, kind]; note.textContent = text; note.className = `about-text login-note${kind ? " " + kind : ""}`; };
+      say(...loginNote);
+      const change = async () => {
+        if (!cur.value) return say("Enter the current password.", "warn");
+        if (next.value.length < 8) return say("The new password needs at least 8 characters.", "warn");
+        if (next.value !== again.value) return say("The new passwords do not match.", "warn");
+        if (next.value === cur.value) return say("The new password is the same as the current one.", "warn");
+        try {
+          await backend.changePassword(cur.value, next.value);
+          cur.value = next.value = again.value = "";
+          say("Password changed.", "good");
+          load(true);
+        } catch (e) { say(e.message, "warn"); }
+      };
+      // eye buttons: the one in Current shows that password as plain text, the one in New shows New and
+      // Repeat (user); a second click hides them again
+      const eye = (input, also = []) => {
+        const svg = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M1.5 12S5.5 4.5 12 4.5 22.5 12 22.5 12 18.5 19.5 12 19.5 1.5 12 1.5 12Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+        const b = el("button", { class: "reveal", type: "button", "aria-label": "Show password", "aria-pressed": "false",
+          onclick: () => {
+            const show = input.type === "password";
+            for (const i of [input, ...also]) i.type = show ? "text" : "password";
+            b.setAttribute("aria-pressed", String(show));
+            b.setAttribute("aria-label", show ? "Hide password" : "Show password");
+          } });
+        b.innerHTML = svg;
+        return el("span", { class: "pw" }, input, b);
+      };
+      const field = (label, box) => el("label", { class: "field" }, el("span", { class: "label" }, label), box);
+      sec.replaceChildren(el("article", { class: "card sub-card about" },
+        el("details", { class: "fold", open: pref("app", "loginOpen", false), ontoggle: e => setPref("app", "loginOpen", e.target.open) },
+          el("summary", {}, "Login"),
+          el("div", { class: "sub-body" },
+            el("div", { class: "form" },
+              el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Password"),
+                el("div", { class: "choices header-sec" }, field("Current", eye(cur)), field("New", eye(next, [again])), field("Repeat", el("span", { class: "pw" }, again))),
+                el("div", { class: "choices login-row" }, el("button", { class: "btn", type: "button", onclick: change }, "Change password"),
+                  note, ...(defaultLogin ? [noteBtn] : []))))))));
     }
 
     function showUpdate() {
@@ -1640,13 +1794,14 @@
 
     window.addEventListener("beforeunload", e => { if (dirty && backend.warnOnLeave) { e.preventDefault(); e.returnValue = ""; } });
     new ResizeObserver(() => drawAll()).observe($("displays"));
+    showLogin();
     load(true);
     if (backend.pollMs) setInterval(() => load(false), backend.pollMs);
     if (backend.live) setInterval(pollLive, 500);
-    // Live display: every second the step of the panel (a redraw when the firmware would make one)
+    // Sync with display: every second the step of the panel (a redraw when the firmware would make one)
     setInterval(() => { for (const e of displayList()) if (mirrorOn(e.id)) drawPreview(e); }, 1000);
     // a time page in a preview: drawn again as the minutes go on
-    setInterval(() => { if (displayList().some(e => settingsFor(e.id).showTime === 1)) drawAll(); }, 20000);
+    setInterval(() => { if (displayList().some(e => { const s = settingsFor(e.id); return s.showTime === 1 || ARTS.some(a => s[a.p + "Clock"] === 1); })) drawAll(); }, 20000);
 
     // frames: what every display would get right now (simulator: "Send to display" over USB);
     // frameFor: the frame of one display from another state (simulator: live values)

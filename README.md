@@ -1,6 +1,6 @@
 <h1><img src="examples/example_00_inksights.png" alt="InkSights" width="100%"></h1>
 
-Repository: https://github.com/Gittegatt/InkSights
+Repository: https://github.com/Gittegatt/InkSights [![Latest release](https://img.shields.io/github/v/release/Gittegatt/InkSights?label=&color=blue)](https://github.com/Gittegatt/InkSights/releases/latest)
 
 InkSights shows the drive status of a server, often a NAS, on small e-paper displays. On request also:
 
@@ -45,8 +45,7 @@ More pictures: [examples](examples/README.md)
 3. **On the system** ([3. Set up on the system](#3-set-up-on-the-system)):
    - get the files (`git clone`)
    - create the data folder on an SSD for the app user
-   - start the Docker app
-   - start the script as root
+   - start the Docker app (settings page and script)
 4. **Plug the board into the system** via USB, or set up its WiFi ([4. WiFi](#4-wifi-optional)).
 5. **Open the settings page** at `http://<server>:8099` and choose the panel type and everything else
    ([5. The settings page](#5-the-settings-page)).
@@ -93,11 +92,15 @@ cable of the display. Every firmware drives all of them.
 
 | Panel | Size | Colours | Fast refresh |
 |---|---|---|---|
-| GDEW0213Z16 (older MH-ET LIVE modules) | 2.13″ 212×104 | black/white/colour (red or yellow) | - |
-| GDEH0213Z19 | 2.13″ 212×104 | black/white/colour | - |
-| GDEY0213Z98 (newer modules) | 2.13″ 250×122 | black/white/colour | - |
+| GDEW0213Z16 (older MH-ET LIVE modules) | 2.13″ 212×104 | black/white/red | - |
+| GDEH0213Z19 | 2.13″ 212×104 | black/white/red | - |
+| GDEY0213Z98 (newer modules) | 2.13″ 250×122 | black/white/red | - |
 | GDEY0213B74 | 2.13″ 250×122 | black/white | ✓ |
 | GDEY042T81 (e.g. with the DESPI-C02 adapter) | 4.2″ 400×300 | black/white | ✓ |
+| GDEW0213Z16, GDEH0213Z19, GDEY0213Z98 with yellow | as above | black/white/yellow | - |
+
+The yellow versions are driven like the red ones; the list shows them as "black/white/yellow". Text on the third
+colour is black there instead of white, so it stays easy to read.
 
 **Fast refresh:**
 
@@ -131,7 +134,7 @@ Untested on real hardware so far: the black/white panels and drawing on the ESP3
 ## How it fits together
 
 ```
-Script on the system (loop or cron) ──USB──> board 1 ──> e-paper (e.g. HDDs)
+Docker app "script"                 ──USB──> board 1 ──> e-paper (e.g. HDDs)
         │                               ──USB──> board 2 ──> e-paper (e.g. SSD + NVMe)
         │ reads settings, writes current data
         ▼
@@ -145,7 +148,7 @@ Script on the system (loop or cron) ──USB──> board 1 ──> e-paper (e.
 | `scripts/` | builds the ready-made firmware files of a release (`build_release.py`) |
 | `server/inksights.sh` | collects the data and sends every display its frame |
 | `server/web/` | settings page (`inksights-web.py`, `index.html`, `inksights-ui.js`, `inksights-render.js`, `inksights.css`; `inksights-usb.js` for the USB setup) |
-| `server/docker/` | `docker-compose.yaml`: the Docker stack that runs the settings page; `Dockerfile`: its image |
+| `server/docker/` | `docker-compose.yaml`: the Docker stack that runs the settings page and the script; `Dockerfile`: their image; `script-entry.sh`: starts the script on the system |
 | `simulator/simulator.html` | the settings page with simulated displays and data, opens in a browser straight from the folder |
 | `examples/` | pictures of what the displays show |
 | `LICENSE`, `licenses/` | the license, GPL-3.0, and the license of the Adafruit font ([License](#license)) |
@@ -214,13 +217,29 @@ ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
 2. Copy `inksights-v1.0-xiao-samd21.uf2` onto that drive.
 3. The board restarts with the new firmware by itself; the drive disappears.
 
+> [!TIP]
+> **Bootloader without touching the pads (1200 baud touch).** While a firmware runs on the XIAO (InkSights or any
+> other Arduino sketch), the board jumps into its bootloader as soon as its serial port is opened at 1200 baud and
+> closed again. The Arduino IDE and PlatformIO do this by themselves when they upload, which is why uploading
+> normally works without pressing anything. By hand (use your port):
+>
+> | System | Command |
+> |---|---|
+> | Windows | `mode COM5 BAUD=1200` |
+> | Linux | `stty -F /dev/ttyACM0 1200` |
+> | macOS | `stty -f /dev/cu.usbmodemXXXX 1200` |
+> | Python | `serial.Serial("COM5", 1200).close()` |
+>
+> Then the drive (mostly **Arduino**) or a new serial port appears and the LED pulses. If no firmware runs on the
+> board (or it hangs), only the double press of RESET helps.
+
 <details>
 <summary><b>Build the files yourself</b></summary>
 
 - `python scripts/build_release.py` builds every board and writes the files to `dist/v<version>/`
   (`--environment <env>` for one board only).
 - Pushing a tag such as `v1.0` to GitHub builds them there as well and creates a draft release with them.
-- In the public repository the tag also builds the Docker image of the settings page
+- In the public repository the tag also builds the Docker image of the settings page and the script
   (`ghcr.io/gittegatt/inksights:1.0` and `:latest`).
 
 </details>
@@ -231,7 +250,8 @@ ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
 
 - Open the project folder, pick the environment of your board ([Boards](#boards)) and upload, e.g.
   `pio run -e esp32-c3-supermini -t upload`.
-- Port not found: SAMD21 press RESET twice quickly, ESP32 hold BOOT while plugging in.
+- Port not found: SAMD21 press RESET twice quickly (or the 1200 baud touch, see above), ESP32 hold BOOT while
+  plugging in.
 
 <details>
 <summary><b>With the Arduino IDE</b></summary>
@@ -282,13 +302,13 @@ Waiting for data from system ...
 ## 3. Set up on the system
 
 The menu paths below are from **TrueNAS SCALE 25.10**. Other systems name them differently; the steps are the
-same: create a folder, start the Docker app, run the script as root.
+same: create a folder, start the Docker app (settings page and script).
 
 The examples use this layout. Adjust the paths to your system:
 
 | What | Where |
 |---|---|
-| Project (from GitHub) | `/home/truenas_admin/inksights/` (script: `server/inksights.sh`) |
+| Project (from GitHub) | `/home/truenas_admin/inksights/` (`server/docker/docker-compose.yaml`) |
 | Docker stack | `/mnt/apps/docker/stacks/inksights/` |
 | Data folder (settings, state) | `/mnt/apps/docker/data/inksights/` |
 
@@ -302,15 +322,15 @@ As your normal user (e.g. `truenas_admin`), one of these:
 git clone https://github.com/Gittegatt/InkSights.git /home/truenas_admin/inksights
 ```
 
-**Without git, with curl** (only the two files the system needs, same folders; the settings page comes as a
-ready-made Docker image):
+**Without git, with curl** (only the file the system needs, same folders; settings page and script come as a
+ready-made Docker image; the script itself only for [running it without Docker](#d-the-script)):
 
 ```
 B=https://raw.githubusercontent.com/Gittegatt/InkSights/main/server
 mkdir -p /home/truenas_admin/inksights/server/docker
 cd /home/truenas_admin/inksights/server
-curl -fsSLO "$B/inksights.sh"
 curl -fsSL -o docker/docker-compose.yaml "$B/docker/docker-compose.yaml"
+curl -fsSLO "$B/inksights.sh"        # only without Docker for the script
 ```
 
 **Or as a ZIP:** on GitHub *Code → Download ZIP*, unpack it and copy its content to
@@ -349,10 +369,13 @@ sudo -u apps touch /mnt/apps/docker/data/inksights/.test && echo "app user can w
   *Datasets* → the dataset → *Permissions* → *Edit*, owner user and group `apps`, tick *Apply recursively*, save.
 - Other systems: use a user that owns the folder and set it with `PUID`/`PGID` (see c).
 
-### c) Start the settings page as a Docker app
+### c) Start the settings page and the script as a Docker app
 
-The settings page comes as a ready-made image, `ghcr.io/gittegatt/inksights` (for x86 and ARM), with the app and
-all files of the page in it: nothing to copy.
+Settings page and script come as one ready-made image, `ghcr.io/gittegatt/inksights` (for x86 and ARM): nothing to
+copy. The stack starts two containers from it:
+
+- **`inksights`**: the settings page, without any rights on the system.
+- **`inksights-script`**: the script, as root with access to the system (see [d)](#d-the-script)), no port.
 
 `docker-compose.yaml` contains no system-specific paths. Its settings come from a `.env` file next to it:
 
@@ -363,6 +386,10 @@ all files of the page in it: nothing to copy.
 | `PUID` / `PGID` | user/group the container runs as, needs write access to `DATA_DIR` | `568` (TrueNAS apps user) |
 | `RUN_DIR` | run folder of the script (in memory, frames for WiFi displays), read-only for the app | `/var/run/inksights` |
 | `INKSIGHTS_TAG` | version of the image, e.g. `1.0` to keep exactly that one | `latest` |
+| `OTA` | firmware updates of the WiFi boards from the settings page: `on` or `off` (see [Security](#security)) | `on` |
+| `LOGIN_USER` | user name of the settings page | `inksights` |
+| `LOGIN_PASSWORD` | password of the settings page; change it here or later on the page (a `$` in it is written `$$`) | `ink!1234` |
+| `SCRIPT_OPTIONS` | more options for the script, e.g. `-x sdz` (see `inksights.sh -h`) | none |
 
 ```
 sudo mkdir -p /mnt/apps/docker/stacks/inksights
@@ -376,8 +403,9 @@ cd /mnt/apps/docker/stacks/inksights && sudo docker compose up -d
 - **With your stack manager:** most of them read the `.env` file or have a field for these values.
 - **With the TrueNAS app list:** *Apps → Discover Apps* → three dots at the top right → **Install via YAML**, name
   `inksights` (app names must be lowercase), paste the content of `docker-compose.yaml`. There is no `.env` file
-  there, so replace `${DATA_DIR:-./data}` with the full path of the data folder (`${RUN_DIR:-/var/run/inksights}`
-  can stay as it is).
+  there, so replace `${DATA_DIR:-./data}` (twice, once per container) with the full path of the data folder and
+  `${LOGIN_PASSWORD:-ink!1234}` with your own password (`${RUN_DIR:-/var/run/inksights}` and the others can stay
+  as they are).
 - **Without internet access on the system**, or to try changes of your own: build the image from the project
   folder and use it with `INKSIGHTS_TAG=local` in the `.env` file:
 
@@ -387,16 +415,40 @@ cd /mnt/apps/docker/stacks/inksights && sudo docker compose up -d
 
 **Then:**
 
-- The page is reachable at **http://&lt;server&gt;:8099**.
+- The page is reachable at **http://&lt;server&gt;:8099**, or at the port set with `PORT` (then also give the boards
+  with WiFi that port in the address of the settings page, e.g. `http://192.168.1.10:8100`).
+- Do not open this port on your router (no port forwarding): the page belongs in your own network only.
+- The browser asks for a user name and password: `inksights` / `ink!1234` until you set your own with `LOGIN_USER`
+  and `LOGIN_PASSWORD`, or later in the **Login** card at the bottom of the page. As long as the default is in use,
+  the page says so at the top.
 - On its first start the app creates the settings file `inksights.conf` in the data folder, with the defaults. An
   existing one is never overwritten.
 - If the app cannot write to the data folder, the settings page says so at the top.
 - If it does not start, look at its messages: `sudo docker logs --tail 20 inksights` (*Permission denied* = see
-  "Check the app user" in b).
+  "Check the app user" in b). The script: `sudo docker logs --tail 20 inksights-script`.
 
-### d) Run the script regularly (as root)
+### d) The script
 
-The script runs once and exits. Start it again and again, either as a loop in tmux or as a cron job.
+The script collects the data and sends every display its frame. It runs in the second container of the stack,
+**`inksights-script`**, started together with the settings page in c): nothing more to set up.
+
+- Check it with `sudo docker logs -f inksights-script` (leave with Ctrl+C): `Loop started`, then a line now and
+  then (a display connected, a problem).
+- It runs as root with full access to the system (see [Security](#security)): it needs the USB ports of the
+  boards, the drives, the pools and the network interfaces. It uses the tools of the system itself (`bash`,
+  `lsblk`, `zpool`, `df`, ...), exactly as if it was started there, so it never wakes hard disks either.
+- More options for the script (e.g. `-x sdz` to never show a disk): `SCRIPT_OPTIONS` in the `.env` file, then
+  `sudo docker compose up -d`.
+- **Run it only in this container.** If you started it with tmux or cron before, remove that (Init/Shutdown Script
+  or Cron Job, then `sudo tmux kill-session -t inksights`). A second loop waits until the first one stops, so the
+  displays do not get every frame twice.
+
+<details>
+<summary><b>Without Docker: tmux or cron</b></summary>
+
+Without the container (e.g. a system without Docker, or to try changes to the script): get the script as in
+[3 a)](#a-get-the-files) and leave the service `inksights-script` out of `docker-compose.yaml`. The script runs
+once and exits. Start it again and again, either as a loop in tmux or as a cron job.
 
 > [!IMPORTANT]
 > Use only one of the two.
@@ -415,9 +467,8 @@ tmux has-session -t inksights 2>/dev/null || tmux new-session -d -s inksights "/
 ```
 
 - Post Init scripts run as root. To start it now without a reboot, run the same line in a root shell (`sudo -i`).
-- Check with `tmux ls` as root.
-- If you used an older line (with `while true; ... sleep 10` or `| tee -a …`), stop it first
-  (`tmux kill-session -t inksights`) and use this one.
+- Check with `tmux ls` as root; the output shows in the session (`sudo tmux attach -t inksights`, leave with
+  Ctrl+B, then D).
 
 **Option 2: cron job.** TrueNAS: *System → Advanced Settings → Cron Jobs → Add*
 
@@ -432,9 +483,14 @@ Other systems: the same line with `* * * * *` in root's crontab (`sudo crontab -
 > **The data folder after `-d` must be the one from b).** Otherwise the log says `Data folder … not found`: the
 > displays still get data, but without your settings, and the settings page stays empty.
 
+Dry run: `sudo bash /home/truenas_admin/inksights/server/inksights.sh -d /mnt/apps/docker/data/inksights -n`
+
+</details>
+
 **What the script does:**
 
-- It almost always does nothing and exits right away.
+- Every 10 seconds (every second with fast refresh) it checks whether there is anything to do; almost always
+  there is nothing.
 - A **full update** (drives, pools, system values, the settings page) happens:
   - as often as the shortest **Refresh** of your displays (one under a minute counts as 1 minute)
   - after saving on the settings page
@@ -449,10 +505,10 @@ Other systems: the same line with `* * * * *` in root's crontab (`sudo crontab -
 
 - In memory at `/var/run/inksights/inksights.log`, the last 2000 lines, gone after a reboot:
   `sudo tail -f /var/run/inksights/inksights.log`
-- With the loop it also shows in the tmux session (`sudo tmux attach -t inksights`, leave with Ctrl+B, then D).
+- Also in `sudo docker logs inksights-script`.
 
 **Dry run** (prints what every display would get, sends nothing):
-`sudo bash /home/truenas_admin/inksights/server/inksights.sh -d /mnt/apps/docker/data/inksights -n`
+`sudo docker exec inksights-script /app/script-entry.sh -n`
 
 <details>
 <summary><b>Files in memory</b></summary>
@@ -467,7 +523,7 @@ In `/var/run/inksights/`, gone after a reboot:
 | `disks.cache`, `fast` | data for the fast runs in between |
 | `frames/` | the frames of the WiFi displays, read by the settings page |
 | `live/` | for a USB display with fast refresh: a copy of its frame (without WiFi settings), for the live preview |
-| `stamp`, `lock` | when the last full update ran; only one run at a time |
+| `stamp`, `lock`, `loop.lock` | when the last full update ran; only one run and one loop at a time |
 
 Displays on USB get their frame directly.
 
@@ -542,7 +598,7 @@ Open **http://&lt;server&gt;:8099**.
 
 - Every display appears with a live preview of what it will show.
 - Below it its own foldable cards: **Display**, **Header**, **Time**, **System**, **Drives**, **Network**, (boards
-  with WiFi) **WiFi**, **The Conversation**, **The Intermission** and **Advanced Ink**.
+  with WiFi) **WiFi**, **The Conversation**, **The Intermission**, **The Afterhours** and **Advanced Ink**.
 - Change settings, *Save*, and the system applies them within a minute.
 - The page itself shows no explanations, to keep it tidy; they are here.
 - Which cards are folded is remembered per browser.
@@ -560,7 +616,7 @@ Open **http://&lt;server&gt;:8099**.
 | Drives | every drive type, the used capacity in the bar, no temperatures, no spindown timer (ring, counterclockwise when switched on), highlight from 85 % |
 | Network | symbols, the percentage in the bar |
 | WiFi | symbols, setup access point on after 30 s |
-| The Conversation, The Intermission, The Afterhours | header, caption, in the page turn, On cue on, no time window; Sobriety on |
+| The Conversation, The Intermission, The Afterhours | header, caption, in the page turn, On cue on, no time window; Beverages Roast |
 
 **Order of the pages:**
 
@@ -581,7 +637,7 @@ Open **http://&lt;server&gt;:8099**.
   - **Download** opens the release page
   - **Mute** hides it until the page is opened again
   - **Skip version** hides it until a newer version is released
-- **Versions** (only in the simulator so far): below the status line the versions of the WebUI, the script and the
+- **Versions:** below the status line the versions of the WebUI, the script and the
   firmware on each controller. The WebUI sets the version; for every part that does not match it a notice says what
   to update, with **Latest release** (the release page on GitHub).
 
@@ -592,8 +648,9 @@ Open **http://&lt;server&gt;:8099**.
   3 minutes
 - a line with ID, port, board, firmware and the display's last answer
 
-**At the bottom of the page** (only in the simulator so far): the **About** card with the versions, links to the
-project (GitHub, Releases, README), the license with the libraries used, and how to support the project.
+**At the bottom of the page:** the **Login** card (a new password for the page, see [Security](#security)) and the
+**About** card with the versions, links to the project (GitHub, Releases, README), the license with the libraries
+used, and how to support the project.
 
 **Backup** (in the Advanced Ink card of each display):
 
@@ -615,24 +672,22 @@ project (GitHub, Releases, README), the license with the libraries used, and how
 |---|---|---|
 | **Display name** | up to 32 characters | Name of the display on this page (card heading). Empty = the title, else "Display <ID>". |
 | **Instance name** | up to 32 characters | One setting for the whole page: name in the page header and browser tab (empty = InkSights). |
-| **Time format** | 24h, 12h | The time in the top line and on the time page. |
-| **Live display** | tick | The preview shows what the panel shows (off by default, remembered in this browser). |
 | **Panel** | the panel types ([Panels](#panels)) | By the name on the flat cable; next to it the board. |
 | **Rotation** | 0°, 90°, 180°, 270° | Clockwise. 90° and 270° stand the display upright. |
 | **Rows per page** | Auto, 2-5 (6 on the 4.2″) | More rows fit more disks per page. Fewer rows: bigger bar, symbols and timer. |
-| **Auto page turn** | HH:MM:SS | 00:00:00 = always page 1. |
 | **Refresh** | 1, 3, 5, 10, 15, 30 min, 1, 1.5, 2, 3, 4 h; black/white panels also 2, 5, 10, 30 s | How often this display gets fresh values (default 10 min). |
+| **Auto page turn** | HH:MM:SS | 00:00:00 = always page 1. |
+| **Preview** | tick **Sync with display** | The preview shows what the panel shows (off by default, remembered in this browser). |
 | **Display pins** | CS, D/C, Reset, Busy | Only the pins the board allows; Reset and Busy can be None. |
-| **Remove settings** | - | Only for displays that are not connected: forget their settings. |
 
 - **Instance name:** shown in every card. The name on the display's start screen is `PRODUCT_NAME` at the top of
   the `.ino`.
-- **Time format** with 12h: **AM/PM** On shows `1:37PM` (top line) and `1:37 PM` (time page), Off only `1:37`.
-- **Live display:** the preview follows the rules of the firmware: new values and the next page only when the board
+- **Sync with display:** the preview follows the rules of the firmware: new values and the next page only when the board
   may redraw (colour panels at most every 3 minutes, fast refresh as often as set), the first data and **Redraw
   now** at once. In between it keeps the old picture, like the panel. Below the preview: `Live`, the page and when
-  it was drawn; the page buttons are off then. The page cannot see the panel itself, so the board can be a few
-  seconds apart.
+  it was drawn; the page buttons are off then. The board reports which page its panel shows, when it last redrew
+  and when the next page is due (over WiFi with every fetch, over USB with every update), and the preview takes
+  that over, so it stays in step with the panel.
 - **Panel:** the board saves it and restarts with it (over USB with the next update, over WiFi with its next fetch).
   Preview, rows and fast refresh follow it.
 - **Rotation** upright: device and used/total in the first line, the pool in its own line.
@@ -643,7 +698,7 @@ project (GitHub, Releases, README), the license with the libraries used, and how
     possible.
   - **Seconds** = fast refresh, only black/white panels: the display gets a new frame this often and redraws the
     changed parts without flashing. A full refresh on page turns and every 10 minutes against ghosting.
-  - Seconds need the loop (`-l`).
+  - Seconds need the loop: the Docker app runs it; without Docker the tmux line with `-l` (see [3 d)](#d-the-script)).
   - The preview then follows the display just as often (live, the frame it was sent), except while settings are
     changed and not saved.
 - **Display pins:** the board stores new pins and restarts once.
@@ -723,9 +778,7 @@ highlight, Fill gaps); **Divider line**; the places (Left, Middle, Right).
 | **Color highlight** | on/off, from … % used | Bar and used/total are highlighted once a pool is this full. |
 | **Order and visibility by** | Pool, UID, Device, Custom (▲▼) | The tick next to each disk shows or hides it on this display. |
 
-- **Drive types:** the number of drives of each type is shown in brackets. With every page off the display shows
-  "Nothing to ink" with a small picture of three people sitting about (on colour panels the bottle on their table in
-  the third colour).
+- **Drive types:** the number of drives of each type is shown in brackets.
 - **Details** Capacity: the top right then shows only the total.
 - **Percentage:**
   - cut, not rounded, so 99.99% is never shown as 100%
@@ -778,13 +831,15 @@ The same goes for the network row of the system page. Virtual interfaces (Docker
 A page with the time in big, below it the weekday and the date (each when ticked); by default the first page.
 
 - **Ink** switches it on or off.
-- 12 or 24 hours: **Time format** in the Display card.
+- **Time format** applies to the whole display (the time in the top line, on the time page and in `Closed until`),
+  so it stays usable when the time page is off.
 
 <img align="top" src="examples/example_14_4-2_time_page.png" alt="Time page on a 4.2″ display: the time in big, weekday and date below, no top line" width="400">
 <img align="top" src="examples/example_15_2-13_time_page_12h.png" alt="Time page on a 2.13″ display in 12 hours with PM" width="400">
 
 | Setting | Options | Notes |
 |---|---|---|
+| **Time format** | 24h, 12h | 12h with **AM/PM** On or Off. |
 | **Time zone** | about 50 common zones | Only with NTP; summer time included. |
 | **Date format** | 26 Oct 2026, 2026-10-26, 10/26/2026, 26.10.2026 | Only with Date. |
 | **Show** | Date, Weekday, Header | Below the time the date and the weekday short (`Mon`). |
@@ -794,6 +849,8 @@ A page with the time in big, below it the weekday and the date (each when ticked
 | **Time frame** | tick | Only with **Color highlight**: a black outline around the digits of the time. |
 | **Just give me time** | tick | Only the time page on the display (off by default). |
 
+- **Time format** with 12h: **AM/PM** On shows `01:37PM` (top line) and `01:37 PM` (time page), Off only `01:37`;
+  the hour always has two digits.
 - **Header** (off by default): the time page with the top line; off, it has none (the other pages keep theirs). With
   **Just give me time** it decides whether the display has a top line at all.
 - **Just give me time:**
@@ -827,7 +884,8 @@ The WiFi page has three rows:
 - **IP:** the address
 - **Connected:** how long the board has been connected without a break
 
-The WiFi page is shown in the preview so far; the firmware does not draw it yet.
+Only boards with WiFi draw it. It is redrawn when one of the rows changes (black/white panels about every minute,
+colour panels at most every 3 minutes).
 
 <img src="examples/example_13_4-2_wifi_page.png" alt="WiFi page on a 4.2″ display: network, IP address and how long it has been connected" width="400">
 
@@ -845,16 +903,21 @@ Each picture has a card named after it, with the screen as this display shows it
 
 | Setting | Default | What it does |
 |---|---|---|
+| **Turn candidate** | on | The picture as a page of its own in the page turn, at the place of its card. |
 | **Header** | on | The top line above the picture. |
 | **Caption** | on | The text below the picture: `Nothing to ink`, `Check connection`, `Closed until 07:00`. |
-| **Turn candidate** | on | The picture as a page of its own in the page turn, at the place of its card. |
+| **Got the time?** | off | A wall clock showing the time now, in all three pictures at the same place (above the left chair of The Afterhours). |
 | **On cue** | on | The Conversation when every page is off, The Intermission when no fresh data come. Not on The Afterhours. |
 | **Scheduled**, **From**, **To** | off | In this time window only this picture shows, without page turns. It may go past midnight. |
 
 - **Several cases at once:** a time window comes first, then **On cue**, then the page turn.
 - **No overlaps:** the time windows of a display must not overlap; the page does not save them until they don't.
 - **The Afterhours:** in its time window the caption says `Closed until` and the end, in the time format of the
-  display (`07:00`, `7:00AM`). The time is never left out: where the line is too wide, the time goes to a second line.
+  display (`07:00`, `07:00AM`). The time is never left out: where the line is too wide, the time goes to a second line.
+- **Got the time?** (off by default, per picture): the wall clock goes on with the time, so the display redraws the
+  picture while it is shown: black/white panels every minute without flashing, colour panels as often as their
+  **Refresh** says (at least every 3 minutes, each time with the flashing full refresh). Leave it off to spare the
+  panel: then the picture stays as it is. The clock takes the time of the last data, counted on by the board.
 - **Fixed places:** every picture has its fixed place on a display, the same with or without top line or caption,
   and all captions start on the same line below it. On every 2.13″ the captions are 5x7, on the 4.2″ three times
   that.
@@ -870,9 +933,12 @@ Each picture has a card named after it, with the screen as this display shows it
 Framed sections:
 
 - In one row: **Screens** (whether the display shows its start screen after power-up, ticked by default), **Bar
-  behaviour** (**Auto collapse**) and **Pictures** (**Sobriety**, see [Sobriety mode](#sobriety-mode)).
-- **OTA Update** (in the simulator so far): new firmware over WiFi, see below.
+  behaviour** (**Auto collapse**) and **Beverages** (see [Beverages](#beverages)).
+- **OTA Update:** new firmware over WiFi, see below.
 - **Backup** of the display's settings (see [5. The settings page](#5-the-settings-page)).
+- **Remove** (beside Backup, only for a display that is not connected): **Remove display** takes it and its settings off the page
+  (with *Save*), e.g. an old display that is no longer plugged in. When it is connected again, it shows up again,
+  with the settings of a new display.
 - **Frame** (folded, at the end): what the display receives, over USB or WiFi.
 
 | Setting | Off means |
@@ -885,31 +951,48 @@ Framed sections:
   (once NTP has the time).
 - **Auto collapse** is remembered in this browser (not in the backup), no need to save.
 
-**OTA Update** (boards with WiFi; in the simulator so far):
+**OTA Update** (boards with WiFi that fetch their data over WiFi):
 
-- At the top: **Firmware up to date.**, or **New firmware available!** in green. Only then a second line says why it
-  cannot be flashed from here, if so (e.g. `Seeed XIAO SAMD21 has no WiFi: update it over USB.`).
+- **OTA** On / Off: Off = no firmware updates of this display from the page (saved with *Save*, so only someone with
+  the login can switch it on again). On by default.
+- Right of **Update firmware**: **Firmware up to date.**, or **New firmware available!** in green. Only then a line
+  below says why it cannot be flashed from here, if so (e.g. `Seeed XIAO SAMD21 has no WiFi: update it over USB.`).
+- OTA only means updates over WiFi. Flashing over USB (see [2.](#2-upload-the-firmware)) is not affected by it.
 - **Update firmware** flashes the firmware the settings page brings with it, the same version as the page. The board
   fetches it within 30 seconds, checks it, flashes it and restarts; when anything goes wrong it keeps the old one.
   The button only works when the firmware fits this board and the board is on the WiFi.
 - **Manual update:** **Choose file** takes a firmware file from your computer, the release file
   (`inksights-v<version>-<board>-factory.bin`) or the `firmware.bin` of a build. The page checks it first: an
-  ESP32 firmware for this chip and this board, small enough for its firmware slot. **Firmware valid.** in green,
-  then **Upload** flashes it.
+  ESP32 firmware for this chip and this board, small enough for its firmware slot. The result stands below the buttons:
+  **Firmware valid.** in green, then **Upload** flashes it.
+- While it runs, the frame shows `Waiting for the board`, then `Loading firmware … %`, then `Updated` or `Update
+  failed` with the reason. The board checks size and checksum before it switches; the old firmware stays when the
+  download breaks off.
+- The Docker image carries the firmware of every board with WiFi (built with the image). Running the settings page
+  from a folder of the repository it carries none: then only **Manual update** works.
+- With `OTA=off` in the Docker settings the frame only says **Switched off on the server.** and nothing can be
+  flashed from the page (see [Security](#security)).
 
-### Sobriety mode
+### Beverages
 
-In the [Advanced Ink card](#advanced-ink-card), frame **Pictures**, tick **Sobriety** (ticked by default).
+In the [Advanced Ink card](#advanced-ink-card), frame **Beverages**: what stands on the table of The Conversation,
+The Intermission and The Afterhours.
 
-**Sobriety** draws The Conversation, The Intermission and The Afterhours without the wine bottle and the glass.
+| Choice | On the table |
+|---|---|
+| **House Wine** | the wine bottle and the glass |
+| **Roast** (default) | a coffee cup |
+| **Tabula Rasa** | nothing: no bottle, no glass, no cup |
 
-This mode matters, and it is a matter of **respect**. A display often stands at work, in a shared room, in a school,
-or in front of people who do not drink, who stopped drinking, or who simply do not want to be reminded of it. A wine
-bottle does not belong on every desk. InkSights respects that and takes it into account from the start: the pictures
-come without the bottle by default, and only show it when you untick **Sobriety**.
+A display often stands at work, in a shared room, in a school, or in front of people who do not drink, who stopped
+drinking, or who simply do not want to be reminded of it. InkSights respects that and takes it into account from
+the start: the pictures come with a coffee cup by default, show the bottle only when you choose **House Wine**, and
+**Tabula Rasa** leaves the table empty.
 
-- It applies per display, to all three pictures, also to their previews in the cards.
-- In The Conversation the foot of the bottle stays as part of the table edge, so the table has no gap.
+**Roast:** the cup stands at the right edge of the table, in The Afterhours on the table between the chairs and
+without steam (a cold cup left at closing time). It is the same cup in every picture, in the third colour on colour
+panels, black on black/white panels; on the 4.2″ in 2 x 2 pixels. The choice applies per display, to all three
+pictures, also to their previews in the cards.
 
 ### Simulator
 
@@ -944,10 +1027,6 @@ The **Value simulation** card below the displays has these frames:
 Also in the simulator:
 
 - The simulated interfaces cover every case: wired, no cable, switched off, a bridge and WiFi.
-- The panel choices also hold the colour panels with yellow instead of red (preview only so far).
-- At the bottom of the page the card **About** shows the versions, links to the project, the license with the
-  libraries used, and how to support the project.
-- The version check and the About card are only in the simulator so far.
 - The Value simulation card folds (the triangle next to its heading).
 - The **USB** card at the bottom is the [USB setup](#usb-setup), plus **Send to display**: it sends what a simulated
   display gets to the real board, so the display shows it right away (without "NO DATA" later, as the simulated time
@@ -956,21 +1035,21 @@ Also in the simulator:
 ## Update
 
 ```
-cd /home/truenas_admin/inksights && git pull                                    # script; with curl / ZIP: get the files again as in 3 a)
-cd /mnt/apps/docker/stacks/inksights && sudo docker compose pull && sudo docker compose up -d   # settings page
-sudo tmux kill-session -t inksights                                              # script: stop it ...
+cd /mnt/apps/docker/stacks/inksights && sudo docker compose pull && sudo docker compose up -d   # settings page and script
 ```
 
-1. Start the script again with the line from [3 d)](#d-run-the-script-regularly-as-root) (with cron there is nothing
-   to do).
-2. Reload the settings page in the browser (Ctrl+F5).
+1. Reload the settings page in the browser (Ctrl+F5).
+2. Script without Docker: `git pull` in `/home/truenas_admin/inksights` (with curl / ZIP: get the files again as in
+   3 a)), then `sudo tmux kill-session -t inksights` and start it again with the line from
+   [3 d)](#d-the-script) (with cron there is nothing to do).
 3. New firmware: upload it as in [2.](#2-upload-the-firmware). The settings stay (on the SAMD21 the system sends
    pins and panel type again). Boards with WiFi will also take it over WiFi from the
-   [Advanced Ink card](#advanced-ink-card) (in the simulator so far).
+   [Advanced Ink card](#advanced-ink-card).
 
 Good to know:
 
-- The settings page sets the version: script and firmware belong to the same one.
+- The settings page sets the version: script and firmware belong to the same one. In the Docker app the script
+  always has the version of the settings page.
 - With `INKSIGHTS_TAG` set to a version, set the new one in `.env` first.
 - With the TrueNAS app list, redeploy the app so it fetches the new image.
 - If `server/docker/docker-compose.yaml` changed, take the changes over into your stack and deploy it again.
@@ -1038,65 +1117,114 @@ SSD and NVMe temperatures do not need it.
 
 ## Good to know
 
-- **Does not wake disks.**
-  - The script only reads ZFS data from memory, `/proc`, `/sys`, filesystem usage (`df`) and the status file of the
-    spindown timer.
-  - It never queries the hard disks itself; SSDs only for their temperature.
-  - Hard disk temperatures come from the status file of drive-temp-export (see [HDD temperatures](#hdd-temperatures)).
-- **Usage = pool usage.** ZFS spreads data over all disks of a pool, so all disks of a pool show the same bar. The
-  same goes for one RAID or one btrfs filesystem over several disks.
-- **Disks outside ZFS** show the biggest filesystem mounted on them (or on their partitions, RAID or LVM), named after
-  its mount point (`/` = `root`). A disk with nothing mounted shows its size and "not mounted" instead of a bar.
+### Does not wake disks
 
-  <img src="examples/example_09_2-13_drives_page_without_zfs.png" alt="Drive page on a 2.13″ display of a server without ZFS: root, a disk not mounted, an XFS filesystem" width="400">
+- The script only reads ZFS data from memory, `/proc`, `/sys`, filesystem usage (`df`) and the status file of the
+  spindown timer.
+- It never queries the hard disks itself; SSDs only for their temperature.
+- Hard disk temperatures come from the status file of drive-temp-export (see [HDD temperatures](#hdd-temperatures)).
 
-- **Spares the panel.**
-  - A display does not redraw when nothing changed, and never more often than every 3 minutes.
-  - With several pages it turns one page per redraw.
-  - Only "Redraw now" skips both.
-  - A **Refresh** of 1 min gets changes there as fast as possible. With a refresh in seconds (black/white panels) it
-    redraws as often as set.
-- **NO DATA.** E-paper keeps its picture even without power, so a display that gets nothing any more would look the
-  same as one that works.
-  - After twice its **Refresh** plus 2 minutes without fresh data (at least 10 minutes; e.g. 22 minutes at
-    10 minutes, 8 hours 2 minutes at 4 hours), the display shows **The Intermission**; with its **Header** ticked
-    also **NO DATA** in the top line, where the page number or the uptime stands.
-  - In the middle **Check connection** below a picture of the empty table. It stops turning pages.
-  - The time at the top right stays: that is when the last data came.
-  - With the next fresh data the pages come back.
-  - Reasons: the board is unplugged or the system is off, the script or the settings page does not run, or a
-    WiFi board lost its WiFi.
+### Usage = pool usage
 
-  The pictures here without the top line (the default), on the right each without the bottle
-  ([Sobriety mode](#sobriety-mode), the default):
+ZFS spreads data over all disks of a pool, so all disks of a pool show the same bar. The same goes for one RAID or
+one btrfs filesystem over several disks.
 
-  <img align="top" src="examples/example_16_2-13_no_connection.png" alt="A yellow 2.13″ display without fresh data: Check connection below the empty table, the bottle in yellow" width="400"> <img align="top" src="examples/example_16_2-13_no_connection_sober.png" alt="The same without the bottle and the glass (Sobriety)" width="400">
+### Disks outside ZFS
 
-- **Nothing to ink.** With every page of a display switched off (no system, drive, network, time or WiFi page), it
-  shows **Nothing to ink** below a picture, so it never looks broken.
+Disks outside ZFS show the biggest filesystem mounted on them (or on their partitions, RAID or LVM), named after its
+mount point (`/` = `root`). A disk with nothing mounted shows its size and "not mounted" instead of a bar.
 
-  <img align="top" src="examples/example_17_4-2_nothing_to_ink.png" alt="A 4.2″ display with every page switched off: Nothing to ink below three people at a table" width="400"> <img align="top" src="examples/example_17_4-2_nothing_to_ink_sober.png" alt="The same without the bottle (Sobriety)" width="400">
+<img src="examples/example_09_2-13_drives_page_without_zfs.png" alt="Drive page on a 2.13″ display of a server without ZFS: root, a disk not mounted, an XFS filesystem" width="400">
 
-  With **The Conversation** with **On cue** off, the display shows the product name with its logo instead:
+### Spares the panel
 
-  <img src="examples/example_20_2-13_logo_screen.png" alt="A 2.13″ display with every page switched off: the InkSights logo" width="400">
+- A display does not redraw when nothing changed, and never more often than every 3 minutes.
+- With several pages it turns one page per redraw.
+- Only "Redraw now" skips both.
+- A **Refresh** of 1 min gets changes there as fast as possible. With a refresh in seconds (black/white panels) it
+  redraws as often as set.
 
-- **Quiet hours.** In the time window of **The Afterhours** (e.g. 23:00 to 07:00) the display shows only its
-  picture, the chairs up on the table, with **Closed until 07:00** below it (in the time format of the display), and
-  spares the panel: new data do not redraw it.
+### The Conversation
 
-  <img align="top" src="examples/example_21_2-13_closed.png" alt="A red 2.13″ display in its quiet hours: two chairs upside down on a table, the bottle in red, Closed until 07:00" width="400"> <img align="top" src="examples/example_21_2-13_closed_sober.png" alt="The same without the bottle (Sobriety)" width="400">
+With every page of a display switched off (no system, drive, network, time or WiFi page), it shows **Nothing to
+ink**, so it never looks broken.
 
-- **Refresh in seconds and minutes:** a display on seconds gets fresh system values and timers that often. Its
-  drives and pools come from the full updates, at least once a minute while such a display is there.
+The pictures of this part without the top line (the default), three per screen: **House Wine** (the bottle and the
+glass, no caption), **Roast** (a coffee cup, the default of [Beverages](#beverages), with its **Caption**) and
+**Tabula Rasa** (nothing on the table) with its **Caption** and **Got the time?** (a wall clock):
+
+<img align="top" src="examples/example_17_4-2_nothing_to_ink.png" alt="A 4.2″ display with every page switched off: three people at a table, the bottle and the glass (House Wine)" width="270"> <img align="top" src="examples/example_17_4-2_nothing_to_ink_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="270"> <img align="top" src="examples/example_17_4-2_nothing_to_ink_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="270">
+
+### The Intermission
+
+When a display gets no fresh data for a while, it shows **Check connection** below a picture of the empty table, and
+**NO DATA** in the top line (with its **Header** ticked). E-paper keeps its picture even without power, so a display
+that gets nothing any more would look the same as one that works.
+
+- **When:** after twice its **Refresh** plus 2 minutes without fresh data (at least 10 minutes; e.g. 22 minutes at
+  10 minutes, 8 hours 2 minutes at 4 hours).
+- **NO DATA** stands where the page number or the uptime stands. The display stops turning pages.
+- The time at the top right stays: that is when the last data came.
+- With the next fresh data the pages come back.
+- Reasons: the board is unplugged or the system is off, the script or the settings page does not run, or a WiFi
+  board lost its WiFi.
+
+<img align="top" src="examples/example_16_2-13_no_connection.png" alt="A red 2.13″ display without fresh data: the empty table, the bottle and the glass (House Wine)" width="270"> <img align="top" src="examples/example_16_2-13_no_connection_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="270"> <img align="top" src="examples/example_16_2-13_no_connection_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="270">
+
+### The Afterhours
+
+Tick **Scheduled** in the card **The Afterhours** and set **From** and **To** (e.g. 23:00 to 07:00). In that time
+the display shows only this picture, the chairs up on the table, with **Closed until 07:00** below it (in the time
+format of the display, with 12h `Closed until 07:00AM` as in the pictures), and spares the panel: new data do not
+redraw it. With **Roast** the cup stands between the chairs, without steam: a cold cup left at closing time.
+
+<img align="top" src="examples/example_21_2-13_closed.png" alt="A yellow 2.13″ display in its quiet hours: two chairs upside down on a table, the bottle and the glass (House Wine)" width="270"> <img align="top" src="examples/example_21_2-13_closed_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="270"> <img align="top" src="examples/example_21_2-13_closed_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="270">
+
+### InkSights
+
+With every page switched off and **The Conversation** with **On cue** off, the display shows the product name with
+its logo instead:
+
+<img src="examples/example_20_2-13_logo_screen.png" alt="A 2.13″ display with every page switched off: the InkSights logo" width="400">
+
+### Refresh in seconds and minutes
+
+A display on seconds gets fresh system values and timers that often. Its drives and pools come from the full
+updates, at least once a minute while such a display is there.
 
 ## Security
 
-- **The app is isolated.** It has no USB access and no rights on the system; it only shares the data folder with
-  the script.
+- **The settings page is isolated.** Its container has no USB access and no rights on the system; it only shares
+  the data folder with the script.
 - **The script checks its settings strictly** and never executes any of it.
-- **Anyone who can open the page on your network can change the display settings.** Nothing more. The same goes for
-  a board's own WiFi page.
+- **The settings page asks for a login** (user name and password, set in the Docker settings: `LOGIN_USER`,
+  `LOGIN_PASSWORD`; defaults `inksights` / `ink!1234`, change the password). The password can also be changed in
+  the **Login** card at the bottom of the page: the data folder then keeps it in `login.json` (only a salted hash,
+  never the password itself). The newer change wins: change `LOGIN_PASSWORD` in the Docker settings afterwards and
+  the one from the page is dropped at the next start. Whoever has the login can change the display settings and
+  update the firmware of the boards with WiFi (the page only takes ESP32 firmware files, and a board only takes one
+  that fits). Nothing more. A wrong password costs a second, so guessing is slow.
+- **Without a login** only what the boards need: their frame and their firmware update. A board's own WiFi page
+  (setup access point) has no login either.
+- **Forgot the password?** Set a new one in the `.env` file next to `docker-compose.yaml` (`LOGIN_PASSWORD=...`), or
+  delete the line to get the default `ink!1234` back, then `sudo docker compose up -d`. In the TrueNAS app list:
+  edit the app and change the value of `INKSIGHTS_PASSWORD`. This also drops a password set on the page. Was the
+  forgotten one set on the page and the Docker settings are still the same: delete `login.json` in the data folder
+  and restart the app (`sudo docker restart inksights`); the password of the Docker settings counts again. Only
+  someone with access to the server can do this.
+- **The login is sent unencrypted** (plain http, like most pages in a home network). Use it only in your own
+  network.
+- **Keep the page in your own network.** Do not open its port on your router (no port forwarding), and put guests
+  in a guest WiFi if your router has one. The port is set with `PORT` in the Docker settings
+  ([3 c)](#c-start-the-settings-page-and-the-script-as-a-docker-app)).
+- **The script container has full access to the system** (`privileged`, the processes of the system): it needs
+  the USB ports, drives, pools and network interfaces, as root, like a script started on the system. It has no
+  port and no network of its own, so it cannot be reached from outside. The settings page runs in its own
+  container without these rights: whoever gets into the page does not get into the system.
+- **Firmware updates can be switched off:** per display with **OTA** Off in its Advanced Ink card, or for all of them
+  with `OTA=off` in the `.env` file next to `docker-compose.yaml`, then
+  `sudo docker compose up -d`. The page then flashes nothing at all, and it cannot be switched on again from the
+  page, only in the Docker settings.
 - **WiFi passwords** stay in the settings file of the data folder (readable only for the app and root), are never
   shown on the page again and reach a board only over USB (see [4. WiFi](#4-wifi-optional)).
 - **Backup files hold no WiFi passwords.** They are plain text and easily end up in a download folder, a cloud or a
@@ -1108,15 +1236,18 @@ SSD and NVMe temperatures do not need it.
 |---|---|
 | Something does not work as expected | Look at the log: `sudo tail -n 50 /var/run/inksights/inksights.log` |
 | Picture shifted, cut off or just noise | The panel type does not match: choose the next type under **Panel** and save; the board restarts with it. |
-| Display does not appear on the settings page | Is the script running as root (`tmux ls`)? Is the board plugged in? A board with an old firmware shows up as "No answer with chip ID": upload the firmware again. |
-| **NO DATA** and "Check connection" | The display got no fresh data for a while. Is the script running as root (`tmux ls`)? Is the board plugged in? WiFi boards: is the WiFi there, does the settings page run (`sudo docker ps`)? See "NO DATA" in [Good to know](#good-to-know). |
+| Display does not appear on the settings page | Is the script running (`sudo docker logs --tail 20 inksights-script`)? Is the board plugged in? A board with an old firmware shows up as "No answer with chip ID": upload the firmware again. |
+| **NO DATA** and "Check connection" | The display got no fresh data for a while. Is the script running (`sudo docker ps`, `sudo docker logs --tail 20 inksights-script`)? Is the board plugged in? WiFi boards: is the WiFi there, does the settings page run (`sudo docker ps`)? See [The Intermission](#the-intermission) in Good to know. |
 | `--:--` (badge) or a circle with a dash (ring) | The spindown timer is not running, or its status file is older than two rounds. The symbol then shows the last known state. |
 | Setup page of the board does not open | Wait up to a minute after power-up, or open **http://192.168.4.1** yourself while connected to **InkSights**. |
-| Port not found when uploading | SAMD21: press RESET twice quickly. ESP32: hold BOOT while plugging in. |
+| Port not found when uploading | SAMD21: press RESET twice quickly, or the 1200 baud touch (see [2.](#2-upload-the-firmware)). ESP32: hold BOOT while plugging in. |
 | XIAO ESP32-C3 does not start with the display connected | Choose another pin than D9 for D/C on the settings page. |
 | Hard disks wake up | Data folder and Docker data must be on an SSD (see 3 b). |
+| Settings page asks for a login | `inksights` / `ink!1234`, or the user name and password set with `LOGIN_USER` / `LOGIN_PASSWORD`, or the password set in the Login card. Forgotten: see [Security](#security). |
 | Settings page does not start, or *Save* fails | Look at `sudo docker logs --tail 20 inksights`. *Permission denied*: the app user cannot use the data folder, see "Check the app user" in 3 b). |
-| Log says `Data folder … not found`, settings page shows old data | The script was started with another folder after `-d` than the data folder of the app. Fix the line in 3 d) and start it again. |
+| Log says `Data folder … not found`, settings page shows old data | Script without Docker: it was started with another folder after `-d` than the data folder of the app. Fix the line in 3 d) and start it again. |
+| `inksights-script` stops with *cannot reach the system* | The container needs `privileged: true` and `pid: host` (as in `docker-compose.yaml`). |
+| `inksights-script` stops with *the system has no /bin/bash* | The script needs bash on the system (TrueNAS, Debian, Proxmox and Unraid have it). |
 
 ## Protocol (for the curious)
 
@@ -1128,13 +1259,18 @@ PING                                   -> PONG InkSights id=1A2B3C4D size=212x10
 #BEGIN
 H|HDD|14:30|5|85|0|600
 D|sda|data|3.18T|8.95T|35|3|10|A
-#END                                   -> OK disks=1 page=1/1 refresh=now
+#END                                   -> OK disks=1 page=1/1 refresh=now shown=1 drawn=0 turn=-1
 ```
+
+**Answer:** `page=` the page after this frame, `refresh=` whether it redraws now, later (at most every 3 minutes) or
+not at all (nothing changed); `shown=` the page on the panel (0 = start screen), `drawn=` seconds since the last
+redraw, `turn=` seconds until the next page turn (-1 = none): for **Sync with display**. A WiFi board sends the answer and
+the panel status with its next fetch.
 
 **PONG:**
 
 - `colors=3` colour panel, `colors=2` black/white
-- `panel=` the panel type 1-5 (order of the [Panels](#panels) table)
+- `panel=` the panel type: 1-5 in the order of the [Panels](#panels) table, 6-8 the yellow versions of 1-3
 - a WiFi board also reports `net=sta|ap|off`, `ip=…` and its stored WiFi settings without the passwords: `ssid=`,
   `host=`, `server=`, `apssid=` (hex encoded, only when set), `ap=1|0`, `apdelay=`, `pass=1|0` (= a password is
   stored)
@@ -1143,7 +1279,7 @@ D|sda|data|3.18T|8.95T|35|3|10|A
 | Line | Fields | Notes |
 |---|---|---|
 | `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, the 24 optional fields below] | The settings of the screen. |
-| `A` | per picture C I A one hex digit (1 caption, 2 header, 4 in the page turn, 8 scheduled), Sobriety 1/0, card order (`SDNTW` and `CIA`), time windows `HHMM-HHMM,HHMM-HHMM,HHMM-HHMM` | The pictures; only when they differ from the defaults (`011`, 1, page order + `CIA`, `1800-1900,1200-1300,2300-0700`). |
+| `A` | per picture C I A one hex digit (1 caption, 2 header, 4 in the page turn, 8 scheduled), Beverages 0 House Wine / 1 Tabula Rasa / 2 Roast, card order (`SDNTW` and `CIA`), time windows `HHMM-HHMM,HHMM-HHMM,HHMM-HHMM` [, Got the time? per picture C I A `1`/`0`, the Refresh in seconds; missing = none] | The pictures; only when they differ from the defaults (`011`, 1, page order + `CIA`, `1800-1900,1200-1300,2300-0700`; a new display has Roast, so it gets this line). |
 | `D` | device, pool, used, total, percent, filled boxes, total boxes, state, seconds until spindown, timeout seconds [, °C] | One per drive. |
 | `S` | rows, CPU %, CPU °C, CPU W, RAM used MiB, ZFS cache MiB, RAM total MiB, interface, down KiB/s, up KiB/s, link Mb/s, NVMe °C,…, SSD °C,… | Only with the system page. |
 | `C` | local date and time `YYYYMMDDHHMMSS`, date 1/0, weekday 1/0, date format 0-3, NTP 1/0, NTP server, POSIX time zone [, time in the third colour 1/0, black outline 1/0] | Only with the time page. |
@@ -1152,6 +1288,7 @@ D|sda|data|3.18T|8.95T|35|3|10|A
 | `P` | CS, D/C, Reset, Busy [, panel] | Only when pins or the panel type are set on the settings page. |
 | `W` | network, password, host, settings page, access point 1/0, access point name, access point password, access point after (s) | USB only, boards with WiFi; texts hex encoded. |
 | `R` | - | Only after "Redraw now". |
+| `U` | size, MD5 | WiFi only: a firmware update waits. The board fetches it from the settings page, checks it and restarts with it; the result goes with its next fetch. |
 
 **Optional fields of the `H` line,** in this order (`H` itself is field 1):
 

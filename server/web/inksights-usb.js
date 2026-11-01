@@ -48,7 +48,7 @@
     const pins = (kv.pins || "").split(",").map(Number);
     return {
       id: m[1], size: [Number(m[2]), Number(m[3])], colors: kv.colors === "2" ? 2 : 3,
-      panel: /^[1-5]$/.test(kv.panel || "") ? Number(kv.panel) : 0,
+      panel: /^[1-8]$/.test(kv.panel || "") ? Number(kv.panel) : 0,
       pins: pins.length === 4 && pins.every(Number.isInteger) ? pins : null,
       board: UI.BOARDS[kv.board] ? kv.board : UI.DEFAULT_BOARD, fw: kv.fw || "", wifi: kv.wifi === "1",
       net: kv.net || "", ip: kv.ip || "",

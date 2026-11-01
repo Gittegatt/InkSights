@@ -7,6 +7,10 @@ XIAO SAMD21: a UF2 file for its USB drive (press RESET twice quickly, copy the f
 
 Output: dist/v<version>/inksights-v<version>-<env>-factory.bin, inksights-v<version>-xiao-samd21.uf2
 and SHA256SUMS.txt. The version is FW_VERSION in firmware/InkSights/InkSights.ino.
+
+With --ota-dir <folder> the application image of every ESP32 board is also copied there as <env>.bin
+with a manifest.json ({env: {version, size, sha256}}): the firmware the settings page carries for
+updates over WiFi (the Docker image takes server/web/fw).
 """
 
 from __future__ import annotations
@@ -141,6 +145,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--environment", action="append", choices=ALL_ENVIRONMENTS, dest="environments",
                         help="build only this board environment; may be given more than once")
     parser.add_argument("--skip-build", action="store_true", help="package the existing .pio build output")
+    parser.add_argument("--ota-dir", type=Path,
+                        help="also copy the ESP32 application images and a manifest.json there (updates over WiFi)")
     return parser.parse_args()
 
 
@@ -153,6 +159,9 @@ def main() -> int:
     release_dir = args.output_dir.resolve() / f"v{version}"
     release_dir.mkdir(parents=True, exist_ok=True)
     created: list[Path] = []
+    ota: dict[str, dict] = {}
+    if args.ota_dir:
+        args.ota_dir.mkdir(parents=True, exist_ok=True)
 
     for environment in environments:
         if pio:
@@ -168,12 +177,19 @@ def main() -> int:
         else:
             image = release_dir / f"{base_name}-factory.bin"
             merge_factory_image(flash_segments(build_dir), image)
+            if args.ota_dir:   # the application alone: what an update over WiFi writes into the firmware slot
+                app = args.ota_dir / f"{environment}.bin"
+                shutil.copyfile(firmware, app)
+                ota[environment] = {"version": version, "size": app.stat().st_size, "sha256": sha256(app)}
         created.append(image)
         print(f"Created {image.name}", flush=True)
 
     checksum_file = release_dir / "SHA256SUMS.txt"
     checksum_file.write_text("".join(f"{sha256(path)}  {path.name}\n" for path in sorted(created)),
                              encoding="utf-8", newline="\n")
+    if args.ota_dir:
+        (args.ota_dir / "manifest.json").write_text(json.dumps(ota, indent=2) + "\n", encoding="utf-8", newline="\n")
+        print(f"Firmware for updates over WiFi: {args.ota_dir} ({len(ota)} boards)")
     print(f"\nRelease files: {release_dir}")
     print(f"Created {len(created)} images and {checksum_file.name}")
     return 0
