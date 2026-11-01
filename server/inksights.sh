@@ -1293,9 +1293,10 @@ build_frame() {
 }
 
 # Frame with the settings of display <id>; fastcap 1 = the panel can do fast refreshes;
-# devpins = the pins the display reports (sent along when only the panel type is set)
+# devpins = the pins the display reports (sent along when only the panel type is set);
+# haswifi 0 = a board without WiFi (it gets no WiFi page)
 frame_for() {
-    local id="$1" fastcap="$2" devpins="${3:-}" title="${CFG_NAME[$1]:-}" fast=0 types="${CFG_TYPES[$1]-$ALL_TYPES}" sysp="${CFG_SYS[$1]:-}"
+    local id="$1" fastcap="$2" devpins="${3:-}" haswifi="${4:-1}" title="${CFG_NAME[$1]:-}" fast=0 types="${CFG_TYPES[$1]-$ALL_TYPES}" sysp="${CFG_SYS[$1]:-}"
     local pages=",${CFG_PAGES[$1]:-system,disks},"
     # a display without settings yet: every page, the system page with all components (like a new
     # display on the settings page)
@@ -1323,7 +1324,7 @@ frame_for() {
     local clock=""
     [[ "$pages" == *,time,* ]] && clock="${CFG_CLOCK[$id]:-1|1|1|0|-|-|0|0}"   # time page switched on
     local wifip=0
-    [[ "$pages" == *,wifi,* ]] && wifip=$(( ${CFG_WIFIICONS[$id]:-1} == 0 ? 2 : 1 ))   # WiFi page: 1 with symbols, 2 without
+    [[ "$pages" == *,wifi,* && "$haswifi" == 1 ]] && wifip=$(( ${CFG_WIFIICONS[$id]:-1} == 0 ? 2 : 1 ))   # WiFi page: 1 with symbols, 2 without
     build_frame "${title:-$DEFAULT_TITLE}" "$types" "${CFG_BOXES[$id]:-$DEFAULT_BOXES}" "${CFG_ROWS[$id]:-0}" \
         "${CFG_SORT[$id]:-pool}" "${CFG_ORDER[$id]:-}" "${CFG_WARN[$id]:-$DEFAULT_WARN}" "${CFG_ROT[$id]:-0}" \
         "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-1,1,1,1,1,1}" "${CFG_HIDDEN[$id]:-}" \
@@ -1410,7 +1411,7 @@ update_display() {
         return 1
     fi
 
-    frame_for "$id" "$fastcap" "$devpins"
+    frame_for "$id" "$fastcap" "$devpins" "$wifi"   # a board without WiFi gets no WiFi page
     local live=("${FRAME[@]}")   # for the live preview: without "R" and WiFi settings
     # "Redraw now" for this display: R just before #END
     [[ -n "${REDRAW[$id]:-}" ]] && FRAME=("${FRAME[@]:0:${#FRAME[@]}-1}" "R" "#END")

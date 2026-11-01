@@ -671,6 +671,8 @@ used, and how to support the project.
 
 ### Display card
 
+The display itself: its names, panel type, rotation, rows per page, refresh, page turn, preview and pins.
+
 | Setting | Options | Notes |
 |---|---|---|
 | **Display name** | up to 32 characters | Name of the display on this page (card heading). Empty = the title, else "Display <ID>". |
@@ -711,6 +713,8 @@ used, and how to support the project.
 The top line of the display. Its settings stand in four frames: **Title**; the colours (Invert colors, Color
 highlight, Fill gaps); **Divider line**; the places (Left, Middle, Right).
 
+<img src="examples/example_03_2-13_system_page_inverted.png" alt="System page on a 2.13″ black/white display with a white top line (Invert colors)" width="400">
+
 | Setting | Options | Notes |
 |---|---|---|
 | **Ink** | tick | Shows the top line or not; its settings stay. |
@@ -746,9 +750,10 @@ highlight, Fill gaps); **Divider line**; the places (Left, Middle, Right).
 - **NO DATA** (see [Good to know](#good-to-know)) stands in the place of Pages, else of Uptime, else in a free place.
 - The time page has no top line unless the Time card's **Header** is ticked.
 
-<img src="examples/example_03_2-13_system_page_inverted.png" alt="System page on a 2.13″ black/white display with a white top line (Invert colors)" width="400">
-
 ### System card
+
+One extra page with the values of the system: CPU, RAM, network and drive temperatures (see
+[System page](#system-page)).
 
 | Setting | Options | Notes |
 |---|---|---|
@@ -764,6 +769,13 @@ highlight, Fill gaps); **Divider line**; the places (Left, Middle, Right).
 - **HDD asleep** is the same setting as **Asleep** in the Drives card.
 
 ### Drives card
+
+Pages with one row per drive: symbol, device, pool, used/total and the bar, optionally the temperature and the
+spindown timer (see [What a display shows](#what-a-display-shows)).
+
+<img align="top" src="examples/example_04_2-13_drives_page_highlight.png" alt="Drive page on a 2.13″ display with three rows: the pool above 85 % in red, percentages with two decimals, spindown badges" width="400"> <img align="top" src="examples/example_05_2-13_drives_page_rings.png" alt="Drive page on a 2.13″ black/white display with four rows and the spindown timer as rings" width="400">
+
+<img align="top" src="examples/example_08_4-2_drives_page_three_rows.png" alt="Drive page on a 4.2″ display with three big rows" width="400">
 
 | Setting | Options | Notes |
 |---|---|---|
@@ -796,16 +808,12 @@ highlight, Fill gaps); **Divider line**; the places (Left, Middle, Right).
 - **Order:** names like sda can change after a reboot, so Pool, UID and Custom use the serial number (UID); Device
   orders by name.
 
-<img align="top" src="examples/example_04_2-13_drives_page_highlight.png" alt="Drive page on a 2.13″ display with three rows: the pool above 85 % in red, percentages with two decimals, spindown badges" width="400"> <img align="top" src="examples/example_05_2-13_drives_page_rings.png" alt="Drive page on a 2.13″ black/white display with four rows and the spindown timer as rings" width="400">
-
-<img align="top" src="examples/example_08_4-2_drives_page_three_rows.png" alt="Drive page on a 4.2″ display with three big rows" width="400">
-
 ### Network card
-
-<img align="top" src="examples/example_11_4-2_network_page.png" alt="Network page on a 4.2″ display: download, upload and link speed per interface" width="400"> <img align="top" src="examples/example_12_4-2_network_page_percentage.png" alt="Network page on a 4.2″ display without symbols: how busy each link is in percent" width="400">
 
 Pages with one row per network interface (by default after the drive pages), as many rows per page as the drive
 pages.
+
+<img align="top" src="examples/example_11_4-2_network_page.png" alt="Network page on a 4.2″ display: download, upload and link speed per interface" width="400"> <img align="top" src="examples/example_12_4-2_network_page_percentage.png" alt="Network page on a 4.2″ display without symbols: how busy each link is in percent" width="400">
 
 | Setting | Options | Notes |
 |---|---|---|
@@ -832,14 +840,11 @@ The same goes for the network row of the system page. Virtual interfaces (Docker
 
 A page with the time in big, below it the weekday and the date (each when ticked); by default the first page.
 
-- **Ink** switches it on or off.
-- **Time format** applies to the whole display (the time in the top line, on the time page and in `Closed until`),
-  so it stays usable when the time page is off.
-
 <img align="top" src="examples/example_14_4-2_time_page.png" alt="Time page on a 4.2″ display: the time in big, weekday and date below, no top line" width="400"> <img align="top" src="examples/example_15_2-13_time_page_12h.png" alt="Time page on a 2.13″ display in 12 hours with PM" width="400">
 
 | Setting | Options | Notes |
 |---|---|---|
+| **Ink** | tick | Shows the time page or not; its settings stay. |
 | **Time format** | 24h, 12h | 12h with **AM/PM** On or Off. |
 | **Time zone** | about 50 common zones | Only with NTP; summer time included. |
 | **Date format** | 26 Oct 2026, 2026-10-26, 10/26/2026, 26.10.2026 | Only with Date. |
@@ -850,6 +855,8 @@ A page with the time in big, below it the weekday and the date (each when ticked
 | **Time frame** | tick | Only with **Color highlight**: a black outline around the digits of the time. |
 | **Just give me time** | tick | Only the time page on the display (off by default). |
 
+- **Time format** applies to the whole display (the time in the top line, on the time page and in `Closed until`),
+  so it stays usable when the time page is off.
 - **Time format** with 12h: **AM/PM** On shows `01:37PM` (top line) and `01:37 PM` (time page), Off only `01:37`;
   the hour always has two digits.
 - **Header** (off by default): the time page with the top line; off, it has none (the other pages keep theirs). With
@@ -871,8 +878,10 @@ A page with the time in big, below it the weekday and the date (each when ticked
 
 ### WiFi card
 
-Boards with WiFi only: network, password, settings page, host name, setup access point on/off, failover access point after
-(s), access point name and password. See [4. WiFi](#4-wifi-optional).
+Boards with WiFi only: network, password, settings page, host name, setup access point on/off, failover access
+point after (s), access point name and password. See [4. WiFi](#4-wifi-optional).
+
+<img src="examples/example_13_4-2_wifi_page.png" alt="WiFi page on a 4.2″ display: network, IP address and how long it has been connected" width="400">
 
 | Setting | Options | Notes |
 |---|---|---|
@@ -887,8 +896,6 @@ The WiFi page has three rows:
 
 Only boards with WiFi draw it. It is redrawn when one of the rows changes (black/white panels about every minute,
 colour panels at most every 3 minutes).
-
-<img src="examples/example_13_4-2_wifi_page.png" alt="WiFi page on a 4.2″ display: network, IP address and how long it has been connected" width="400">
 
 ### The Conversation, The Intermission and The Afterhours cards
 
@@ -997,10 +1004,10 @@ pictures, also to their previews in the cards.
 
 ### Simulator
 
-<img src="examples/example_19_simulator.png" alt="The Value simulation card of the simulator: data source, displays, system values and the disk list" width="70%">
-
 `simulator/simulator.html` opens in any browser straight from the folder. It is the same settings page with
 simulated data. Nothing is sent anywhere, except to a board on USB.
+
+<img src="examples/example_19_simulator.png" alt="The Value simulation card of the simulator: data source, displays, system values and the disk list" width="70%">
 
 The **Value simulation** card below the displays has these frames:
 
