@@ -7,9 +7,9 @@
 #   RUN_DIR        run folder of inksights.sh, in memory (frames of the WiFi displays) (default: /var/run/inksights)
 #   INKSIGHTS_TAG  version of the image, e.g. 1.0                                  (default: latest)
 #   OTA            firmware updates of the WiFi boards from the page: on / off     (default: on)
-#   LOGIN_USER     user name of the settings page                                  (default: inksights)
-#   LOGIN_PASSWORD password of the settings page                                   (default: ink!1234; change it)
-#                  a "$" in it is written "$$"
+#   LOGIN_USER     user name of the login of the settings page                     (default: inksights)
+#   LOGIN_PASSWORD password: switches the login of the settings page on            (default: none = no login;
+#                  a "$" in it is written "$$"                                      or set it in the Login card)
 #   SCRIPT_OPTIONS more options for inksights.sh, e.g. "-x sdz"                     (default: none)
 #
 # The image holds the app and all files of the page; DATA_DIR only keeps the settings file and
@@ -35,7 +35,7 @@ services:
     environment:
       INKSIGHTS_OTA: ${OTA:-on}
       INKSIGHTS_USER: ${LOGIN_USER:-inksights}
-      INKSIGHTS_PASSWORD: ${LOGIN_PASSWORD:-ink!1234}
+      INKSIGHTS_PASSWORD: ${LOGIN_PASSWORD:-}
     ports:
       - "${PORT:-8099}:8099"
     volumes:

@@ -16,7 +16,8 @@ folder with the server:
   redraw-request        chip IDs to redraw now ("Redraw now"), picked up by inksights.sh
   wifi/<id>.info, .seen written here when a WiFi display fetches its frame (GET /api/frame)
   wifi/<id>.redraw      "Redraw now" for a WiFi display, sent with its next frame
-  login.json            the password set on the page (a salted hash only), readable for the app only
+  login.json            the login set in the Login card: on/off and the password (a salted hash only),
+                        readable for the app only
 
 Firmware updates over WiFi (OTA) are kept in memory only: the firmware the image carries
 (fw/<board>.bin with fw/manifest.json next to this file) or a file uploaded on the page; the
@@ -574,7 +575,7 @@ def write_conf(path, conf, interval, page_name=""):
         "#   ('-' = no system page; types '-' = only the system page),",
         "#   network = interface for the system page ('-' = the one with the default route),",
         "#   zfs = ZFS cache on the system page 1 = shown / 0 = hidden,",
-        "#   pages = pages switched on: system,disks,network,time,wifi (the settings below a page stay when it is off),",
+        "#   pages = pages switched on: system,disks,network,time,wifi or none (the settings below a page stay when it is off),",
         "#   system icons = symbols on the system page 1 = on / 0 = off, header = 1 the layout shows the uptime,",
         "#   panel = panel type 1-8 (1 GDEW0213Z16, 2 GDEH0213Z19, 3 GDEY0213Z98, 4 GDEY0213B74, 5 GDEY042T81, 6-8 = 1-3 yellow;",
         "#   '-' = keep the panel type of the display), wifi icons = symbols on the WiFi page 1 = on / 0 = off,",
@@ -616,7 +617,7 @@ def write_conf(path, conf, interval, page_name=""):
                                 style, hidden, s.get("dname") or "-", *wifi,
                                 str(s.get("fast", 0)), ",".join(s.get("sys") or []) or "-", s.get("net") or "-", str(s.get("zfs", 0)),
                                 ",".join(p for p, k, d in (("system", "showSys", 1), ("disks", "showDisks", 1), ("network", "showNet", 0), ("time", "showTime", 0), ("wifi", "showWifi", 0))
-                                         if s.get(k, d)) or "-",
+                                         if s.get(k, d)) or "none",   # "-" would read as the defaults (an earlier version)
                                 str(s.get("sysIcons", 1)),
                                 "1" if layout_ok(s.get("layout")) and "U" in s["layout"].upper() else "0",
                                 str(s["panel"]) if s.get("panel") in PANELS else "-", str(s.get("wifiIcons", 1)),
@@ -756,14 +757,15 @@ def ota_switch(text):
 OTA_ON = [True]   # set in main(): --ota / INKSIGHTS_OTA
 
 # ------------------------------------------------------------ login
-# The page asks for a user name and password (the browser's login window). Set in the Docker settings
-# (LOGIN_USER / LOGIN_PASSWORD -> INKSIGHTS_USER / INKSIGHTS_PASSWORD); the boards fetch their frame and
-# their firmware without it. The password can be changed on the page (Login card): login.json in the data
-# folder then holds its salted hash and a mark of the Docker password of that moment. The newer change wins:
-# when LOGIN_PASSWORD in the Docker settings differs from that mark at the start (changed there since), the
-# page password is dropped and the Docker one counts again (forgotten password: set a new one there).
+# Off by default (user): the page is open. Switched on in the Login card (a password set there) or with
+# LOGIN_PASSWORD in the Docker settings (-> INKSIGHTS_PASSWORD); then the page asks for a user name
+# (LOGIN_USER, default inksights) and the password (the browser's login window). The boards fetch their
+# frame and their firmware without it. login.json in the data folder holds what the Login card set (on/off,
+# the salted hash of its password) and a mark of the Docker password of that moment. The newer change wins:
+# when LOGIN_PASSWORD in the Docker settings differs from that mark at the start (changed there since),
+# login.json is dropped and the Docker settings count again (forgotten password: delete login.json, or set
+# a new one there).
 DEFAULT_USER = "inksights"
-DEFAULT_PASSWORD = "ink!1234"
 OPEN_PATHS = ("/api/frame", "/api/firmware", "/api/health")   # the boards cannot log in; health: the Docker check
 LOGIN_NAME = "login.json"
 LOGIN_ROUNDS = 200000
@@ -789,27 +791,34 @@ def pw_check(password, stored):
 
 
 class Login:
-    """The login of the page: the Docker password, or the one set on the page (login.json)"""
+    """The login of the page: off, the Docker password, or the one set in the Login card (login.json)"""
     def __init__(self, data_dir, user, password):
-        self.path, self.user, self.env = os.path.join(data_dir, LOGIN_NAME), user, password
-        self.hash, self.ok = None, set()   # ok: Authorization headers already checked (PBKDF2 is slow)
+        self.path, self.user, self.env = os.path.join(data_dir, LOGIN_NAME), user, password or ""
+        self.on, self.hash, self.ok = bool(self.env), None, set()   # ok: Authorization headers already checked (PBKDF2 is slow)
         try:
             with open(self.path, encoding="utf-8") as f:
                 d = json.load(f)
-            if d.get("env") == env_mark(password) and isinstance(d.get("hash"), str):
-                self.hash = d["hash"]
-            else:   # the Docker password was changed since: it counts again
+            if not isinstance(d, dict):
+                raise ValueError
+            if d.get("env") == env_mark(self.env):
+                h = d.get("hash") if isinstance(d.get("hash"), str) else None
+                self.on = d.get("on", True) is True and bool(h or self.env)   # a file without "on" (older): on
+                self.hash = h if self.on else None
+            else:   # the Docker password was changed since: the Docker settings count again
                 os.unlink(self.path)
-                print("InkSights: the password in the Docker settings changed, the one set on the page is dropped", flush=True)
-        except (OSError, ValueError, AttributeError):
+                print("InkSights: the password in the Docker settings changed, the login set on the page is dropped", flush=True)
+        except (OSError, ValueError):
             pass
-        self.default = self.user == DEFAULT_USER and self.check(DEFAULT_PASSWORD)   # api/state asks often: kept
 
     def check(self, password):
-        return pw_check(password, self.hash) if self.hash else hmac.compare_digest(password.encode(), self.env.encode())
+        if self.hash:
+            return pw_check(password, self.hash)
+        return bool(self.env) and hmac.compare_digest(password.encode(), self.env.encode())
 
     def header_ok(self, header):
-        """Authorization: Basic <user:password> matches"""
+        """Login off, or Authorization: Basic <user:password> matches"""
+        if not self.on:
+            return True
         key = hashlib.sha256(header.encode("utf-8", "replace")).hexdigest()
         with LOGIN_LOCK:
             if key in self.ok:
@@ -830,20 +839,23 @@ class Login:
                 self.ok.add(key)
         return good
 
-    def is_default(self):
-        return self.default
+    def public(self):
+        return {"on": self.on, "user": self.user}
 
-    def change(self, current, new):
-        if not self.check(current):
+    def set(self, on, current, new):
+        """The Login card: switch it on (with a new password), change the password, or switch it off;
+        while it is on, the current password is needed for each"""
+        if self.on and not (isinstance(current, str) and self.check(current)):
             raise SettingsError("The current password is wrong.")
-        if not isinstance(new, str) or not 8 <= len(new) <= 64 or any(ord(c) < 32 for c in new):
-            raise SettingsError("The new password needs 8 to 64 characters.")
-        h = pw_hash(new)
-        write_atomic(self.path, json.dumps({"hash": h, "env": env_mark(self.env)}) + "\n", mode=0o600)
+        h = None
+        if on:
+            if not isinstance(new, str) or not 8 <= len(new) <= 64 or any(ord(c) < 32 for c in new):
+                raise SettingsError("The new password needs 8 to 64 characters.")
+            h = pw_hash(new)
+        write_atomic(self.path, json.dumps({"on": on, "hash": h, "env": env_mark(self.env)}) + "\n", mode=0o600)
         with LOGIN_LOCK:
-            self.hash = h
+            self.on, self.hash = on, h
             self.ok.clear()   # the old password does not work any more
-            self.default = self.user == DEFAULT_USER and new == DEFAULT_PASSWORD
 
 
 def ota_allowed():
@@ -1071,8 +1083,8 @@ class Handler(BaseHTTPRequestHandler):
                              "pagename": page_name, "defaultPagename": DEFAULT_PAGE_NAME,
                              "problem": data_problem(data_dir), "version": VERSION,
                              "versionCheck": True,   # the version line and the About card: WebUI, script and firmware
-                             # still the login of the defaults: the page says so
-                             "defaultLogin": self.server.login.is_default(),
+                             # the Login card: on or off, the user name
+                             "login": self.server.login.public(),
                              "otaEnabled": self.server.ota_on,   # OTA switched off in the Docker settings: no updates
                              "firmware": self.server.firmware})   # the firmware the WebUI carries per board (OTA)
         elif path == "/api/firmware":   # a WiFi display fetches its update
@@ -1179,18 +1191,19 @@ class Handler(BaseHTTPRequestHandler):
                 with open(os.path.join(data_dir, REFRESH_NAME), "w", encoding="utf-8"):
                     pass
                 self._json(200, {"ok": True})
-            elif path == "/api/password":   # the Login card: a new password for the page
+            elif path == "/api/login":   # the Login card: switch the login on or off, change its password
                 try:
                     data = json.loads(raw or b"{}")
-                    if not isinstance(data, dict) or not isinstance(data.get("current"), str):
+                    if not isinstance(data, dict) or not isinstance(data.get("on"), bool):
                         raise ValueError
-                    self.server.login.change(data["current"], data.get("next"))
+                    was = self.server.login.on
+                    self.server.login.set(data["on"], data.get("current"), data.get("next"))
                 except SettingsError as e:
                     time.sleep(1)   # a wrong password: slows down guessing
                     return self._json(400, {"error": str(e)})
                 except ValueError:
                     return self._json(400, {"error": "Invalid data."})
-                self.log_message("password of the settings page changed")
+                self.log_message("login of the settings page " + ("switched off" if not data["on"] else "password changed" if was else "switched on"))
                 self._json(200, {"ok": True})
             elif path == "/api/redraw":
                 try:
@@ -1248,8 +1261,8 @@ def main():
                     help="run folder of inksights.sh (/var/run/inksights on the host): frames of the WiFi displays")
     ap.add_argument("--user", default=os.environ.get("INKSIGHTS_USER") or DEFAULT_USER,
                     help=f"user name of the login (also INKSIGHTS_USER; default {DEFAULT_USER})")
-    ap.add_argument("--password", default=os.environ.get("INKSIGHTS_PASSWORD") or DEFAULT_PASSWORD,
-                    help=f"password of the login (also INKSIGHTS_PASSWORD; default {DEFAULT_PASSWORD})")
+    ap.add_argument("--password", default=os.environ.get("INKSIGHTS_PASSWORD") or "",
+                    help="password of the login (also INKSIGHTS_PASSWORD; default none: no login, unless one is switched on in the Login card)")
     ap.add_argument("--ota", default=os.environ.get("INKSIGHTS_OTA", "on"),
                     help="firmware updates over WiFi from this page: on (default) or off (also INKSIGHTS_OTA)")
     args = ap.parse_args()

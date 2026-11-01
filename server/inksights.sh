@@ -371,7 +371,7 @@ fi
 #   system: system page components cpu,ram,net,nvme,ssd,hdd; - = no system page (1 = all of an earlier version, without hdd)
 #   network : interface for the system page, - = the one with the default route
 #   zfs   : ZFS cache on the system page 1 = shown / 0 = hidden (counted as free)
-#   pages : pages switched on: system,disks,network,wifi (the settings of a page stay when it is off)
+#   pages : pages switched on: system,disks,network,time,wifi, or none (the settings of a page stay when it is off)
 #   system icons : symbols on the system page 1 = on / 0 = off
 #   header : 1 = the layout shows the uptime (written by the web page; earlier version: 1 = uptime
 #            instead of the page number, used when the layout is missing)
@@ -518,7 +518,7 @@ if [[ -r "$CONF_FILE" ]]; then
         if ! layout_valid "$layoutc"; then [[ "$headerc" == 1 ]] && layoutc=TCU || layoutc=TCP; fi
         [[ "$headonc" == "0" ]] && layoutc="---"
         [[ "${layoutc^^}" == *U* ]] && headerc=1 || headerc=0
-        [[ "$pagesc" =~ ^(system|disks|network|time|wifi)(,(system|disks|network|time|wifi)){0,4}$ ]] || pagesc="system,disks"   # missing = both
+        [[ "$pagesc" =~ ^(system|disks|network|time|wifi)(,(system|disks|network|time|wifi)){0,4}$ || "$pagesc" == none ]] || pagesc="system,disks"   # missing = both; none = every page off
         # time: 12 hours 1 / 24 hours 0; time page: date and weekday 1/0, date format 0-3, NTP 1/0 with
         # server and POSIX time zone (boards with WiFi; the board sets its clock itself)
         [[ "$tfmtc" =~ ^[012]$ ]] || tfmtc=0   # 0 24 hours, 12 hours: 1 with AM/PM, 2 without

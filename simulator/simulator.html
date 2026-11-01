@@ -345,15 +345,16 @@ let usb = null;   // the USB card, mounted below
 const ui = InkSightsUI.start({
   root: $("app"),
   tabs: true,           // one tab per display, the preview beside its cards
-  // Login card: the password of the settings page (the simulator keeps it in its stored settings)
-  changePassword: async (current, next) => {
-    if (current !== (sim.loginPass || "ink!1234")) throw new Error("The current password is wrong.");
-    sim.loginPass = next;
+  // Login card: the login of the settings page, off by default (the simulator keeps it in its stored settings)
+  login: async (on, current, next) => {
+    if (sim.loginOn && current !== sim.loginPass) throw new Error("The current password is wrong.");
+    sim.loginOn = on;
+    sim.loginPass = on ? next : "";
     save();
   },
   offlineNoData: true,  // "Connected" off: the display shows "NO DATA" / "Check connection"
   load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights", version: sim.appVer || "1.0", versionCheck: true, afterhours: true, otaEnabled: !sim.otaOff,
-    defaultLogin: (sim.loginPass || "ink!1234") === "ink!1234",
+    login: { on: !!sim.loginOn, user: "inksights" },
     // the firmware the WebUI carries: one per board with WiFi, the version of the WebUI
     firmware: Object.fromEntries(Object.entries(InkSightsUI.BOARDS).filter(([, b]) => b.wifi).map(([k]) => [k, { version: sim.appVer || "1.0", size: 1147760 }])) }),
   // OTA update: the board waits for its next fetch, loads the firmware and restarts with it (not kept)

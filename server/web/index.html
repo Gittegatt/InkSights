@@ -26,6 +26,7 @@ async function post(path, body) {
 
 InkSightsUI.start({
   root: document.getElementById("app"),
+  tabs: true,   // one tab per display, the preview beside its cards
   load: async () => {
     const r = await fetch("api/state", { cache: "no-store" });
     if (!r.ok) throw new Error(String(r.status));
@@ -35,8 +36,9 @@ InkSightsUI.start({
   refresh: () => post("api/refresh", {}),
   redraw: id => post("api/redraw", { id }),
   validate: body => post("api/validate", body),   // import of a backup: checked by the app, nothing saved
-  // the Login card: a new password for the settings page (the browser then asks for the login again)
-  changePassword: (current, next) => post("api/password", { current, next }),
+  // the Login card: switch the login of the page on (new password), change its password or switch it off
+  // (the browser then asks for the login, or no longer)
+  login: (on, current, next) => post("api/login", { on, current, next }),
   // firmware update over WiFi: the firmware the WebUI carries for the board, or a file chosen on the page
   ota: id => post("api/ota", { id }),
   otaFile: async (id, buf) => {

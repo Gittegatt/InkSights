@@ -15,7 +15,8 @@
  *   backend.frameOverride(id) -> frame text to show instead of the settings (simulator: pasted frame)
  *   backend.serverAddress -> address of this page as a display reaches it (WiFi settings)
  *   backend.titleSuffix   -> appended to the browser tab title
- *   backend.changePassword(current, next) -> change the password of the settings page (Login card; simulator so far)
+ *   backend.login(on, current, next) -> Login card: switch the login of the page on (next = its password), change
+ *                           its password or switch it off (current = the password while it is on)
  *   backend.tabs          -> one tab per display: its preview on the left (stays in view), its cards on the right (simulator)
  *   backend.offlineNoData -> a display that is not connected previews its "Check connection" screen (simulator)
  *
@@ -200,7 +201,7 @@
     let state = { host: "", updated: 0, disks: [], displays: [] };
     let config = {};
     let interval = 10, pageName = "", defaultPageName = "InkSights";
-    let dirty = false, lastKey = "", appProblem = "", defaultLogin = false;
+    let dirty = false, lastKey = "", appProblem = "";
     const pages = {}, lastWarn = {};
     let prefs = {};
     try { prefs = JSON.parse(localStorage.getItem(PREFS) || "{}") || {}; } catch (e) { prefs = {}; }
@@ -1402,11 +1403,7 @@
 
     function updateWarnings() {
       const bad = (state.displays || []).filter(d => !d.id);
-      $("warnings").replaceChildren(...(appProblem ? [el("p", { class: "alert" }, appProblem)] : []),
-        // still the user name and password of the defaults (Docker settings LOGIN_USER / LOGIN_PASSWORD); it
-        // can be hidden in the Login card (this browser)
-        ...(defaultLogin && !pref("app", "hideLoginNote", false) ? [el("p", { class: "alert" }, backend.changePassword ? "The settings page still uses the default login: change the password in the Login card at the bottom."
-          : "The settings page still uses the default login: set LOGIN_PASSWORD in the Docker settings.")] : []), ...bad.map(d =>
+      $("warnings").replaceChildren(...(appProblem ? [el("p", { class: "alert" }, appProblem)] : []), ...bad.map(d =>
         el("p", { class: "alert" }, `${d.port}: ${d.error || "no answer"}. Flash the current firmware onto this controller.`)));
     }
 
@@ -1418,9 +1415,9 @@
         if (!dirty) { config = data.config || {}; interval = data.interval || 10; pageName = data.pagename || ""; }
         defaultPageName = data.defaultPagename || defaultPageName;
         appProblem = typeof data.problem === "string" ? data.problem : "";   // the app cannot write its data folder
-        const wasDefault = defaultLogin;
-        defaultLogin = data.defaultLogin === true;
-        if (defaultLogin !== wasDefault) showLogin();   // Current filled in / the Hide button only with the default login
+        // the Login card: rebuilt when the login was switched on or off (fields and button differ)
+        const lg = data.login && typeof data.login === "object" ? { on: data.login.on === true, user: String(data.login.user || "inksights") } : { on: false, user: "inksights" };
+        if (lg.on !== login.on || lg.user !== login.user) { login = lg; showLogin(); }
         versionCheck = data.versionCheck === true;
         firmwareCat = data.firmware && typeof data.firmware === "object" ? data.firmware : {};
         otaOn = data.otaEnabled !== false;
@@ -1648,47 +1645,31 @@
                 link(REPO, "Star on GitHub"), link("https://ko-fi.com/gittegatt", "Ko-fi"), link("https://paypal.me/gittegatt", "PayPal"))))))));
     }
 
-    const DEFAULT_LOGIN_PASSWORD = "ink!1234";   // the default of LOGIN_PASSWORD (docker-compose.yaml)
+    let login = { on: false, user: "inksights" };   // the login of the page (api/state)
     let loginNote = ["", ""];   // the last feedback of the Login card
-    // Login (the whole page, not one display; user): change the password of the settings page. Folded like
-    // About; the current password, the new one twice; live feedback below the button
+    // Login (the whole page, not one display; user): off by default. The tick Login switches it on (a new
+    // password twice) or off (the current password); while it is on, the password can be changed. Folded
+    // like About; the feedback right of the button
     function showLogin() {
       const sec = $("login");
-      sec.hidden = !backend.changePassword;
-      if (!backend.changePassword) return;
+      sec.hidden = !backend.login;
+      if (!backend.login) return;
       const pw = (label, auto) => el("input", { type: "password", autocomplete: auto, maxlength: "64", "aria-label": label });
       const cur = pw("Current password", "current-password"), next = pw("New password", "new-password"), again = pw("Repeat new password", "new-password");
-      // still the default login: Current already holds the default password (it is public in the README; user)
-      if (defaultLogin) cur.value = DEFAULT_LOGIN_PASSWORD;
-      // the red notice about the default login at the top: hide or show it again (this browser; user). The
-      // button keeps its width (both labels in one grid cell, the other one invisible) and its place on the
-      // screen (the page scrolls by the height the notice takes or gives back)
-      const noteLabel = () => (pref("app", "hideLoginNote", false) ? "Show notice" : "Hide notice");
-      const noteText = el("span", {}, noteLabel());
-      const noteBtn = el("button", { class: "btn same-width", type: "button", onclick: () => {
-        const before = noteBtn.getBoundingClientRect().top;
-        setPref("app", "hideLoginNote", !pref("app", "hideLoginNote", false));
-        noteText.textContent = noteLabel();
-        updateWarnings();
-        window.scrollBy(0, noteBtn.getBoundingClientRect().top - before);
-      } }, noteText, el("span", { class: "sizer", "aria-hidden": "true" }, "Hide notice"), el("span", { class: "sizer", "aria-hidden": "true" }, "Show notice"));
-      // the feedback right of Change password (user); Hide notice at the right edge, so it never moves
+      const tick = el("input", { type: "checkbox", checked: login.on });
+      const user = el("input", { type: "text", value: login.user, disabled: true, "aria-label": "User name" });
       const note = el("span", { class: "about-text login-note", role: "status" });
-      // the feedback outlives a rebuild of the card (after a change the default login is gone: rebuilt)
+      // the feedback outlives a rebuild of the card (switching the login on or off rebuilds it)
       const say = (text, kind) => { loginNote = [text, kind]; note.textContent = text; note.className = `about-text login-note${kind ? " " + kind : ""}`; };
       say(...loginNote);
-      const change = async () => {
-        if (!cur.value) return say("Enter the current password.", "warn");
-        if (next.value.length < 8) return say("The new password needs at least 8 characters.", "warn");
-        if (next.value !== again.value) return say("The new passwords do not match.", "warn");
-        if (next.value === cur.value) return say("The new password is the same as the current one.", "warn");
-        try {
-          await backend.changePassword(cur.value, next.value);
-          cur.value = next.value = again.value = "";
-          say("Password changed.", "good");
-          load(true);
-        } catch (e) { say(e.message, "warn"); }
-      };
+      // what the button does: login on and ticked = change the password, on and unticked = switch it off,
+      // off and ticked = switch it on
+      const mode = () => login.on ? (tick.checked ? "change" : "off") : (tick.checked ? "on" : "none");
+      const LABELS = { change: "Change password", off: "Switch off", on: "Switch on" };
+      // the button keeps its width whatever it says (all labels in one grid cell, the others invisible)
+      const btnText = el("span", {});
+      const btn = el("button", { class: "btn same-width", type: "button", onclick: () => go() }, btnText,
+        ...Object.values(LABELS).map(l => el("span", { class: "sizer", "aria-hidden": "true" }, l)));
       // eye buttons: the one in Current shows that password as plain text, the one in New shows New and
       // Repeat (user); a second click hides them again
       const eye = (input, also = []) => {
@@ -1704,15 +1685,44 @@
         return el("span", { class: "pw" }, input, b);
       };
       const field = (label, box) => el("label", { class: "field" }, el("span", { class: "label" }, label), box);
+      const fUser = field("User", el("span", { class: "pw" }, user)), fCur = field("Current", eye(cur)),
+        fNext = field("New", eye(next, [again])), fAgain = field("Repeat", el("span", { class: "pw" }, again));
+      const fields = el("div", { class: "choices header-sec" }, fUser, fCur, fNext, fAgain);
+      const sync = () => {
+        const m = mode();
+        fields.hidden = m === "none";
+        fUser.hidden = m === "off";
+        fCur.hidden = !login.on;
+        fNext.hidden = fAgain.hidden = m === "off";
+        btn.hidden = m === "none";
+        btnText.textContent = LABELS[m] || "";
+      };
+      tick.onchange = () => { say("", ""); sync(); };
+      const go = async () => {
+        const m = mode();
+        if (login.on && !cur.value) return say("Enter the current password.", "warn");
+        if (m !== "off") {
+          if (next.value.length < 8) return say("The new password needs at least 8 characters.", "warn");
+          if (next.value !== again.value) return say("The new passwords do not match.", "warn");
+          if (m === "change" && next.value === cur.value) return say("The new password is the same as the current one.", "warn");
+        }
+        try {
+          await backend.login(m !== "off", login.on ? cur.value : null, m === "off" ? null : next.value);
+          cur.value = next.value = again.value = "";
+          say(m === "on" ? "Login switched on." : m === "off" ? "Login switched off." : "Password changed.", "good");
+          load(true);
+        } catch (e) { say(e.message, "warn"); }
+      };
+      sync();
       sec.replaceChildren(el("article", { class: "card sub-card about" },
         el("details", { class: "fold", open: pref("app", "loginOpen", false), ontoggle: e => setPref("app", "loginOpen", e.target.open) },
           el("summary", {}, "Login"),
           el("div", { class: "sub-body" },
             el("div", { class: "form" },
-              el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Password"),
-                el("div", { class: "choices header-sec" }, field("Current", eye(cur)), field("New", eye(next, [again])), field("Repeat", el("span", { class: "pw" }, again))),
-                el("div", { class: "choices login-row" }, el("button", { class: "btn", type: "button", onclick: change }, "Change password"),
-                  note, ...(defaultLogin ? [noteBtn] : []))))))));
+              el("div", { class: "field wide boxed" },
+                el("div", { class: "choices" }, el("label", { class: "check" }, tick, "Login")),
+                fields,
+                el("div", { class: "choices login-row" }, btn, note)))))));
     }
 
     function showUpdate() {
