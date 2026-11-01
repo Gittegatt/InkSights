@@ -1,7 +1,8 @@
 # Examples
 
 What the displays show, drawn with the preview of the settings page (the same drawing as on the display), and
-the settings page itself. The 2.13″ pictures are shown at twice their size. All names and values are examples.
+the settings page itself. The pictures of the displays are shown 400 pixels wide (the upright one at twice its
+size), the three versions of each picture side by side. All names and values are examples.
 
 Every top line here is one continuous line without a divider line: on red and yellow panels mostly in the third
 colour (**Invert colors**, **Color highlight** and **Fill gaps** in the Header card), otherwise white
@@ -16,7 +17,7 @@ line.
 
 ### 4.2″ start screen with the setup access point
 
-![4.2″ start screen with the setup access point](example_01_4-2_start_screen.png)
+<img src="example_01_4-2_start_screen.png" alt="4.2″ start screen with the setup access point" width="400">
 
 After power-up, until the first data arrive: ID of the display, board, panel type, display pins and the WiFi
 state. No WiFi set up yet, so the board has opened its access point **InkSights** at 192.168.4.1 and shows its
@@ -26,7 +27,7 @@ password.
 
 ### 2.13″ system page
 
-![2.13″ system page](example_02_2-13_system_page.png)
+<img src="example_02_2-13_system_page.png" alt="2.13″ system page" width="400">
 
 CPU with temperature, power and load, RAM, the network interface with download and upload, and the
 temperatures of the NVMe drive, the SSDs and the hard disks; hard disks that are asleep show `STBY`. The top line
@@ -34,7 +35,7 @@ in red over its whole width.
 
 ### 2.13″ system page with a white top line
 
-![2.13″ system page with a white top line](example_03_2-13_system_page_inverted.png)
+<img src="example_03_2-13_system_page_inverted.png" alt="2.13″ system page with a white top line" width="400">
 
 A black/white 250×122 panel with **Invert colors**: black text on a white top line. **ZFS RAM cache** is on here:
 the grey part of the RAM bar is the cache.
@@ -43,7 +44,7 @@ the grey part of the RAM bar is the cache.
 
 ### 2.13″ drive page with highlight
 
-![2.13″ drive page with highlight](example_04_2-13_drives_page_highlight.png)
+<img src="example_04_2-13_drives_page_highlight.png" alt="2.13″ drive page with highlight" width="400">
 
 Three rows per page: symbol, device, pool, used/total, temperature and the bar with the percentage (two
 decimals). The pool above 85 % is highlighted in the third colour: its bar and its used capacity. Right: the
@@ -52,21 +53,21 @@ chip symbol and no timer.
 
 ### 2.13″ drive page with spindown rings
 
-![2.13″ drive page with spindown rings](example_05_2-13_drives_page_rings.png)
+<img src="example_05_2-13_drives_page_rings.png" alt="2.13″ drive page with spindown rings" width="400">
 
 A black/white panel, four rows, the spindown timer as a ring: shrinking ring = time left, circle with a dash =
 timer not running. The pool above 85 % shows its used/total inverted. Black top line.
 
 ### 2.13″ drive page with yellow
 
-![2.13″ drive page with yellow](example_06_2-13_drives_page_yellow.png)
+<img src="example_06_2-13_drives_page_yellow.png" alt="2.13″ drive page with yellow" width="400">
 
 A 250×122 panel with yellow as third colour, five rows: the top line and the pool above 85 % in yellow; text on
 yellow is black. Asleep hard disks show `STBY` and `SLEEP`.
 
 ### 4.2″ drive page
 
-![4.2″ drive page](example_07_4-2_drives_page.png)
+<img src="example_07_4-2_drives_page.png" alt="4.2″ drive page" width="400">
 
 Six rows in a custom order. The used capacity inside the bar, the total at the right, the temperature beside it. A
 pool above 85 % shows its total inverted (black/white panel). Spindown timer as a ring; a dotted circle = asleep.
@@ -74,14 +75,14 @@ White top line.
 
 ### 4.2″ drive page with three rows
 
-![4.2″ drive page with three rows](example_08_4-2_drives_page_three_rows.png)
+<img src="example_08_4-2_drives_page_three_rows.png" alt="4.2″ drive page with three rows" width="400">
 
 Fewer rows per page: bigger bars, symbols and timers, readable from further away. The pool stands below the device,
 the percentage with one decimal inside the bar, the timer as a badge. Black top line.
 
 ### 2.13″ drive page without ZFS
 
-![2.13″ drive page without ZFS](example_09_2-13_drives_page_without_zfs.png)
+<img src="example_09_2-13_drives_page_without_zfs.png" alt="2.13″ drive page without ZFS" width="400">
 
 A Linux server without ZFS: each disk shows the filesystem mounted on it, named after its mount point (`/` =
 `root`). A disk with nothing mounted shows its size and **not mounted** instead of a bar. No spindown timer (the
@@ -98,7 +99,7 @@ timer below.
 
 ### 4.2″ network page
 
-![4.2″ network page](example_11_4-2_network_page.png)
+<img src="example_11_4-2_network_page.png" alt="4.2″ network page" width="400">
 
 One row per network interface with download and upload, the link speed inside the bar. A bridge (br0) has no
 link speed, so its values stand below the name; **no link** = no cable or not connected, **down** = switched
@@ -106,14 +107,14 @@ off. The wireless interface gets the WiFi symbol.
 
 ### 4.2″ network page without symbols
 
-![4.2″ network page without symbols](example_12_4-2_network_page_percentage.png)
+<img src="example_12_4-2_network_page_percentage.png" alt="4.2″ network page without symbols" width="400">
 
 The same page without symbols, with how busy the link is (percentage, the default) inside the bar, and a white
 top line.
 
 ### 4.2″ WiFi page
 
-![4.2″ WiFi page](example_13_4-2_wifi_page.png)
+<img src="example_13_4-2_wifi_page.png" alt="4.2″ WiFi page" width="400">
 
 The WiFi network the board is connected to, its IP address and how long it has been connected without a break.
 
@@ -121,14 +122,14 @@ The WiFi network the board is connected to, its IP address and how long it has b
 
 ### 4.2″ time page
 
-![4.2″ time page](example_14_4-2_time_page.png)
+<img src="example_14_4-2_time_page.png" alt="4.2″ time page" width="400">
 
 **Just give me time** in the Time card: the display shows only the time page, in 24 hours, with the weekday
 and the date (`2026-10-26`, the default).
 
 ### 2.13″ time page in red, 12 hours
 
-![2.13″ time page in red, 12 hours](example_15_2-13_time_page_12h.png)
+<img src="example_15_2-13_time_page_12h.png" alt="2.13″ time page in red, 12 hours" width="400">
 
 **Color highlight** and **Time frame** in the Time card: the time in red with a black outline, weekday and date in
 black. **12h** with AM/PM in the Time card, the date as `28.10.2026`. The time page comes first (the default
@@ -166,7 +167,7 @@ cup in yellow. With **Roast** a cold cup (no steam) stands between the chairs.
 
 ### InkSights: 2.13″ with nothing to show, without the picture
 
-![2.13″ with the logo screen](example_20_2-13_logo_screen.png)
+<img src="example_20_2-13_logo_screen.png" alt="2.13″ with the logo screen" width="400">
 
 Every page switched off and **The Conversation** with **On cue** off: the product name with its logo, in the
 place it keeps with or without the top line.
