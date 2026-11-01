@@ -1,59 +1,41 @@
-# InkSights - settings page (WebUI) and script as a Docker app
+# InkSights - settings page and script
+# Adjust the lines marked with <-, then: sudo docker compose up -d
 #
-# Settings (optional, in a .env file next to this file, or replace the values below):
-#   DATA_DIR       data folder shared with inksights.sh (settings, state)          (default: ./data)
-#   PORT           port of the settings page                                       (default: 8099)
-#   PUID/PGID      user the container runs as; needs write access to DATA_DIR      (default: 568 = TrueNAS apps user)
-#   RUN_DIR        run folder of inksights.sh, in memory (frames of the WiFi displays) (default: /var/run/inksights)
-#   INKSIGHTS_TAG  version of the image, e.g. 1.0                                  (default: latest)
-#   OTA            firmware updates of the WiFi boards from the page: on / off     (default: on)
-#   LOGIN_USER     user name of the login of the settings page                     (default: inksights)
-#   LOGIN_PASSWORD password: switches the login of the settings page on            (default: none = no login;
-#                  a "$" in it is written "$$"                                      or set it in the Login card)
-#   SCRIPT_OPTIONS more options for inksights.sh, e.g. "-x sdz"                     (default: none)
-#
-# The image holds the app and all files of the page; DATA_DIR only keeps the settings file and
-# the state. Keep it on an SSD, otherwise the app wakes your hard disks.
-#
-# Two containers from the same image:
-#   inksights         the settings page: no USB access and no rights on the system; it only shares
-#                     DATA_DIR and reads RUN_DIR (read-only).
-#   inksights-script  inksights.sh: it reads the drives, pools, system values and USB ports of the
-#                     system and sends the displays their frames, so it runs as root with full access
-#                     to the system (privileged, pid: host); it has no port and no network of its own.
-#                     It never wakes hard disks: the same commands as when started on the system.
-#                     Run the script only here, not also with tmux or cron on the system.
-# Stack names must be lowercase, so the stack is "inksights".
+# Two containers from the same image: the settings page (no rights on the system) and the script
+# (reads drives, pools, system values and USB ports, sends the displays their data; as root with
+# access to the system, no port, no network of its own; it never wakes hard disks). Run the script
+# only here, not also with tmux or cron on the system. Keep the data folder on an SSD.
 
 name: inksights
 
 services:
-  inksights:
+  inksights:                                    # the settings page
+    image: ghcr.io/gittegatt/inksights:latest   # or a fixed version, e.g. :1.0
     container_name: inksights
-    image: ghcr.io/gittegatt/inksights:${INKSIGHTS_TAG:-latest}
-    user: "${PUID:-568}:${PGID:-568}"
-    environment:
-      INKSIGHTS_OTA: ${OTA:-on}
-      INKSIGHTS_USER: ${LOGIN_USER:-inksights}
-      INKSIGHTS_PASSWORD: ${LOGIN_PASSWORD:-}
+    restart: unless-stopped
+    user: 568:568                               # <- user with write access to the data folder (TrueNAS: apps)
     ports:
-      - "${PORT:-8099}:8099"
+      - 8099:8099                               # <- left: port of the page on your server
     volumes:
-      - ${DATA_DIR:-./data}:/data
-      - ${RUN_DIR:-/var/run/inksights}:/run/inksights:ro
-    restart: unless-stopped
+      - ./data:/data                            # <- data folder on an SSD
+      - /var/run/inksights:/run/inksights:ro    # run folder of the script, keep as is
+    environment:
+      - INKSIGHTS_OTA=on                        # firmware updates over WiFi from the page: on / off
+      # Login (off by default, can also be switched on in the Login card of the page):
+      # - INKSIGHTS_USER=inksights
+      # - INKSIGHTS_PASSWORD=
 
-  inksights-script:
+  inksights-script:                             # the script: reads drives and system, sends the displays their data
+    image: ghcr.io/gittegatt/inksights:latest   # the same as above
     container_name: inksights-script
-    image: ghcr.io/gittegatt/inksights:${INKSIGHTS_TAG:-latest}
-    command: /app/script-entry.sh -l ${SCRIPT_OPTIONS:-}
-    user: "0:0"
-    privileged: true
-    pid: host
-    network_mode: none
-    volumes:
-      - ${DATA_DIR:-./data}:/data
-    healthcheck:
-      disable: true
-    stop_grace_period: 30s
     restart: unless-stopped
+    command: /app/script-entry.sh -l            # more options at the end, e.g. -x sdz
+    user: 0:0                                   # root, like a script started on the system
+    privileged: true                            # needs the USB ports, drives and pools of the system
+    pid: host                                   # runs the script on the system itself (its tools, its pools)
+    network_mode: none                          # no network of its own, cannot be reached from outside
+    stop_grace_period: 30s                      # on stop: time to finish the frame it is sending
+    healthcheck:
+      disable: true                             # no web server in this container
+    volumes:
+      - ./data:/data                            # <- the same data folder as above

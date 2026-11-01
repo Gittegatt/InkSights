@@ -20,7 +20,7 @@ COPY server/inksights.sh server/docker/script-entry.sh /app/
 RUN apk add --no-cache util-linux-misc && chmod 755 /app/inksights.sh /app/script-entry.sh
 
 ENV PYTHONUNBUFFERED=1
-# the TrueNAS apps user; docker-compose.yaml sets it with PUID/PGID (the script app: root)
+# the TrueNAS apps user; docker-compose.yaml sets it with user: (the script container: root)
 USER 568:568
 EXPOSE 8099
 

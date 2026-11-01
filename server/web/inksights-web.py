@@ -758,11 +758,11 @@ OTA_ON = [True]   # set in main(): --ota / INKSIGHTS_OTA
 
 # ------------------------------------------------------------ login
 # Off by default (user): the page is open. Switched on in the Login card (a password set there) or with
-# LOGIN_PASSWORD in the Docker settings (-> INKSIGHTS_PASSWORD); then the page asks for a user name
-# (LOGIN_USER, default inksights) and the password (the browser's login window). The boards fetch their
+# INKSIGHTS_PASSWORD in the Docker settings; then the page asks for a user name
+# (INKSIGHTS_USER, default inksights) and the password (the browser's login window). The boards fetch their
 # frame and their firmware without it. login.json in the data folder holds what the Login card set (on/off,
 # the salted hash of its password) and a mark of the Docker password of that moment. The newer change wins:
-# when LOGIN_PASSWORD in the Docker settings differs from that mark at the start (changed there since),
+# when INKSIGHTS_PASSWORD in the Docker settings differs from that mark at the start (changed there since),
 # login.json is dropped and the Docker settings count again (forgotten password: delete login.json, or set
 # a new one there).
 DEFAULT_USER = "inksights"

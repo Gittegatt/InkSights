@@ -175,16 +175,18 @@ place it keeps with or without the top line.
 
 ### The settings page
 
-<img align="top" src="example_18_settings_page_2-13.png" alt="The settings page with the 2.13″ display and its Display card open" width="49%"> <img align="top" src="example_18_settings_page_4-2.png" alt="The settings page with the 4.2″ display and its Header card open" width="49%">
+<img align="top" src="example_18_settings_page_2-13.png" alt="The settings page, tab of the 2.13″ display: the live preview on the left, its cards on the right with the Display card open" width="49%"> <img align="top" src="example_18_settings_page_4-2.png" alt="The settings page, tab of the 4.2″ display: the live preview on the left, its cards on the right with the Header card open" width="49%">
 
-The settings page of two displays, each shown on its own: at the top the versions of the WebUI, the script and the
-firmware on each controller, then the display with its live preview and below it its cards. On the left the 2.13″
-with its **Display** card open (names, panel, rotation, rows per page, refresh, page turn, Sync with display,
-display pins), on the right the 4.2″ with its **Header** card open (title, colours, divider line, places). The
-other cards are folded, each with its **Ink** tick that switches that page on or off and its grip (two lines) to change the
-order of the pages. Below the page cards the cards of the three pictures (**The Conversation**, **The
-Intermission**, **The Afterhours**) and **Advanced Ink**. At the bottom the **About** card (folded): versions,
-project links, license, support.
+The settings page with two displays, one tab each (green dot = connected): at the top the versions of the WebUI,
+the script and the firmware on each controller, then the tab of a display with its live preview on the left (it
+stays in view while the page scrolls) and its cards on the right. On the left picture the 2.13″ with its
+**Display** card open (names, panel, rotation, rows per page, refresh, page turn, Sync with display, display
+pins), on the right picture the 4.2″ with its **Header** card open (title, places, colours, divider line). The
+other cards are folded, each with its **Ink** tick that switches that page on or off and its grip (two lines) to
+change the order of the pages. Below the page cards the cards of the three pictures (**The Conversation**, **The
+Intermission**, **The Afterhours**) and **Advanced Ink**. At the bottom, for the whole page, the **Login** card
+(the login of the page, off by default) and the **About** card (versions, project links, license, support), both
+folded.
 
 ### The simulator
 

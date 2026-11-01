@@ -364,10 +364,10 @@ ls -ln /mnt/apps/docker/data/inksights                     # owner and group: 56
 sudo -u apps touch /mnt/apps/docker/data/inksights/.test && echo "app user can write" && sudo rm /mnt/apps/docker/data/inksights/.test
 ```
 
-- `id apps` shows another number: use that one in `chown` and as `PUID`/`PGID` (see c).
+- `id apps` shows another number: use that one in `chown` and in the line `user:` of the settings page (see c).
 - `chown` says *Operation not permitted*, or the app user cannot write: the dataset has a restricted ACL. TrueNAS:
   *Datasets* → the dataset → *Permissions* → *Edit*, owner user and group `apps`, tick *Apply recursively*, save.
-- Other systems: use a user that owns the folder and set it with `PUID`/`PGID` (see c).
+- Other systems: use a user that owns the folder and enter it in the line `user:` (see c).
 
 ### c) Start the settings page and the script as a Docker app
 
@@ -377,36 +377,36 @@ copy. The stack starts two containers from it:
 - **`inksights`**: the settings page, without any rights on the system.
 - **`inksights-script`**: the script, as root with access to the system (see [d)](#d-the-script)), no port.
 
-`docker-compose.yaml` contains no system-specific paths. Its settings come from a `.env` file next to it:
+The settings are in `docker-compose.yaml` itself. The lines to adjust are marked with `<-` there:
 
-| Setting | Meaning | Default |
+| Line | What | Example |
 |---|---|---|
-| `DATA_DIR` | data folder from b) | `./data` (next to the compose file) |
-| `PORT` | port of the settings page | `8099` |
-| `PUID` / `PGID` | user/group the container runs as, needs write access to `DATA_DIR` | `568` (TrueNAS apps user) |
-| `RUN_DIR` | run folder of the script (in memory, frames for WiFi displays), read-only for the app | `/var/run/inksights` |
-| `INKSIGHTS_TAG` | version of the image, e.g. `1.0` to keep exactly that one | `latest` |
-| `OTA` | firmware updates of the WiFi boards from the settings page: `on` or `off` (see [Security](#security)) | `on` |
-| `LOGIN_USER` | user name of the login of the settings page | `inksights` |
-| `LOGIN_PASSWORD` | switches the login of the settings page on, with this password (a `$` in it is written `$$`); or switch it on in the **Login** card | none (no login) |
-| `SCRIPT_OPTIONS` | more options for the script, e.g. `-x sdz` (see `inksights.sh -h`) | none |
+| `- ./data:/data` (in both containers) | the data folder from b), left of the colon; the same in both | `- /mnt/apps/docker/data/inksights:/data` |
+| `user: 568:568` | the user that may write to the data folder (TrueNAS: `apps`) | `user: 1000:1000` |
+| `- 8099:8099` | left: the port of the page on your server | `- 8100:8099` |
+| `image: ...:latest` (in both containers) | a fixed version instead of the newest | `image: ghcr.io/gittegatt/inksights:1.0` |
+| `- INKSIGHTS_OTA=on` | firmware updates of the WiFi boards from the page: `on` or `off` (see [Security](#security)) | `- INKSIGHTS_OTA=off` |
+| `# - INKSIGHTS_PASSWORD=` | remove the `#` and enter a password: the login is on (a `$` in it is written `$$`); or switch it on in the **Login** card of the page | `- INKSIGHTS_PASSWORD=MyPassword` |
+| `# - INKSIGHTS_USER=inksights` | the user name of the login | `- INKSIGHTS_USER=admin` |
+| `command: /app/script-entry.sh -l` | more options for the script at the end (see `inksights.sh -h`) | `command: /app/script-entry.sh -l -x sdz` |
 
 ```
 sudo mkdir -p /mnt/apps/docker/stacks/inksights
-sudo cp /home/truenas_admin/inksights/server/docker/docker-compose.yaml /mnt/apps/docker/stacks/inksights/
-echo "DATA_DIR=/mnt/apps/docker/data/inksights" | sudo tee /mnt/apps/docker/stacks/inksights/.env
-cd /mnt/apps/docker/stacks/inksights && sudo docker compose up -d
+cd /mnt/apps/docker/stacks/inksights
+sudo cp /home/truenas_admin/inksights/server/docker/docker-compose.yaml .
+sudo sed -i 's#- ./data:/data#- /mnt/apps/docker/data/inksights:/data#' docker-compose.yaml   # the data folder, in both containers
+sudo docker compose up -d
 ```
 
 **Other ways to start it:**
 
-- **With your stack manager:** most of them read the `.env` file or have a field for these values.
+- **With your stack manager** (e.g. Dockge, Portainer): a new stack named `inksights`, paste the content of
+  `docker-compose.yaml` and adjust the marked lines.
 - **With the TrueNAS app list:** *Apps → Discover Apps* → three dots at the top right → **Install via YAML**, name
-  `inksights` (app names must be lowercase), paste the content of `docker-compose.yaml`. There is no `.env` file
-  there, so replace `${DATA_DIR:-./data}` (twice, once per container) with the full path of the data folder
-  (`${RUN_DIR:-/var/run/inksights}` and the others can stay as they are).
+  `inksights` (app names must be lowercase), paste the content of `docker-compose.yaml` and adjust the marked lines
+  (the data folder twice).
 - **Without internet access on the system**, or to try changes of your own: build the image from the project
-  folder and use it with `INKSIGHTS_TAG=local` in the `.env` file:
+  folder and use it with `:local` instead of `:latest` in both `image:` lines:
 
   ```
   cd /home/truenas_admin/inksights && sudo docker build -f server/docker/Dockerfile -t ghcr.io/gittegatt/inksights:local .
@@ -414,11 +414,11 @@ cd /mnt/apps/docker/stacks/inksights && sudo docker compose up -d
 
 **Then:**
 
-- The page is reachable at **http://&lt;server&gt;:8099**, or at the port set with `PORT` (then also give the boards
-  with WiFi that port in the address of the settings page, e.g. `http://192.168.1.10:8100`).
+- The page is reachable at **http://&lt;server&gt;:8099**, or at the port set left in `ports:` (then also give the
+  boards with WiFi that port in the address of the settings page, e.g. `http://192.168.1.10:8100`).
 - Do not open this port on your router (no port forwarding): the page belongs in your own network only.
 - The page has no login at first. Switch it on in the **Login** card at the bottom of the page (or with
-  `LOGIN_PASSWORD`), see [Security](#security).
+  `INKSIGHTS_PASSWORD`), see [Security](#security).
 - On its first start the app creates the settings file `inksights.conf` in the data folder, with the defaults. An
   existing one is never overwritten.
 - If the app cannot write to the data folder, the settings page says so at the top.
@@ -435,8 +435,8 @@ The script collects the data and sends every display its frame. It runs in the s
 - It runs as root with full access to the system (see [Security](#security)): it needs the USB ports of the
   boards, the drives, the pools and the network interfaces. It uses the tools of the system itself (`bash`,
   `lsblk`, `zpool`, `df`, ...), exactly as if it was started there, so it never wakes hard disks either.
-- More options for the script (e.g. `-x sdz` to never show a disk): `SCRIPT_OPTIONS` in the `.env` file, then
-  `sudo docker compose up -d`.
+- More options for the script (e.g. `-x sdz` to never show a disk): at the end of the line `command:` of
+  `inksights-script`, then `sudo docker compose up -d`.
 - **Run it only in this container.** If you started it with tmux or cron before, remove that (Init/Shutdown Script
   or Cron Job, then `sudo tmux kill-session -t inksights`). A second loop waits until the first one stops, so the
   displays do not get every frame twice.
@@ -606,7 +606,7 @@ Open **http://&lt;server&gt;:8099**.
 - The page itself shows no explanations, to keep it tidy; they are here.
 - Which cards are folded is remembered per browser.
 
-<img align="top" src="examples/example_18_settings_page_2-13.png" alt="The settings page with the 2.13″ display: versions, live preview, the Display card open, the other cards folded" width="35%"> <img align="top" src="examples/example_18_settings_page_4-2.png" alt="The settings page with the 4.2″ display: versions, live preview, the Header card open, the other cards folded" width="35%">
+<img align="top" src="examples/example_18_settings_page_2-13.png" alt="The settings page, tab of the 2.13″ display: the live preview on the left, its cards on the right with the Display card open" width="49%"> <img align="top" src="examples/example_18_settings_page_4-2.png" alt="The settings page, tab of the 4.2″ display: the live preview on the left, its cards on the right with the Header card open" width="49%">
 
 **A new display starts with:**
 
@@ -973,7 +973,7 @@ Framed sections:
   download breaks off.
 - The Docker image carries the firmware of every board with WiFi (built with the image). Running the settings page
   from a folder of the repository it carries none: then only **Manual update** works.
-- With `OTA=off` in the Docker settings the frame only says **Switched off on the server.** and nothing can be
+- With `INKSIGHTS_OTA=off` in the Docker settings the frame only says **Switched off on the server.** and nothing can be
   flashed from the page (see [Security](#security)).
 
 ### Beverages
@@ -1053,7 +1053,7 @@ Good to know:
 
 - The settings page sets the version: script and firmware belong to the same one. In the Docker app the script
   always has the version of the settings page.
-- With `INKSIGHTS_TAG` set to a version, set the new one in `.env` first.
+- With a fixed version in the `image:` lines, enter the new one there first.
 - With the TrueNAS app list, redeploy the app so it fetches the new image.
 - If `server/docker/docker-compose.yaml` changed, take the changes over into your stack and deploy it again.
 
@@ -1203,32 +1203,31 @@ updates, at least once a minute while such a display is there.
 - **The settings page has no login at first.** Everyone in your network who opens it can change the display
   settings and update the firmware of the boards with WiFi.
 - **Login card** (at the bottom of the page): tick **Login**, enter a new password twice, **Switch on**. From then
-  on the browser asks for the user name `inksights` (or the one set with `LOGIN_USER`) and that password. While it
+  on the browser asks for the user name `inksights` (or the one set with `INKSIGHTS_USER`) and that password. While it
   is on: **Change password** with the current one, or untick **Login** and **Switch off** with the current one.
   The data folder keeps it in `login.json` (only a salted hash, never the password itself).
-- **Or in the Docker settings:** `LOGIN_PASSWORD=...` in the `.env` file next to `docker-compose.yaml` (TrueNAS app
-  list: the value of `INKSIGHTS_PASSWORD`), then `sudo docker compose up -d`: the login is on with that password.
-  The newer change wins: change `LOGIN_PASSWORD` afterwards and what the Login card set is dropped at the next
-  start; a change in the Login card counts until `LOGIN_PASSWORD` changes again.
+- **Or in the Docker settings:** in `docker-compose.yaml` remove the `#` in front of `- INKSIGHTS_PASSWORD=` and
+  enter a password, then `sudo docker compose up -d`: the login is on with that password. The newer change wins:
+  change `INKSIGHTS_PASSWORD` afterwards and what the Login card set is dropped at the next start; a change in the
+  Login card counts until `INKSIGHTS_PASSWORD` changes again.
 - **With the login** the page only takes ESP32 firmware files, and a board only takes one that fits. A wrong
   password costs a second, so guessing is slow.
 - **Without a login, always:** what the boards need, their frame and their firmware update. A board's own WiFi page
   (setup access point) has no login either.
 - **Forgot the password?** Delete `login.json` in the data folder and restart the app
-  (`sudo docker restart inksights`): the login is off again (or back to `LOGIN_PASSWORD`, if that is set). Or set a
-  new `LOGIN_PASSWORD` as above. Only someone with access to the server can do this.
+  (`sudo docker restart inksights`): the login is off again (or back to `INKSIGHTS_PASSWORD`, if that is set). Or
+  set a new `INKSIGHTS_PASSWORD` as above. Only someone with access to the server can do this.
 - **The login is sent unencrypted** (plain http, like most pages in a home network). Use it only in your own
   network.
 - **Keep the page in your own network.** Do not open its port on your router (no port forwarding), and put guests
-  in a guest WiFi if your router has one. The port is set with `PORT` in the Docker settings
+  in a guest WiFi if your router has one. The port is set in `ports:` in the Docker settings
   ([3 c)](#c-start-the-settings-page-and-the-script-as-a-docker-app)).
 - **The script container has full access to the system** (`privileged`, the processes of the system): it needs
   the USB ports, drives, pools and network interfaces, as root, like a script started on the system. It has no
   port and no network of its own, so it cannot be reached from outside. The settings page runs in its own
   container without these rights: whoever gets into the page does not get into the system.
 - **Firmware updates can be switched off:** per display with **OTA** Off in its Advanced Ink card, or for all of them
-  with `OTA=off` in the `.env` file next to `docker-compose.yaml`, then
-  `sudo docker compose up -d`. The page then flashes nothing at all, and it cannot be switched on again from the
+  with `- INKSIGHTS_OTA=off` in `docker-compose.yaml`, then `sudo docker compose up -d`. The page then flashes nothing at all, and it cannot be switched on again from the
   page, only in the Docker settings.
 - **WiFi passwords** stay in the settings file of the data folder (readable only for the app and root), are never
   shown on the page again and reach a board only over USB (see [4. WiFi](#4-wifi-optional)).
@@ -1248,7 +1247,7 @@ updates, at least once a minute while such a display is there.
 | Port not found when uploading | SAMD21: press RESET twice quickly, or the 1200 baud touch (see [2.](#2-upload-the-firmware)). ESP32: hold BOOT while plugging in. |
 | XIAO ESP32-C3 does not start with the display connected | Choose another pin than D9 for D/C on the settings page. |
 | Hard disks wake up | Data folder and Docker data must be on an SSD (see 3 b). |
-| Settings page asks for a login | User `inksights` (or the one set with `LOGIN_USER`) and the password set in the Login card or with `LOGIN_PASSWORD`. Forgotten: see [Security](#security). |
+| Settings page asks for a login | User `inksights` (or the one set with `INKSIGHTS_USER`) and the password set in the Login card or with `INKSIGHTS_PASSWORD`. Forgotten: see [Security](#security). |
 | Settings page does not start, or *Save* fails | Look at `sudo docker logs --tail 20 inksights`. *Permission denied*: the app user cannot use the data folder, see "Check the app user" in 3 b). |
 | Log says `Data folder … not found`, settings page shows old data | Script without Docker: it was started with another folder after `-d` than the data folder of the app. Fix the line in 3 d) and start it again. |
 | `inksights-script` stops with *cannot reach the system* | The container needs `privileged: true` and `pid: host` (as in `docker-compose.yaml`). |
