@@ -356,10 +356,14 @@ Framed sections:
 - In one row: **Screens** (whether the display shows its start screen after power-up, ticked by default), **Bar
   behaviour** (**Auto collapse**) and **Beverages** (see [Beverages](#beverages)).
 - **OTA Update:** new firmware over WiFi, see below.
-- **Backup** of the display's settings (see below).
-- **Remove** (beside Backup, only for a display that is not connected): **Remove display** takes it and its settings off the page
-  (with *Save*), e.g. an old display that is no longer plugged in. When it is connected again, it shows up again,
-  with the settings of a new display.
+- **Maintenance** (folded): the tools needed now and then, the most used first, the final one last:
+  - **Backup** of the display's settings (see below)
+  - **Firmware** (boards with WiFi): **Force reinstall** puts the firmware the settings page brings with it on the
+    board again, also when the board already runs that version (e.g. after a build with the same number). The same
+    steps and status line as **Update firmware**.
+  - **Remove** (only for a display that is not connected): **Remove display** takes it and its settings off the page
+    (with *Save*), e.g. an old display that is no longer plugged in. When it is connected again, it shows up again,
+    with the settings of a new display.
 - **Frame** (folded, at the end): what the display receives, over USB or WiFi.
 
 | Setting | Off means |
@@ -376,7 +380,7 @@ Framed sections:
 
 - **Export** saves the settings of this display as a JSON file, with the InkSights version it was made with:
   - name: `inksights-v<version>-<name>-<chip id>-<date>.json`, e.g.
-    `inksights-v1.1.1-living-room-1a2b3c4d-2026-10-26.json` (the name only when the display has one)
+    `inksights-v1.1.2-living-room-1a2b3c4d-2026-10-26.json` (the name only when the display has one)
   - WiFi passwords are not in it: they never reach the page
 - **Import** reads such a file into this display, also one of another board (e.g. after replacing a board, which
   has a new chip ID):
@@ -400,9 +404,13 @@ Framed sections:
   (`inksights-v<version>-<board>-factory.bin`) or the `firmware.bin` of a build. The page checks it first: an
   ESP32 firmware for this chip and this board, small enough for its firmware slot. The result stands below the buttons:
   **Firmware valid.** in green, then **Upload** flashes it.
-- While it runs, the frame shows `Waiting for the board`, then `Loading firmware … %`, then `Updated` or `Update
-  failed` with the reason. The board checks size and checksum before it switches; the old firmware stays when the
-  download breaks off.
+- While it runs, only its status line stands in the frame, and the page asks every 2 seconds:
+  - `Waiting for the board · last contact 12 s ago`: the board fetches it with its next request (every 30 seconds)
+  - `Loading firmware 1.1.2 … 45 %`
+  - `Restarting … 8 s`: the board checks size and checksum, switches, restarts and joins the WiFi again
+  - `Updated to firmware 1.1.2; the board has restarted.`, or `Update failed` with the reason
+- The old firmware stays when the download breaks off or the check fails. A board that is off or out of the WiFi
+  goes on by itself once it is back (the page waits up to 10 minutes).
 - The Docker image carries the firmware of every board with WiFi (built with the image). Running the settings page
   from a folder of the repository it carries none: then only **Manual update** works.
 - With `INKSIGHTS_OTA=off` in the Docker settings the frame only says **Switched off on the server.** and nothing can be

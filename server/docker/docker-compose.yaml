@@ -10,7 +10,7 @@ name: inksights
 
 services:
   inksights:                                    # the settings page
-    image: ghcr.io/gittegatt/inksights:latest   # or a fixed version, e.g. :1.1.1
+    image: ghcr.io/gittegatt/inksights:latest   # or a fixed version, e.g. :1.1.2
     container_name: inksights
     restart: unless-stopped
     user: 568:568                               # <- user with write access to the data folder (TrueNAS: apps)

@@ -21,6 +21,9 @@
  *   backend.docker        -> the Docker card and pages (load() state carries docker: [{ name, state R/E/S, update, stack }],
  *                            null = no Docker on the system)
  *   backend.dockerStacks  -> the Docker card offers one row per stack (Rows: Stacks / Containers)
+ *   backend.otaPlus       -> firmware updates with a status that counts (last contact, restarting), the last contact
+ *                            of WiFi boards in the display card, and the Maintenance fold in Advanced Ink with
+ *                            Backup, Force reinstall and Remove
  *   backend.offlineNoData -> a display that is not connected previews its "Check connection" screen (simulator)
  *
  * Drawing: inksights-render.js. No description texts next to the controls (labels only).
@@ -618,7 +621,7 @@
         const [sw, sh] = panelSize(panel, 0), sfb = new EPD.Fb(sw, sh), board = boardOf(live);
         const pins = String(live.pins || "").split(",").map(Number);
         const net = live.transport === "wifi" ? "sta" : live.net || "off";
-        EPD.drawSplash(sfb, { product: "InkSights", fw: live.fw || "1.1.1", id, board: board.name, panel: panel.name, color: panel.colors === 3,
+        EPD.drawSplash(sfb, { product: "InkSights", fw: live.fw || "1.1.2", id, board: board.name, panel: panel.name, color: panel.colors === 3,
           pinTitle: board.samd ? "Pins D" : "GPIO", pins: pins.length === 4 ? pins : [-1, -1, -1, -1],
           wifi: !board.wifi ? null : net === "sta" ? live.ip || "" : net === "ap" ? `AP ${s.wifi.apSsid || DEFAULT_AP_SSID} 192.168.4.1` : s.wifi.ssid ? "connecting ..." : "off",
           key: board.wifi && net === "ap" ? live.apKey || "" : null });
@@ -871,14 +874,24 @@
         redrawNow.push(el("button", { class: "btn small redraw", type: "button", onclick: () => startOta(id, s, ota.fw) }, "Update firmware"));
       // a display that is not connected (any more): forget it and its settings (with Save); when it comes
       // back it shows up again with the settings of a new display (Advanced Ink, user)
-      const remove = live ? [] : [el("div", { class: "field boxed" }, el("span", { class: "label" }, "Remove"),
+      // (otaPlus: in the Maintenance fold, over the whole width)
+      const remove = live ? [] : [el("div", { class: `field${backend.otaPlus ? " wide" : ""} boxed` }, el("span", { class: "label" }, "Remove"),
         el("div", { class: "choices" }, el("button", { class: "btn", type: "button",
           onclick: () => { delete config[id]; changed(); render(true); } }, "Remove display")))];
+      // Backup of this display's settings: Export, Import (otaPlus: in the Maintenance fold)
+      const backup = el("div", { class: `field${backend.otaPlus ? " wide" : ""} boxed` }, el("span", { class: "label" }, "Backup"),
+        el("div", { class: "choices" },
+          el("button", { class: "btn", type: "button", onclick: () => doExport(id) }, "Export"),
+          el("button", { class: "btn", type: "button", onclick: () => $(`import-${id}`).click() }, "Import"),
+          el("input", { type: "file", id: `import-${id}`, accept: ".json,application/json", hidden: true, onchange: e => doImport(id, e.target.files[0]) })));
 
       const via = live && live.transport === "wifi" ? "WiFi" : "USB";
       const meta = live
         ? [`ID ${id}`, live.transport === "wifi" ? `WiFi ${live.ip || ""}`.trim() : live.port, board.name,
-          live.fw ? el("span", { class: fwOff(live.fw) ? "warn" : "" }, `Firmware ${live.fw}`) : "", live.answer ? `Answer: ${live.answer}` : "no answer to the last frame"]
+          live.fw ? el("span", { class: fwOff(live.fw) ? "warn" : "" }, `Firmware ${live.fw}`) : "",
+          // a board with WiFi: when it last fetched its frame (otaPlus)
+          backend.otaPlus && live.seen > 0 ? tickEl("span", "", "last contact {s} s ago", live.seen * 1000) : "",
+          live.answer ? `Answer: ${live.answer}` : "no answer to the last frame"]
         : [`ID ${id}`, "not connected at the last update"];
 
       // WiFi (boards with WiFi): sent to the display over USB; passwords are never shown again
@@ -1186,6 +1199,23 @@
       const frameFold = el("details", { class: "fold boxed" },
         el("summary", {}, `Frame (data received via ${via})`),
         el("pre", { id: `frame-${id}` }));
+      // Maintenance (otaPlus; folded, above the Frame; every display): the tools needed now and then, the most
+      // used first, the final one last (user): Backup; Force reinstall (boards with WiFi: the firmware the WebUI
+      // carries, also when the board runs the same version, e.g. a build with the same number; the same status
+      // line as the update above); Remove (a display that is not connected)
+      const canReinstall = ota.ok || ota.same;
+      const reinstallBox = versionCheck && backend.ota && otaOn && s.ota !== 0 && board.wifi
+        ? el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Firmware"),
+          el("div", { class: "choices" },
+            el("button", { class: "btn", type: "button", disabled: !canReinstall || otaBusy, onclick: () => startOta(id, s, ota.fw) }, "Force reinstall")),
+          ...(!canReinstall ? [el("p", { class: `about-text${ota.plain ? "" : " warn"}` }, ota.why)] : []),
+          ...(otaStatus(live) ? [otaStatus(live)] : []))
+        : null;
+      const maintenance = backend.otaPlus
+        ? el("details", { class: "fold boxed", open: !!pref(id, "maintOpen", false), ontoggle: e => setPref(id, "maintOpen", e.target.open) },
+          el("summary", {}, "Maintenance"),
+          el("div", { class: "form" }, backup, ...(reinstallBox ? [reinstallBox] : []), ...remove))
+        : null;
       if (wifiCard) wifiCard.classList.add("keep-on");   // its settings are not dimmed when the page is off
       // Time: a page with the time in big, below it weekday and date (each when ticked); the system
       // time of the server, counted on by the board, or (boards with WiFi) NTP in a time zone.
@@ -1321,11 +1351,12 @@
           ...(versionCheck && backend.ota && otaOn && s.ota !== 0 ? [el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "OTA Update"),
             radios("ota", [[1, "On"], [0, "Off"]], 1, v => { s.ota = v; render(true); }),
             // the first line (Firmware up to date. / New firmware available!) right of the button (user), the rest below
+            // (otaPlus: while an update runs only its status line)
             ...((ol => [el("div", { class: "choices" },
-              el("button", { class: "btn", type: "button", disabled: !ota.ok || otaBusy, onclick: () => startOta(id, s, ota.fw) }, "Update firmware"), ol[0],
+              el("button", { class: "btn", type: "button", disabled: !ota.ok || otaBusy, onclick: () => startOta(id, s, ota.fw) }, "Update firmware"), ...ol.slice(0, 1),
               // a firmware that fits: what the click does (user)
-              ...(ota.ok && !otaBusy ? [el("span", { class: "ota-note plain" }, "Click initiates the update.")] : [])), ...ol.slice(1)])(otaLines(live, ota))),
-            ...(otaText(live && live.ota) ? [el("p", { class: `about-text${live.ota.state === "failed" ? " warn" : ""}` }, otaText(live.ota))] : []),
+              ...(ota.ok && !otaBusy ? [el("span", { class: "ota-note plain" }, "Click initiates the update.")] : [])), ...ol.slice(1)])(backend.otaPlus && otaBusy ? [] : otaLines(live, ota))),
+            ...(otaStatus(live) ? [otaStatus(live)] : []),
             // manual update: a firmware file from this computer, checked here before it is uploaded
             ...(backend.otaFile ? [el("span", { class: "label" }, "Manual update"),
               el("div", { class: "choices" },
@@ -1336,13 +1367,10 @@
                 el("input", { type: "file", id: `otafile-${id}`, accept: ".bin,application/octet-stream", hidden: true, onchange: e => pickOtaFile(id, e.target.files[0], live, board) })),
               // the check of the chosen file below the buttons (user)
               ...(otaFiles[id] ? [el("p", { class: `about-text${otaFiles[id].ok ? " good" : otaFiles[id].plain ? "" : " warn"}` }, otaFiles[id].why)] : [])] : []))] : []),
-          // Backup half the width, Remove beside it (only for a display that is not connected; user)
-          el("div", { class: "field boxed" }, el("span", { class: "label" }, "Backup"),
-            el("div", { class: "choices" },
-              el("button", { class: "btn", type: "button", onclick: () => doExport(id) }, "Export"),
-              el("button", { class: "btn", type: "button", onclick: () => $(`import-${id}`).click() }, "Import"),
-              el("input", { type: "file", id: `import-${id}`, accept: ".json,application/json", hidden: true, onchange: e => doImport(id, e.target.files[0]) }))),
-          ...remove),
+          // Backup half the width, Remove beside it (only for a display that is not connected; user);
+          // otaPlus: both in the Maintenance fold below
+          ...(maintenance ? [] : [backup, ...remove])),
+        ...(maintenance ? [maintenance] : []),
         frameFold);
       // System, Drives, Network, Time and WiFi move with their grip (dragged, or the arrow keys on it);
       // their order is the order of the pages on the display (H field 28). Display, Header and
@@ -1528,6 +1556,7 @@
     }
 
     // ---------------------------------------------------------- data
+    let otaPoll = 0;
     async function load(force) {
       try {
         const data = await backend.load();
@@ -1548,6 +1577,10 @@
         syncPageName();
         if (newVersion) checkUpdate();
         showVersions();
+        // a firmware update running: asked every 2 seconds until it is done (else every pollMs)
+        clearTimeout(otaPoll);
+        if (backend.pollMs && (state.displays || []).some(d => d && d.ota && (d.ota.state === "pending" || d.ota.state === "loading")))
+          otaPoll = setTimeout(() => load(false), 2000);
       } catch (e) {
         $("status").textContent = "No connection to the app. Is it running on the server?";
         $("status").className = "status warn";
@@ -1685,6 +1718,21 @@
       // why it cannot be flashed from here: only with a newer firmware (user)
       return [el("p", { class: "about-text good" }, "New firmware available!"),
         ...(!ota.ok && !ota.same ? [el("p", { class: `about-text${ota.plain ? "" : " warn"}` }, ota.why)] : [])];
+    }
+    // A text that counts on every second: fmt with {s} = the seconds since atMs (see the ticker in start())
+    function tickEl(tag, cls, fmt, atMs) {
+      const secs = () => String(Math.max(0, Math.round((Date.now() - atMs) / 1000)));
+      return el(tag, { class: cls, "data-tick": fmt, "data-at": String(atMs) }, fmt.replace("{s}", secs()));
+    }
+    // The status line of an update, null = none. otaPlus: waiting with the board's last contact, and after 100 %
+    // "Restarting" with the seconds since then (the board checks, writes and restarts, then joins the WiFi again)
+    function otaStatus(live) {
+      const o = live && live.ota, t = otaText(o);
+      if (!t) return null;
+      const cls = `about-text${o.state === "failed" ? " warn" : ""}`;
+      if (backend.otaPlus && o.state === "pending" && live.seen > 0) return tickEl("p", cls, "Waiting for the board · last contact {s} s ago", live.seen * 1000);
+      if (backend.otaPlus && o.state === "loading" && o.pct >= 100 && o.at > 0) return tickEl("p", cls, "Restarting … {s} s", o.at * 1000);
+      return el("p", { class: cls }, t);
     }
     // the state of an update the board is running (state.json displays: ota {state, pct, version, error})
     function otaText(o) {
@@ -1869,7 +1917,7 @@
     }
     // simulator: a release one step after this installation (or after the skipped one)
     function testUpdate() {
-      const skip = pref("app", "skipVersion", ""), base = skip && newer(skip, appVersion) ? skip : appVersion || "1.1.1";
+      const skip = pref("app", "skipVersion", ""), base = skip && newer(skip, appVersion) ? skip : appVersion || "1.1.2";
       const p = verParts(base);
       latestRel = { version: `v${p[0] || 0}.${(p[1] || 0) + 1}`, url: "https://github.com/Gittegatt/InkSights/releases" };
       muted = false;
@@ -1930,6 +1978,11 @@
     if (backend.live) setInterval(pollLive, 500);
     // Sync with display: every second the step of the panel (a redraw when the firmware would make one)
     setInterval(() => { for (const e of displayList()) if (mirrorOn(e.id)) drawPreview(e); }, 1000);
+    // texts that count on (tickEl): last contact, restarting
+    setInterval(() => {
+      for (const t of document.querySelectorAll("[data-tick]"))
+        t.textContent = t.dataset.tick.replace("{s}", String(Math.max(0, Math.round((Date.now() - Number(t.dataset.at)) / 1000))));
+    }, 1000);
     // a time page in a preview: drawn again as the minutes go on
     setInterval(() => { if (displayList().some(e => { const s = settingsFor(e.id); return s.showTime === 1 || ARTS.some(a => s[a.p + "Clock"] === 1); })) drawAll(); }, 20000);
 

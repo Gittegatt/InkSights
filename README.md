@@ -202,7 +202,7 @@ chosen later on the settings page.
 
 Download the file of your board from the [releases](https://github.com/Gittegatt/InkSights/releases). The name
 ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
-`inksights-v1.1.1-esp32-c3-supermini-factory.bin`. `SHA256SUMS.txt` in the release lists the checksums of all files.
+`inksights-v1.1.2-esp32-c3-supermini-factory.bin`. `SHA256SUMS.txt` in the release lists the checksums of all files.
 
 **ESP32 boards (`-factory.bin`) in the browser** with [ESPWebTool](https://esptool.spacehuhn.com/) (Chrome or Edge):
 
@@ -224,7 +224,7 @@ ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
 
 1. Plug in the board and press RESET twice quickly (the two pads next to the USB port; touch them twice with
    tweezers or a wire). The orange LED pulses and a drive named **Arduino** appears.
-2. Copy `inksights-v1.1.1-xiao-samd21.uf2` onto that drive.
+2. Copy `inksights-v1.1.2-xiao-samd21.uf2` onto that drive.
 3. The board restarts with the new firmware by itself; the drive disappears.
 
 > [!TIP]
@@ -248,9 +248,9 @@ ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
 
 - `python scripts/build_release.py` builds every board and writes the files to `dist/v<version>/`
   (`--environment <env>` for one board only).
-- Pushing a tag such as `v1.1.1` to GitHub builds them there as well and creates a draft release with them.
+- Pushing a tag such as `v1.1.2` to GitHub builds them there as well and creates a draft release with them.
 - In the public repository the tag also builds the Docker image of the settings page and the script
-  (`ghcr.io/gittegatt/inksights:1.1.1` and `:latest`).
+  (`ghcr.io/gittegatt/inksights:1.1.2` and `:latest`).
 
 </details>
 
@@ -286,7 +286,7 @@ After power-up every display shows a start screen until the first data arrives: 
 InkSights in big letters with its logo. It can be switched off in the [Advanced Ink card](docs/settings-page.md#advanced-ink-card).
 
 ```
-InkSights                  v1.1.1
+InkSights                  v1.1.2
            InkSights
 ID     1A2B3C4D
 Board  ESP32-C3 Super Mini
@@ -394,7 +394,7 @@ The settings are in `docker-compose.yaml` itself. The lines to adjust are marked
 | `- ./data:/data` (in both containers) | the data folder from b), left of the colon; the same in both | `- /mnt/apps/docker/data/inksights:/data` |
 | `user: 568:568` | the user that may write to the data folder (TrueNAS: `apps`) | `user: 1000:1000` |
 | `- 8099:8099` | left: the port of the page on your server | `- 8100:8099` |
-| `image: ...:latest` (in both containers) | a fixed version instead of the newest | `image: ghcr.io/gittegatt/inksights:1.1.1` |
+| `image: ...:latest` (in both containers) | a fixed version instead of the newest | `image: ghcr.io/gittegatt/inksights:1.1.2` |
 | `- INKSIGHTS_OTA=on` | firmware updates of the WiFi boards from the page: `on` or `off` (see [Security](#security)) | `- INKSIGHTS_OTA=off` |
 | `- INKSIGHTS_DOCKER_CHECK=360` | Docker pages: every how many minutes the script looks for newer images of the containers, 10 to 10080 (see [Docker card](docs/settings-page.md#docker-card)) | `- INKSIGHTS_DOCKER_CHECK=60` |
 | `# - INKSIGHTS_PASSWORD=` | remove the `#` and enter a password: the login is on (a `$` in it is written `$$`); or switch it on in the **Login** card of the page | `- INKSIGHTS_PASSWORD=MyPassword` |
@@ -615,7 +615,7 @@ Open **http://&lt;server&gt;:8099**.
   **Advanced Ink**.
 - A display that was connected before stays in the list with its settings, also after its controller was replaced
   (a new controller has a new chip ID). Take its settings over with **Export** / **Import** in the Advanced Ink
-  card, then remove the old one with **Remove display** there.
+  card (**Maintenance**), then remove the old one with **Remove display** there.
 - Change settings, *Save*, and the system applies them within a minute.
 - The page itself shows no explanations, to keep it tidy; they are here.
 - Which cards are folded is remembered per browser.
@@ -664,7 +664,9 @@ Open **http://&lt;server&gt;:8099**.
 - the preview (‹ › turns its pages)
 - **Redraw now**: redraws this display within a minute, even if nothing changed and without waiting for the
   3 minutes
-- a line with ID, port, board, firmware and the display's last answer
+- a line with ID, port, board, firmware and the display's last answer; for a board with WiFi also its last contact
+  (`last contact 12 s ago`, it asks every 30 seconds). A board with WiFi shows up within seconds of its first
+  request and counts as not connected 5 minutes after its last one.
 
 **At the bottom of the page:** the **Login** card (the login of the page, see [Security](#security)) and the
 **About** card with the versions, links to the project (GitHub, Releases, README), the license with the libraries

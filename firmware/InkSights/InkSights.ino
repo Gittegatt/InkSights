@@ -195,7 +195,7 @@
 
 const char PRODUCT_NAME[] = "InkSights";  // name in the start screen header (display name only;
                                                 // "PONG InkSights" below stays, the server looks for it)
-const char FW_VERSION[]   = "1.1.1";             // shown on the start screen and reported in PONG
+const char FW_VERSION[]   = "1.1.2";             // shown on the start screen and reported in PONG
 
 // ============================== Settings ===============================
 

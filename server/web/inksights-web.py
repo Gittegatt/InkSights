@@ -43,7 +43,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
-VERSION = "1.1.1"   # of InkSights (firmware, script and this app go together); the page compares it with the latest release
+VERSION = "1.1.2"   # of InkSights (firmware, script and this app go together); the page compares it with the latest release
 ID_RE = re.compile(r"^[0-9A-F]{8}$")
 NAME_RE = re.compile(r"^[A-Za-z0-9 ._+/-]{0,12}$")
 PAGE_NAME_RE = re.compile(r"^[^\x00-\x1f\x7f]{0,32}$")   # name of this page (header, browser tab); no tabs/line breaks
@@ -968,10 +968,11 @@ def ota_note(did, report, fw):
             if now - o["at"] > OTA_KEEP:
                 del OTA[did]
             return ""
-        if report == "done" or (o["state"] == "loading" and o["pct"] >= 100 and o["version"] and fw == o["version"]):
-            o.update(state="done", at=now, data=None, version=o["version"] or fw)
-        elif report.startswith("failed"):
+        # a failed report first: with Force reinstall the board runs the same version before and after
+        if report.startswith("failed"):
             o.update(state="failed", at=now, data=None, error=report[7:60] or "unknown")
+        elif report == "done" or (o["state"] == "loading" and o["pct"] >= 100 and o["version"] and fw == o["version"]):
+            o.update(state="done", at=now, data=None, version=o["version"] or fw)
         elif o["state"] == "loading":   # fetching frames again without restarting: the update broke off
             if now - o["at"] > 60:
                 o.update(state="failed", at=now, data=None, error="the board kept its firmware")
@@ -983,10 +984,81 @@ def ota_note(did, report, fw):
 
 
 def ota_public(did):
-    """What the page shows of an update: {"state", "version", "pct", "error"} or None"""
+    """What the page shows of an update: {"state", "version", "pct", "error", "at"} or None (at: when the state
+    or the last part of the download began, epoch s; after 100 % the page counts the restart from it)"""
     with OTA_LOCK:
         o = OTA.get(did)
-        return {k: o[k] for k in ("state", "version", "pct", "error")} if o else None
+        return {k: (int(o[k]) if k == "at" else o[k]) for k in ("state", "version", "pct", "error", "at")} if o else None
+
+
+WIFI_STALE = 300   # seconds without a fetch: a WiFi display counts as not connected (like WIFI_STALE in inksights.sh)
+INFO_NUM = {"colors": 3, "panel": 0, "fast": 0}   # number fields of wifi/<id>.info and their defaults
+
+
+def wifi_now(state, data_dir, run_dir):
+    """The WiFi displays as they are now, not only at the script's last full run: the last fetch (wifi/<id>.seen)
+    decides whether one counts as connected, its report (wifi/<id>.info) what it is. So a board shows up within
+    seconds of its first fetch and goes when it stops fetching. A display on USB keeps the script's entry."""
+    disp = [d for d in state.get("displays", []) if isinstance(d, dict)] if isinstance(state.get("displays"), list) else []
+    wdir = os.path.join(data_dir, WIFI_DIR)
+    try:
+        names = sorted(n[:-5] for n in os.listdir(wdir) if n.endswith(".info") and ID_RE.match(n[:-5]))
+    except OSError:
+        names = []
+    usb = {d.get("id") for d in disp if d.get("transport") != "wifi"}
+    now = int(time.time())
+
+    def fresh(did, old):
+        try:
+            with open(os.path.join(wdir, did + ".seen"), encoding="utf-8") as f:
+                seen, answer = (f.read(256).split("\n") + ["", ""])[:2]
+        except OSError:
+            return None
+        if not seen.isdigit() or now - int(seen) > WIFI_STALE:
+            return None
+        d = dict(old or {})
+        try:
+            with open(os.path.join(wdir, did + ".info"), encoding="utf-8") as f:
+                info = dict(l.split("=", 1) for l in f.read(4096).splitlines() if "=" in l)
+        except OSError:
+            info = {}
+        for k, rx in FRAME_ARGS.items():
+            v = info.get(k, "")
+            if not rx.match(v):
+                continue
+            if k in INFO_NUM:
+                d[k] = int(v)
+            elif k == "ssid":
+                d["ssidHex"] = v
+            elif k != "rows":
+                d[k] = v
+        for k, v in INFO_NUM.items():
+            d.setdefault(k, v)
+        d.update(port="WiFi", transport="wifi", id=did, wifi=1, net="sta", seen=int(seen), answer=answer.strip()[:100])
+        if "frame" not in d:
+            try:
+                with open(os.path.join(run_dir, FRAMES_DIR, did + ".txt"), encoding="utf-8") as f:
+                    d["frame"] = f.read(16384)
+            except OSError:
+                d["frame"] = ""
+        return d
+
+    out, done = [], set()
+    for d in disp:   # in the order of the script
+        if d.get("transport") != "wifi" or not isinstance(d.get("id"), str):
+            out.append(d)
+            continue
+        done.add(d["id"])
+        n = fresh(d["id"], d) if d["id"] not in usb else None
+        if n:
+            out.append(n)
+    for did in names:   # boards the script has not seen yet
+        if did not in done and did not in usb:
+            n = fresh(did, None)
+            if n:
+                out.append(n)
+    state["displays"] = out
+    return state
 
 
 def live_frame(run_dir, query):
@@ -1128,7 +1200,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True})
         elif path == "/api/state":
             conf, interval, page_name = read_conf(os.path.join(data_dir, CONF_NAME))
-            state = load_state(data_dir)
+            state = wifi_now(load_state(data_dir), data_dir, self.server.run_dir)
             with WIFI_LOCK:   # WiFi displays: what their panel shows (Sync with display)
                 for d in state.get("displays", []) if isinstance(state, dict) else []:
                     if isinstance(d, dict) and d.get("transport") == "wifi" and d.get("id") in PANEL_NOW:

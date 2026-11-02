@@ -4,7 +4,7 @@ The lines between the script and a board (USB) and what a WiFi board fetches. Se
 [README](../README.md) for the rest.
 
 ```
-PING                                   -> PONG InkSights id=1A2B3C4D size=212x104 colors=3 rows=4 pins=7,9,6,5 panel=1 board=xiao-samd21 wifi=0 fw=1.1.1
+PING                                   -> PONG InkSights id=1A2B3C4D size=212x104 colors=3 rows=4 pins=7,9,6,5 panel=1 board=xiao-samd21 wifi=0 fw=1.1.2
 #BEGIN
 H|HDD|14:30|5|85|0|600
 D|sda|data|3.18T|8.95T|35|3|10|A
