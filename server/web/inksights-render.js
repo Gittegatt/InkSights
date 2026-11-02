@@ -407,7 +407,8 @@
   const pad2 = n => String(n).padStart(2, "0");
   // Time left until spindown: MM:SS, from 100 minutes on 1h40
   const timerText = s => (s >= 6000 ? `${Math.floor(s / 3600)}h${pad2(Math.floor(s / 60) % 60)}` : `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`);
-  const hasTimer = d => d.state !== "N" && d.state !== "-";
+  // noTimer: H field 8 = 2 (spindown timer off), the state still decides the symbol; "-" = the same from older scripts
+  const hasTimer = d => !d.noTimer && d.state !== "N" && d.state !== "-";
   const timerRunning = d => (d.state === "A" || d.state === "S") && d.remain >= 0 && d.timeout > 0;
   const timerLeft = d => (d.state === "A" && timerRunning(d) ? clamp(d.remain / d.timeout, 0, 1) : 0);
 
@@ -1336,7 +1337,11 @@
     // looked for (H field 33)
     if (kind === "K") {
       const cs = m.containers || [];
-      if (!cs.length) { fb.text(hx, HH + 6, ["No containers", "No errors", "All up to date", "All fine"][m.dockerFilter || 0], BK, hs); return; }
+      if (!cs.length) {   // none to show: no Docker at all, or what the filter looked for (H field 33)
+        const none = m.dockerNone ? "Docker not found" : ["No Docker containers", "No Docker errors", "Docker up to date", "No Docker errors or updates"][m.dockerFilter || 0];
+        wrapped(fb, hx, HH + 6, none, hs);
+        return;
+      }
       const part = cs.slice(idx * rows, idx * rows + rows).map(c => dockerRow(c, m.mono || m.dockerColor === 0 ? BK : RD, m.dockerHi === 1));
       drawRows(fb, part, HH, wide, stacked, m.dockerPage === 1, 2, rows);   // a list: always from the top
       return;
@@ -1412,6 +1417,14 @@
     return { icon, label: n.name, info: n.rx >= 0 ? DOWN + kib(n.rx) : "", value: n.tx >= 0 ? UP + kib(n.tx) : "--",
       bar: pct >= 0 ? [pct, pct] : null, pair: true,   // down and up belong together
       barText: pct < 0 ? null : barMode === 1 ? `${pct}%` : barMode === 2 ? linkText(n.link) : null };
+  }
+  // A text at x, y in size z, on two lines when it is wider than the screen (upright): broken at the
+  // last space that lets the first line fit
+  function wrapped(fb, x, y, s, z) {
+    const max = Math.trunc((fb.w - 2 * x + z) / (L.CHAR_W * z));
+    let lines = [s];
+    if (s.length > max) { const i = s.lastIndexOf(" ", max); if (i > 0) lines = [s.slice(0, i), s.slice(i + 1)]; }
+    lines.forEach((t, i) => fb.text(x, y + i * 10 * z, t, BK, z));
   }
   // A container of the Docker pages: its name, its state (running / error / stopped; error in the third
   // colour) and "update" at the right when a newer image is out (third colour). Text rows like the
@@ -1719,12 +1732,14 @@
         done = rx; rx = null; continue;
       }
       if (line.startsWith("H|")) {
-        const f = splitFields(line, 36);
+        const f = splitFields(line, 37);
         if (f.length >= 3) {
           rx.host = f[1].slice(0, 16); rx.time = f[2].slice(0, 5);
           rx.rows = f.length >= 4 ? clamp(atoi(f[3]), 0, 6) : 0;
           rx.warn = f.length >= 5 ? clamp(atoi(f[4]), 0, 100) : L.WARN_PCT;
-          rx.timer = f.length >= 8 ? clamp(atoi(f[7]), 0, 1) : 0;   // 0 badge, 1 ring
+          const tm = f.length >= 8 ? atoi(f[7]) : 0;
+          rx.noTimer = tm === 2;   // 2: no timer at the right (spindown timer off)
+          rx.timer = tm === 2 ? 0 : clamp(tm, 0, 1);   // 0 badge, 1 ring
           rx.ringDir = f.length >= 9 ? clamp(atoi(f[8]), 0, 1) : 0;   // 0 clockwise, 1 counterclockwise
           rx.icons = f.length >= 10 ? clamp(atoi(f[9]), 0, 1) : 1;    // symbols left of the bar, 0 = off
           rx.pctBar = f.length >= 11 ? clamp(atoi(f[10]), 0, 2) : 0;  // details in the bar: 0 none, 1 percentage, 2 used capacity
@@ -1756,6 +1771,7 @@
           rx.dockerColor = f.length >= 34 && f[33] === "0" ? 0 : 1;   // errors and updates in the third colour (colour panels)
           rx.dockerHi = f.length >= 35 && f[34] === "1" ? 1 : 0;     // errors and updates highlighted: in a box
           rx.dockerCue = f.length >= 36 && f[35] === "1" ? 1 : 0;    // On cue: the page only when the filter finds a container
+          rx.dockerNone = f.length >= 37 && f[36] === "0" ? 1 : 0;   // no Docker on the system: "Docker not found"
         }
       } else if (line.startsWith("S|")) {
         // system page: components (C R N V S) | cpu % | cpu °C | cpu W | RAM used MiB | ZFS cache MiB |
@@ -1808,7 +1824,7 @@
           dev: f[1].slice(0, 9), pool: f[2].slice(0, 15), used: f[3].slice(0, 7), total: f[4].slice(0, 7),
           pct: clamp(atoi(f[5]), -1, 100),
           // the percentage with up to 2 decimals as sent (cut, not rounded), else the whole one
-          pctText: /^\d{1,3}(\.\d{1,2})?$/.test(f[5]) && Number(f[5]) <= 100 ? f[5] : String(clamp(atoi(f[5]), -1, 100)), idle: clamp(atoi(f[6]), 0, steps), steps, state: f[8][0] || "?",
+          pctText: /^\d{1,3}(\.\d{1,2})?$/.test(f[5]) && Number(f[5]) <= 100 ? f[5] : String(clamp(atoi(f[5]), -1, 100)), idle: clamp(atoi(f[6]), 0, steps), steps, state: f[8][0] || "?", noTimer: !!rx.noTimer,
           // seconds until spindown (-1 = unknown) and the timeout, for the MM:SS timer styles
           remain: f.length >= 10 && /^-?\d+$/.test(f[9]) ? clamp(Number(f[9]), -1, 359999) : -1,
           timeout: f.length >= 11 ? clamp(atoi(f[10]), 0, 359999) : 0,
@@ -1878,7 +1894,8 @@
     // months, and the months; -1 = none
     const layout = s.showHeader === 0 ? "---" : layoutOk(s.layout) ? s.layout : DEFAULT_LAYOUT;
     const up = layout.toUpperCase().includes("U") && system && Number.isInteger(system.upRest) && system.upRest >= 0;
-    const extra = [s.timer || 0, s.ringDir || 0, s.icons === 0 ? 0 : 1, s.pctBar ? (s.barCap ? 2 : 1) : 0, fast ? s.fast || 0 : 0,
+    // H field 8: 0 badge, 1 ring, 2 no timer (spindown timer off)
+    const extra = [s.boxes ? s.timer || 0 : 2, s.ringDir || 0, s.icons === 0 ? 0 : 1, s.pctBar ? (s.barCap ? 2 : 1) : 0, fast ? s.fast || 0 : 0,
       up ? system.upRest : -1, up ? system.upMonths || 0 : 0, s.showWifi ? (s.wifiIcons === 0 ? 2 : 1) : 0,   // H field 15: WiFi page
       interval > 0 ? noDataSecs(interval) : 0,   // H field 16: seconds until "NO DATA"
       layout, s.showDisks === 0 || !(s.types || []).length ? 0 : 1,   // H field 18: disk pages on
@@ -1898,8 +1915,9 @@
       s.showDocker === 1 ? s.dockerFilter || 0 : 0,   // H field 33: the containers shown: 0 all, 1 errors, 2 updates, 3 both
       s.showDocker === 1 && s.dockerColor === 0 ? 0 : 1,   // H field 34: errors and updates in the third colour (Color highlight)
       s.showDocker === 1 && s.dockerHi === 1 ? 1 : 0,   // H field 35: errors and updates highlighted, in a box
-      s.showDocker === 1 && s.dockerCue === 1 && s.dockerFilter ? 1 : 0];   // H field 36: On cue (only with a filter)
-    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, PAGE_ORDER, 0, 0, 0, 0, 0, 1, 0, 0];
+      s.showDocker === 1 && s.dockerCue === 1 && s.dockerFilter ? 1 : 0,   // H field 36: On cue (only with a filter)
+      s.showDocker === 1 && docker === null ? 0 : 1];   // H field 37: Docker found (null: no Docker on the system)
+    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, PAGE_ORDER, 0, 0, 0, 0, 0, 1, 0, 0, 1];
     while (extra.length && extra[extra.length - 1] === defaults[extra.length - 1]) extra.pop();
     const head = [`H|${title}|${time}|${s.rows || 0}|${s.warn ?? L.WARN_PCT}|${Math.trunc((s.rot || 0) / 90)}|${s.page ?? 600}`, ...extra].join("|");
     const lines = ["#BEGIN", head];
@@ -1935,8 +1953,8 @@
       }
       else if (d.size > 0) total = hsize(d.size);   // not mounted: the size of the disk
       let steps = 0, idle = 0, st = d.state, remain = -1, tmo = 0;
-      if (!s.boxes) { if (st !== "N") st = "-"; }   // timer off; flash drives keep N (chip symbol)
-      else if ((st === "A" || st === "S") && d.timeout > 0 && d.poll > 0) {
+      // timer off (H field 8 = 2): no timer values; the state still decides the symbol
+      if (s.boxes && (st === "A" || st === "S") && d.timeout > 0 && d.poll > 0) {
         steps = Math.min(Math.ceil(d.timeout / d.poll), s.boxes);
         idle = Math.min(Math.floor(d.idle * steps / d.timeout), steps);
         tmo = d.timeout;

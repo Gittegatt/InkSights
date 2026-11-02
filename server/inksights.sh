@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# inksights.sh v1.1.0
+# inksights.sh v1.1.1
 #
 # Collects drive status and system values (CPU, RAM, network, NVMe temperatures) on a Linux
 # server and sends them to one or more e-paper displays (firmware: firmware/InkSights):
@@ -40,7 +40,7 @@
 # Frame format (one line per record, fields separated by '|'):
 #   #BEGIN
 #   H|<title>|<HH:MM>|<rows per page, 0 = auto>|<highlight from % used, 0 = never>|<quarter turns 0-3>|<page turn s, 0 = off>[|<timer 0 badge / 1 ring>|<ring direction 0 cw / 1 ccw>|<symbols 1 on / 0 off>|<details in the bar 0 none / 1 percentage / 2 used capacity>|<fast refresh s, 0 = off>|<uptime: minutes after the full months, -1 = page number>|<uptime: full calendar months>|<WiFi page 0 off / 1 symbols / 2 without>|<s without a fresh frame before "NO DATA", 0 = never>|<header left, middle, right: T title, P page, U uptime, C time, - nothing; lower case = highlighted; --- = no header>|<disk pages 1 on / 0 off>|<network details in the bar 0 none / 1 percentage / 2 link speed>|<network symbols 1 / 0>|<drive temperatures 1 on / 0 off>|<asleep hard disks 1 "STBY" / 0 "--">|<header inverted 1 / 0>|<inverted header: highlighted places in the third colour 1 / 0>]
-#   D|<disk>|<pool>|<used>|<total>|<pct, with 1 or 2 decimals (cut) when set>|<idle boxes>|<boxes>|<state A/S/N/?/- (timer off, flash drives keep N)>|<s until spindown, -1 = unknown>|<timeout s>[|<°C, -1 = unknown, -2 = asleep: only with drive temperatures on>]
+#   D|<disk>|<pool>|<used>|<total>|<pct, with 1 or 2 decimals (cut) when set>|<idle boxes>|<boxes>|<state A/S/N/?>|<s until spindown, -1 = unknown>|<timeout s>[|<°C, -1 = unknown, -2 = asleep: only with drive temperatures on>]
 #   S|<components>|<cpu %>|<cpu °C>|<cpu W>|<RAM used MiB>|<ZFS cache MiB>|<RAM total MiB>|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<NVMe °C,...>|<SSD °C,...>  (components may add H: HDD temperatures in a T line after it)
 #   T|<HDD °C,...>              (only with the HDD component and drive-temp-export running; -2 = asleep, -1 = unknown)
 #                              (only with the system page; components: C cpu, R ram, N network, V NVMe,
@@ -105,7 +105,7 @@ ALL_TYPES="hdd,ssd,nvme"
 DEFAULT_BOXES=0           # spindown timer off for a new display
 DEFAULT_WARN=85          # bar is highlighted from this % used
 DEFAULT_TITLE="InkSights" # title of the top line when the settings page sets none
-VERSION="1.1.0"           # of InkSights (firmware, script and settings page go together; state.json "version")
+VERSION="1.1.1"           # of InkSights (firmware, script and settings page go together; state.json "version")
 DEFAULT_PAGE=600         # seconds between automatic page turns on the display, 0 = off
 WIFI_STALE=300           # a WiFi display that has not fetched its frame for this long is left out
 TEMPS_EVERY=30           # seconds between NVMe / SSD temperature readings
@@ -127,6 +127,7 @@ CNAME_RE='^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 CLIST_RE='^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(,[A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,63}$'
 declare -a DK_NAMES=()
 declare -A DK_STATE=() DK_UPD=() DK_STACK=()   # DK_STACK: the Compose project (stack) of a container, if any
+DOCKER_FOUND=1           # 0: no Docker on the system (no docker command, or it does not answer): "Docker not found"
 PORTS=()
 EXCLUDE=()
 
@@ -865,7 +866,10 @@ else
     # (exited with an error, restarting, dead, unhealthy) / S stopped (exited 0, created, paused), and whether
     # a newer image is out (asked only while a display shows the Docker pages)
     # -----------------------
-    if command -v docker >/dev/null 2>&1; then
+    DOCKER_FOUND=0
+    dps=""
+    if command -v docker >/dev/null 2>&1 && dps=$(timeout 15 docker ps -a --format '{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Image}}\t{{.Label "com.docker.compose.project"}}' 2>/dev/null); then
+        DOCKER_FOUND=1
         docker_load
         DOCKER_ASK=0
         for p in "${CFG_PAGES[@]}"; do [[ ",$p," == *,docker,* ]] && DOCKER_ASK=1; done
@@ -881,13 +885,13 @@ else
             esac
             docker_update "$cimage"
             DK_NAMES+=("$cname"); DK_STATE[$cname]=$cst; DK_UPD[$cname]=$UPD; DK_STACK[$cname]=$cstack
-        done < <(timeout 15 docker ps -a --format '{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Image}}\t{{.Label "com.docker.compose.project"}}' 2>/dev/null)
+        done <<< "$dps"
         [ "$DRY_RUN" = false ] && docker_save
     fi
 
     if [ "$DRY_RUN" = false ]; then
         tmp="$(mktemp "$RUN_DIR/.cache.XXXXXX")" && {
-            declare -p HOST DISKS POOL_ORDER UID_ORDER D_UID UID_DEV D_TYPE D_POOL D_USEDB D_TOTALB D_USEDH D_TOTALH D_PCT D_SIZE DK_NAMES DK_STATE DK_UPD DK_STACK > "$tmp"
+            declare -p HOST DISKS POOL_ORDER UID_ORDER D_UID UID_DEV D_TYPE D_POOL D_USEDB D_TOTALB D_USEDH D_TOTALH D_PCT D_SIZE DK_NAMES DK_STATE DK_UPD DK_STACK DOCKER_FOUND > "$tmp"
             chmod 600 "$tmp"
             mv -f "$tmp" "$CACHE_FILE"
         }
@@ -1382,12 +1386,14 @@ build_frame() {
     local title="$1" types=",$2," maxb="$3" rows="$4" warn="$7" turns=$(( ${8:-0} / 90 )) pagesec="${9:-$DEFAULT_PAGE}"
     local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-1}" porder="${30:-SDNTW}" thead="${31:-0}" hfill="${32:-0}" pics="${33:-}" wifip="${34:-0}" dockp="${35:-}"
     local d steps idle tmo poll st remain tsec head i dt pct pdec u t
-    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0 0 7 1 SDNTW 0 0 0 0 0 1 0 0)
+    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0 0 7 1 SDNTW 0 0 0 0 0 1 0 0 1)
     order_disks "$5" "$6"
     local hm
     printf -v hm '%(%H:%M)T' -1
     head="H|$title|$hm|$rows|$warn|$turns|$pagesec"
     IFS=, read -ra sv <<< "$style"
+    # field 8: 0 badge, 1 ring, 2 no timer (spindown timer off); the D lines keep the real state for the symbol
+    (( maxb == 0 )) && sv[0]=2
     # field 11: details in the bar 0 none / 1 percentage / 2 used capacity (style: details on, capacity)
     # percentage with decimals (style value 6, 0-2), only while the percentage stands in the bar
     pdec=0; (( sv[3] == 1 && ${sv[4]:-0} == 0 )) && pdec=${sv[5]:-0}
@@ -1409,11 +1415,12 @@ build_frame() {
     local -a dp
     IFS=';' read -ra dp <<< "$dockp"
     if [[ -n "$dockp" ]]; then
-        sv+=("$(( ${dp[0]:-1} == 0 ? 2 : 1 ))" "${dp[1]:-0}" "${dp[2]:-1}" "${dp[3]:-0}" "$(( ${dp[1]:-0} > 0 ? ${dp[4]:-0} : 0 ))")
+        sv+=("$(( ${dp[0]:-1} == 0 ? 2 : 1 ))" "${dp[1]:-0}" "${dp[2]:-1}" "${dp[3]:-0}" "$(( ${dp[1]:-0} > 0 ? ${dp[4]:-0} : 0 ))" "$DOCKER_FOUND")
     else
-        sv+=(0 0 1 0 0)
+        sv+=(0 0 1 0 0 1)
     fi
-    local n=29
+    # field 37: Docker found 1 / 0 ("Docker not found" on the Docker page)
+    local n=30
     while (( n > 0 )) && [[ "${sv[n-1]}" == "${defs[n-1]}" ]]; do n=$((n - 1)); done
     for (( i = 0; i < n; i++ )); do head+="|${sv[i]}"; done
     FRAME=("#BEGIN" "$head")
@@ -1430,7 +1437,7 @@ build_frame() {
         [[ "$hidden" == *",${D_UID[$d]},"* ]] && continue
         steps=0; idle=0; st="${D_ST[$d]}"; remain=-1; tsec=0
         if (( maxb == 0 )); then
-            [[ "$st" == "N" ]] || st="-"   # timer off for this display; flash drives keep N (chip symbol)
+            :   # timer off for this display (field 8 = 2): no timer values; the state still decides the symbol
         elif [[ "$st" == "A" || "$st" == "S" ]]; then
             tmo=${D_TMO[$d]}; poll=${D_POLL[$d]}
             steps=$(( (tmo + poll - 1) / poll ))
@@ -1778,7 +1785,8 @@ write_state() {
                 "${D_ST[$d]}" "$( (( ${D_STALE[$d]:-0} )) && echo true || echo false )" "${D_IDLE[$d]}" "${D_TMO[$d]}" "${D_POLL[$d]}" "$temp" "${D_SIZE[$d]:-0}"
             sep=","
         done
-        # the Docker containers: name, state R / E / S, a newer image out (true / false)
+        # the Docker containers: name, state R / E / S, a newer image out (true / false); null = no Docker found
+        if (( DOCKER_FOUND )); then
         printf '\n  ],\n  "docker": ['
         sep=""
         for d in "${DK_NAMES[@]}"; do
@@ -1786,6 +1794,9 @@ write_state() {
             sep=","
         done
         printf '\n  ],\n  "system": %s,\n  "displays": [' "$SYS_JSON"
+        else
+            printf '\n  ],\n  "docker": null,\n  "system": %s,\n  "displays": [' "$SYS_JSON"
+        fi
         sep=""
         for d in "${DISPLAYS_JSON[@]}"; do
             printf '%s\n    %s' "$sep" "$d"

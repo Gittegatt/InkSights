@@ -49,7 +49,8 @@
  *     rot    : quarter turns clockwise from landscape (0 = 0°, 1 = 90°, 2 = 180°, 3 = 270°)
  *     page   : seconds between automatic page turns; 0 = off (always page 1),
  *              missing = PAGE_SECS. Never faster than MIN_REFRESH_MS.
- *     timer  : 0 = badge (MM:SS in a frame, default), 1 = ring
+ *     timer  : 0 = badge (MM:SS in a frame, default), 1 = ring, 2 = none (spindown timer off; the
+ *              D lines keep the real state A / S for the symbol)
  *     ringdir: 0 = clockwise (default), 1 = counterclockwise
  *     icons  : 1 = symbols left of the bar (default), 0 = off
  *     pct    : details inside the bar: 1 = percentage, 2 = used capacity, 0 = off (default)
@@ -94,10 +95,12 @@
  *     netpages: (31st field) network pages 1 on also without interfaces / 0 (default)
  *     docker : (32nd field) Docker pages 0 off (default) / 1 with symbols / 2 without
  *     dfilter: (33rd field) Docker pages: the containers sent, 0 all / 1 errors / 2 updates / 3 both
- *              (only for the text when none came: "No containers", "No errors", "All up to date", "All fine")
+ *              (only for the text when none came: "No Docker containers", "No Docker errors", "Docker up
+ *              to date", "No Docker errors or updates")
  *     dcolor : (34th field) Docker pages: "error" and "update" in the third colour 1 (default) / black 0
  *     dhigh  : (35th field) Docker pages: "error" and "update" highlighted, in a box 1 / 0 (default)
  *     dcue   : (36th field) Docker pages: On cue 1 = no Docker page when no K line came / 0 (default)
+ *     dfound : (37th field) Docker found 1 (default) / 0: no Docker on the system ("Docker not found")
  *   C|<YYYYMMDDHHMMSS>|<date 1/0>|<weekday 1/0>|<date format 0-3>|<ntp 1/0>|<ntp server or ->|<POSIX zone or ->[|<color 1/0>|<frame 1/0>]
  *                              (optional) the time page: the time in big (color: in the third
  *                              colour, frame: with a black outline; colour panels), below it
@@ -124,7 +127,8 @@
  *               -1 = no pool / nothing mounted (total = disk size or "-")
  *     idle, boxes : old spindown box count (still sent, not drawn any more)
  *     state   : A = spinning, S = standby, N = SSD/NVMe, ? = unknown,
- *               - = timer off for this display (HDDs only, no timer at the right)
+ *               - = timer off for this display (HDDs only, no timer at the right; older scripts, now
+ *               H field 8 = 2 with the real state)
  *     remain  : seconds until spindown, -1 = timer not running (no fresh status)
  *     timeout : spindown timeout in seconds
  *     °C      : drive temperature (only with the temps field), -1 = unknown: "--",
@@ -191,7 +195,7 @@
 
 const char PRODUCT_NAME[] = "InkSights";  // name in the start screen header (display name only;
                                                 // "PONG InkSights" below stays, the server looks for it)
-const char FW_VERSION[]   = "1.1.0";             // shown on the start screen and reported in PONG
+const char FW_VERSION[]   = "1.1.1";             // shown on the start screen and reported in PONG
 
 // ============================== Settings ===============================
 
@@ -317,6 +321,7 @@ struct Disk {
   int32_t timeout;   // spindown timeout in seconds
   int16_t temp;      // °C, -1 = unknown, -2 = asleep (only with hasTemp: the D line carries it)
   bool    hasTemp;
+  bool    noTimer;   // H field 8 = 2: no timer at the right (spindown timer off), the state still decides the symbol
 };
 
 // Settings of the screen from the H line
@@ -347,6 +352,7 @@ struct Head {
   uint8_t  dockerFilter;// the containers sent: 0 all, 1 errors, 2 updates, 3 both (the text when none came)
   uint8_t  dockerColor; // "error" and "update" in the third colour 1 / black 0
   uint8_t  dockerHi;    // "error" and "update" highlighted (in a box) 1 / 0
+  uint8_t  dockerNone;  // no Docker on the system 1 ("Docker not found") / 0
 };
 
 // A container of the Docker pages (K line)
@@ -519,7 +525,7 @@ Disk    rxDisks[MAX_DISKS];    // what is being received
 uint8_t diskCount  = 0;
 uint8_t rxCount    = 0;
 bool    rxActive   = false;
-const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, 0, 0, "SDNKTW", 0, 0, 0, 0, 1, 0 };
+const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, 0, 0, "SDNKTW", 0, 0, 0, 0, 1, 0, 0 };
 Head    head   = HEAD_DEFAULT;
 Head    rxHead = HEAD_DEFAULT;
 Pics    pics;                  // the pictures shown (picsDefault() in setup)
@@ -541,6 +547,7 @@ Container rxContainers[MAX_CONTAINERS];   // being received
 uint8_t containerCount   = 0;
 uint8_t rxContainerCount = 0;
 bool    rxDockerCue = false;   // On cue (H field 36): no Docker page when no K line came
+bool    rxNoTimer   = false;   // H field 8 = 2: the disks of this frame get no timer
 uint32_t lastPageMs = 0;        // when the page was last turned
 
 char chipId[9]    = "";
@@ -585,6 +592,7 @@ bool     rxRedraw      = false;  // frame being received asks for a redraw now
 bool     forceRedraw   = false;  // redraw without waiting for MIN_REFRESH_MS
 uint32_t freshHash     = 0;      // frame including its time: a new one means the server is still sending
 uint32_t lastFreshMs   = 0;      // when the last fresh frame arrived
+uint32_t dataEveryMs   = 0;      // time between the last two fresh frames (when the next one is due), 0 = unknown
 bool     noDataShown   = false;  // "NO DATA" screen on the panel (or being drawn)
 
 // ---------------------------------------------------------------- helpers
@@ -933,6 +941,30 @@ bool headerOn() { return noDataShown || strcmp(head.layout, "---") != 0; }
 // Over WiFi the settings page keeps handing out the last frame when the script stops, so only a
 // frame that differs (its time changes every minute) counts as fresh.
 bool noDataNow() { return dataReceived && head.noData > 0 && (head.screens & 4) && millis() - lastFreshMs >= head.noData * 1000UL; }
+
+// Page turn and fresh data in one redraw (spares the panel): the window around a page turn in which they go
+// together, the shortest of 3 minutes, half the time between fresh frames and half the page turn time;
+// 0 = they never wait for each other (fast refresh, no page turn, the time between frames not known yet)
+uint32_t coupleMs() {
+  if (fastMode() || !dataEveryMs || head.page == 0) return 0;
+  uint32_t c = MIN_REFRESH_MS;
+  if (dataEveryMs / 2 < c) c = dataEveryMs / 2;
+  if (head.page * 500UL < c) c = head.page * 500UL;
+  return c;
+}
+// Fresh data came and the page turn is due within that window: turn with them
+bool turnSoon() {
+  const uint32_t c = coupleMs();
+  return c && !noDataNow() && !timedArt() && turnCount() > 1 && millis() - lastPageMs + c >= head.page * 1000UL;
+}
+// The page turn is due, but fresh data are expected within that window (or up to a minute late): wait for
+// them, at most that window and a minute past the turn
+bool waitForData() {
+  const uint32_t c = coupleMs();
+  if (!c || millis() - lastPageMs >= head.page * 1000UL + c + 60000UL) return false;
+  const int32_t until = (int32_t)(lastFreshMs + dataEveryMs - millis());
+  return until > -60000L && until <= (int32_t)c;
+}
 
 bool canRefreshNow() {
   if (!refreshed || screenIsSplash || forceRedraw) return true;
@@ -1649,7 +1681,7 @@ void timerText(int32_t s, char* buf, size_t size) {
   if (s >= 6000) snprintf(buf, size, "%ldh%02ld", (long)(s / 3600), (long)((s / 60) % 60));
   else           snprintf(buf, size, "%02ld:%02ld", (long)(s / 60), (long)(s % 60));
 }
-bool hasTimer(const Disk& d) { return d.state != 'N' && d.state != '-'; }
+bool hasTimer(const Disk& d) { return !d.noTimer && d.state != 'N' && d.state != '-'; }
 bool timerRunning(const Disk& d) { return (d.state == 'A' || d.state == 'S') && d.remain >= 0 && d.timeout > 0; }
 double timerLeft(const Disk& d) {
   if (d.state != 'A' || !timerRunning(d)) return 0;
@@ -2231,12 +2263,27 @@ void drawNetPage(uint8_t np, int16_t HH, bool wide, bool stacked) {
   drawRows(rows, n, imin(netCount, per), HH, wide, stacked, head.netIcons, 0);
 }
 
+// A text at x, y in size z, on two lines when it is wider than the screen (upright): broken at the last
+// space that lets the first line fit. Like wrapped() in inksights-render.js
+void printWrapped(int16_t x, int16_t y, const char* s, uint8_t z) {
+  const int16_t fit = (epd->width() - 2 * x + z) / (CHAR_W * z);   // characters per line
+  const int16_t n = strlen(s);
+  int16_t cut = -1;
+  if (n > fit) for (int16_t i = imin(fit, n - 1); i > 0; i--) if (s[i] == ' ') { cut = i; break; }
+  if (cut < 0) { printAt(x, y, s, BK, z); return; }
+  char a[48];
+  copyStr(a, s, imin((int16_t)sizeof(a), cut + 1));
+  printAt(x, y, a, BK, z);
+  printAt(x, y + 10 * z, s + cut + 1, BK, z);
+}
+
 // Docker page dp (0 = the first): one row per container like the temperature rows, every page sized
 // for a full page (a list: always from the top); the name, its state (error in the third colour) and
 // "update" at the right (third colour); highlighted: both white in a box of that colour (black on yellow)
 void drawDockerPage(uint8_t dp, int16_t HH, bool wide, bool stacked) {
-  static const char* const NONE[4] = { "No containers", "No errors", "All up to date", "All fine" };
-  if (containerCount == 0) { printAt(wide ? 4 : 2, HH + 6, NONE[head.dockerFilter & 3], BK, wide ? 2 : 1); return; }
+  static const char* const NONE[4] = { "No Docker containers", "No Docker errors", "Docker up to date", "No Docker errors or updates" };
+  // none to show: no Docker at all, or what the filter looked for (H field 33)
+  if (containerCount == 0) { printWrapped(wide ? 4 : 2, HH + 6, head.dockerNone ? "Docker not found" : NONE[head.dockerFilter & 3], wide ? 2 : 1); return; }
   const uint8_t per = imin(rowsPerPage(), MAX_NETS), from = dp * per;
   const uint16_t third = hasColor && head.dockerColor ? RD : BK, on = third == BK ? WH : onRD;
   const bool hi = head.dockerHi;
@@ -3586,6 +3633,7 @@ void parseDisk(char* line) {
   if (pctValid(f[5])) copyStr(d.pctTxt, f[5], sizeof(d.pctTxt));
   else snprintf(d.pctTxt, sizeof(d.pctTxt), "%d", d.pct);
   d.state = f[8][0] ? f[8][0] : '?';
+  d.noTimer = rxNoTimer;
   d.remain  = n >= 10 && f[9][0] ? iclamp(atol(f[9]), -1, 359999) : -1;
   d.timeout = n >= 11 ? iclamp(atol(f[10]), 0, 359999) : 0;
   d.hasTemp = n >= 12 && f[11][0];   // drive temperature (only with H field 21), -1 = unknown, -2 = asleep
@@ -3702,13 +3750,15 @@ void commitFrame() {
                             (uint32_t)rxHead.layout[1] << 8 | rxHead.layout[2] };
   // On cue: no container to show, no Docker page
   if (rxDockerCue && rxContainerCount == 0) rxHead.dockerPage = 0;
-  const uint32_t h = fnv1a(&rxHead.dockerPage, 4, fnv1a(rxContainers, sizeof(Container) * rxContainerCount,
+  const uint32_t h = fnv1a(&rxHead.dockerPage, 5, fnv1a(rxContainers, sizeof(Container) * rxContainerCount,
                      fnv1a(&rxPics, sizeof(rxPics), fnv1a(&rxClock, sizeof(rxClock), fnv1a(&rxHead.timeFmt, 5, fnv1a(rxHead.order, 6, fnv1a(rxNets, sizeof(NetIf) * rxNetCount,
                      fnv1a(&rxSys, sizeof(rxSys), fnv1a(rxDisks, sizeof(Disk) * rxCount, fnv1a(hv, sizeof(hv)))))))))));
   const bool samePics = memcmp(&rxPics, &pics, sizeof(Pics)) == 0;
   const bool first = !dataReceived;
   const uint32_t fh = fnv1a(rxTime, strlen(rxTime), h);   // with the time: still the same frame?
-  if (first || fh != freshHash) lastFreshMs = millis();
+  const bool fresh = first || fh != freshHash;
+  if (fresh && !first) dataEveryMs = millis() - lastFreshMs;   // when the next fresh frame is due
+  if (fresh) lastFreshMs = millis();
   freshHash = fh;
 
   memcpy(disks, rxDisks, sizeof(Disk) * rxCount);
@@ -3732,8 +3782,8 @@ void commitFrame() {
   copyStr(timeStr,  rxTime, sizeof(timeStr));
   dataReceived = true;
 
-  // Only redraw when something changed (spares the panel). Pages are turned by
-  // the timer in loop(), independent of how often frames arrive.
+  // Only redraw when something changed (spares the panel). Pages are turned by the timer in loop(); a
+  // page turn due soon goes with fresh data (turnSoon, waitForData), so both come in one redraw.
   const uint8_t pages = turnCount();
   if (first || pages == 1 || head.page == 0) { page = 0; turnPage = false; }
   if (page >= pages) page = 0;
@@ -3747,11 +3797,12 @@ void commitFrame() {
   lastHash = h;
   if (changed) pending = true;
   if (rxRedraw) forceRedraw = true;
+  if (fresh && !first && head.page > 0 && !turnPage && turnSoon()) { turnPage = true; pending = true; }
 
   char answer[112];
   snprintf(answer, sizeof(answer), "OK disks=%u page=%u/%u refresh=%s", diskCount,
            (unsigned)((turnPage ? (page + 1) % pages : page) + 1), (unsigned)pages,
-           !changed ? "no" : canRefreshNow() ? "now" : "later");
+           !changed && !turnPage ? "no" : canRefreshNow() ? "now" : "later");
   // New pins or panel type from the web page: save them and restart, the display is set up with
   // them on boot
   const bool newPins = rxPinsGiven && pinsValid(rxPins) && panelValid(rxPins.panel) && !samePins(rxPins, pins);
@@ -3829,6 +3880,7 @@ void handleLine(char* line) {
     rxNetCount = 0;                      // no network pages unless N lines come
     rxContainerCount = 0;                // no containers unless K lines come
     rxDockerCue = false;
+    rxNoTimer = false;
     rxPinsGiven = false;
     rxRedraw = false;
     rxHost[0] = rxTime[0] = '\0';
@@ -3838,8 +3890,8 @@ void handleLine(char* line) {
     rxActive = false;
     commitFrame();
   } else if (line[0] == 'H' && line[1] == '|') {
-    char* f[36];
-    const uint8_t n = splitFields(line, f, 36);
+    char* f[37];
+    const uint8_t n = splitFields(line, f, 37);
     if (n >= 3) {
       copyStr(rxHost, f[1], sizeof(rxHost));
       copyStr(rxTime, f[2], sizeof(rxTime));
@@ -3848,7 +3900,9 @@ void handleLine(char* line) {
       rxHead.warn    = n >= 5 ? constrain(atoi(f[4]), 0, 100) : WARN_PCT;
       rxHead.rot     = n >= 6 ? constrain(atoi(f[5]), 0, 3) : 0;
       rxHead.page    = n >= 7 ? (uint32_t)constrain(atol(f[6]), 0L, 86400L) : PAGE_SECS;
-      rxHead.timer   = n >= 8 ? constrain(atoi(f[7]), 0, 1) : 0;
+      const int tm   = n >= 8 ? atoi(f[7]) : 0;   // 0 badge, 1 ring, 2 no timer (spindown timer off)
+      rxNoTimer      = tm == 2;
+      rxHead.timer   = tm == 2 ? 0 : constrain(tm, 0, 1);
       rxHead.ringDir = n >= 9 ? constrain(atoi(f[8]), 0, 1) : 0;
       rxHead.icons   = n >= 10 ? constrain(atoi(f[9]), 0, 1) : 1;
       rxHead.pctBar  = n >= 11 ? constrain(atoi(f[10]), 0, 2) : 0;
@@ -3881,6 +3935,7 @@ void handleLine(char* line) {
       rxHead.dockerColor = n >= 34 && strcmp(f[33], "0") == 0 ? 0 : 1;   // errors and updates in the third colour
       rxHead.dockerHi = n >= 35 && strcmp(f[34], "1") == 0 ? 1 : 0;      // errors and updates in a box
       rxDockerCue = n >= 36 && strcmp(f[35], "1") == 0;                  // On cue: the page only when a container came
+      rxHead.dockerNone = n >= 37 && strcmp(f[36], "0") == 0 ? 1 : 0;    // no Docker on the system
     }
   } else if (line[0] == 'D' && line[1] == '|') {
     parseDisk(line);
@@ -3992,8 +4047,9 @@ void loop() {
 
   // Automatic page turn (the redraw itself still waits for MIN_REFRESH_MS); not while "NO DATA", not
   // in a time window
+  // fresh data due within moments: wait for them (one redraw for both)
   if (dataReceived && !noDataShown && !noDataNow() && !timedArt() && head.page > 0 && turnCount() > 1 && !turnPage &&
-      millis() - lastPageMs >= head.page * 1000UL) {
+      millis() - lastPageMs >= head.page * 1000UL && !waitForData()) {
     turnPage = true;
     pending  = true;
   }

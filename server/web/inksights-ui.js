@@ -18,7 +18,8 @@
  *   backend.login(on, current, next) -> Login card: switch the login of the page on (next = its password), change
  *                           its password or switch it off (current = the password while it is on)
  *   backend.tabs          -> one tab per display: its preview on the left (stays in view), its cards on the right (simulator)
- *   backend.docker        -> the Docker card and pages (load() state carries docker: [{ name, state R/E/S, update, stack }])
+ *   backend.docker        -> the Docker card and pages (load() state carries docker: [{ name, state R/E/S, update, stack }],
+ *                            null = no Docker on the system)
  *   backend.dockerStacks  -> the Docker card offers one row per stack (Rows: Stacks / Containers)
  *   backend.offlineNoData -> a display that is not connected previews its "Check connection" screen (simulator)
  *
@@ -489,7 +490,9 @@
       // the screens bits (H field 26) of the cases: On cue and Ink of The Conversation / The Intermission
       s = { ...s, inkNothing: autoOn(s, ARTS[0]) ? 1 : 0, inkNoData: autoOn(s, ARTS[1]) ? 1 : 0 };
       if (!backend.dockerStacks) s = { ...s, dockerStacks: 0 };   // one row per stack only where the backend has it
-      return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st), st.docker || []);
+      // docker null: no Docker on the system ("Docker not found")
+      return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st),
+        st.docker === null ? null : st.docker || []);
     }
     // date and time of the data YYYYMMDDHHMMSS: the day of the update, the time it shows
     function dataStamp(st) {
@@ -615,7 +618,7 @@
         const [sw, sh] = panelSize(panel, 0), sfb = new EPD.Fb(sw, sh), board = boardOf(live);
         const pins = String(live.pins || "").split(",").map(Number);
         const net = live.transport === "wifi" ? "sta" : live.net || "off";
-        EPD.drawSplash(sfb, { product: "InkSights", fw: live.fw || "1.1.0", id, board: board.name, panel: panel.name, color: panel.colors === 3,
+        EPD.drawSplash(sfb, { product: "InkSights", fw: live.fw || "1.1.1", id, board: board.name, panel: panel.name, color: panel.colors === 3,
           pinTitle: board.samd ? "Pins D" : "GPIO", pins: pins.length === 4 ? pins : [-1, -1, -1, -1],
           wifi: !board.wifi ? null : net === "sta" ? live.ip || "" : net === "ap" ? `AP ${s.wifi.apSsid || DEFAULT_AP_SSID} 192.168.4.1` : s.wifi.ssid ? "connecting ..." : "off",
           key: board.wifi && net === "ap" ? live.apKey || "" : null });
@@ -1505,7 +1508,7 @@
       const mins = Math.max(0, Math.round((Date.now() / 1000 - state.updated) / 60));
       const c = typeCounts();
       // the containers, or the stacks when the display of the tab shown has Rows: Stacks (user)
-      let dk = "";
+      let dk = backend.docker && state.docker === null ? " · Docker not found" : "";
       if (backend.docker && Array.isArray(state.docker)) {
         const ids = displayList().map(e => e.id), at = ids.includes(pref("app", "tab", "")) ? pref("app", "tab", "") : ids[0];
         const stacks = backend.dockerStacks && at && settingsFor(at).dockerStacks === 1;
@@ -1866,7 +1869,7 @@
     }
     // simulator: a release one step after this installation (or after the skipped one)
     function testUpdate() {
-      const skip = pref("app", "skipVersion", ""), base = skip && newer(skip, appVersion) ? skip : appVersion || "1.1.0";
+      const skip = pref("app", "skipVersion", ""), base = skip && newer(skip, appVersion) ? skip : appVersion || "1.1.1";
       const p = verParts(base);
       latestRel = { version: `v${p[0] || 0}.${(p[1] || 0) + 1}`, url: "https://github.com/Gittegatt/InkSights/releases" };
       muted = false;

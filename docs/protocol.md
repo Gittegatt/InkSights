@@ -4,7 +4,7 @@ The lines between the script and a board (USB) and what a WiFi board fetches. Se
 [README](../README.md) for the rest.
 
 ```
-PING                                   -> PONG InkSights id=1A2B3C4D size=212x104 colors=3 rows=4 pins=7,9,6,5 panel=1 board=xiao-samd21 wifi=0 fw=1.1.0
+PING                                   -> PONG InkSights id=1A2B3C4D size=212x104 colors=3 rows=4 pins=7,9,6,5 panel=1 board=xiao-samd21 wifi=0 fw=1.1.1
 #BEGIN
 H|HDD|14:30|5|85|0|600
 D|sda|data|3.18T|8.95T|35|3|10|A
@@ -27,7 +27,7 @@ the panel status with its next fetch.
 
 | Line | Fields | Notes |
 |---|---|---|
-| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, the 29 optional fields below] | The settings of the screen. |
+| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, the 30 optional fields below] | The settings of the screen. |
 | `A` | per picture C I A one hex digit (1 caption, 2 header, 4 in the page turn, 8 scheduled), Beverages 0 House Wine / 1 Tabula Rasa / 2 Roast, card order (`SDNTW`, `K` and `CIA`), time windows `HHMM-HHMM,HHMM-HHMM,HHMM-HHMM` [, Got the time? per picture C I A `1`/`0`, the Refresh in seconds; missing = none] | The pictures; only when they differ from the defaults (`011`, 1, page order + `CIA`, `1800-1900,1200-1300,2300-0700`; a new display has Roast, so it gets this line). |
 | `D` | device, pool, used, total, percent, filled boxes, total boxes, state, seconds until spindown, timeout seconds [, °C] | One per drive. |
 | `S` | rows, CPU %, CPU °C, CPU W, RAM used MiB, ZFS cache MiB, RAM total MiB, interface, down KiB/s, up KiB/s, link Mb/s, NVMe °C,…, SSD °C,… | Only with the system page. |
@@ -44,7 +44,7 @@ the panel status with its next fetch.
 
 | # | Field | Values |
 |---|---|---|
-| 8 | timer | 0 badge / 1 ring |
+| 8 | timer | 0 badge / 1 ring / 2 none (spindown timer off; the `D` lines keep the real state for the symbol) |
 | 9 | ring direction | 0 clockwise / 1 counterclockwise |
 | 10 | symbols | 1 on / 0 off |
 | 11 | details in the bar | 0 none / 1 percentage / 2 used capacity |
@@ -73,6 +73,7 @@ the panel status with its next fetch.
 | 34 | Docker colour | `error` and `update` 1 in the third colour / 0 black (default 1) |
 | 35 | Docker highlight | `error` and `update` 1 in a box / 0 (default 0) |
 | 36 | Docker on cue | 1 no Docker page when no `K` line came / 0 (default 0) |
+| 37 | Docker found | 1 (default) / 0 no Docker on the system: the Docker page says **Docker not found** |
 
 **Notes on the other lines:**
 
@@ -80,7 +81,7 @@ the panel status with its next fetch.
   - °C only with drive temperatures on; -1 = unknown, -2 = asleep (older firmware shows `--`)
   - the boxes are no longer drawn
   - seconds until spindown -1 = timer not running
-  - state: `A` spinning, `S` asleep, `N` SSD/NVMe, `?` unknown, `-` timer off (HDDs only)
+  - state: `A` spinning, `S` asleep, `N` SSD/NVMe, `?` unknown (`-` from older scripts: timer off, shown as spinning)
   - percent may have one or two decimals (cut) for the text in the bar; -1 = no pool and nothing mounted (total =
     the size of the disk, or `-`)
 - `S`: rows `C` CPU, `R` RAM, `N` network, `V` NVMe, `S` SSD, `H` HDD (temperatures in the `T` line), `I` = symbols

@@ -69,7 +69,9 @@ The display itself: its names, panel type, rotation, rows per page, refresh, pag
   Preview, rows and fast refresh follow it.
 - **Rotation** upright: device and used/total in the first line, the pool in its own line.
 - **Auto page turn:** the display redraws at most every 3 minutes, so shorter times act like 00:03:00 (not with
-  fast refresh).
+  fast refresh). Fresh data and a page turn that is due within a few minutes come in one redraw: the display turns
+  with the data, or waits for data that are due in a moment. With the same time for **Refresh** and **Auto page
+  turn** both then stay in step (one redraw each time instead of two).
 - **Refresh:**
   - Colour panels redraw at most every 3 minutes and only on changes, so 1 min gets changes there as fast as
     possible.
@@ -197,7 +199,7 @@ spindown timer (see [What a display shows](../README.md#what-a-display-shows)).
 | **Details in bar** | On, Off | Text inside the bar, only where the bar is high and wide enough. |
 | **Details** | Capacity, Percentage | The used capacity (e.g. 3.18T, the default) or the percentage used (e.g. 35%). |
 | **Percentage** | 35%, 35.4%, 35.47% | Decimals of the percentage in the bar. |
-| **Spindown timer** | On, Off | Hard disks only. Off = no timer, full-width bar. |
+| **Spindown timer** | On, Off | Hard disks only. Off = no timer, full-width bar; the symbol still shows whether the disk spins or sleeps. |
 | **Timer style** | Ring, Badge | Ring (default): shrinks until spindown. Badge: time left as MM:SS. |
 | **Ring direction** | Counterclockwise, Clockwise | For the ring (default counterclockwise). |
 | **Temperature** | On, Off | The temperature of each drive (off by default); `--` = unknown. |
@@ -258,7 +260,7 @@ many rows per page as the drive pages.
 | Setting | Options | Notes |
 |---|---|---|
 | **Ink** | tick | Shows the Docker pages or not; their settings stay. |
-| **Show** | All, Errors, Updates, Errors and updates | Which containers get a row. None to show: the page says **No containers**, **No errors**, **All up to date** or **All fine**. |
+| **Show** | All, Errors, Updates, Errors and updates | Which containers get a row. None to show: the page says **No Docker containers**, **No Docker errors**, **Docker up to date** or **No Docker errors or updates** (on two lines where one is too narrow). |
 | **On cue** | tick | Not with All: the Docker page comes only while a container is shown (e.g. one with an error); else it leaves the page turn. |
 | **Icons** | On, Off | A cube in front of each row. |
 | **Rows** | Stacks, Containers | One row per container (default), or one per stack (Compose project): the containers of a stack together, with the name of the stack. A stack shows **error** when one of its containers has one, **running** when one runs (else **stopped**), **update** when one has a newer image. A container without a stack (started with `docker run`) keeps its own row. The line at the top of the page counts what the display of the tab shown has. |
@@ -284,7 +286,8 @@ Where it comes from:
   display shows the Docker pages. Script without Docker: put `INKSIGHTS_DOCKER_CHECK=60 ` in front of `/bin/bash`
   in its line.
 - Images built on the system or pinned to a digest never show **update**. The system needs `curl` for the question.
-- No Docker on the system: **No containers**.
+- No Docker on the system (no `docker` command, or Docker does not answer): **Docker not found**, and the line at
+  the top of the page says so.
 
 ## WiFi card
 
@@ -373,7 +376,7 @@ Framed sections:
 
 - **Export** saves the settings of this display as a JSON file, with the InkSights version it was made with:
   - name: `inksights-v<version>-<name>-<chip id>-<date>.json`, e.g.
-    `inksights-v1.1.0-living-room-1a2b3c4d-2026-10-26.json` (the name only when the display has one)
+    `inksights-v1.1.1-living-room-1a2b3c4d-2026-10-26.json` (the name only when the display has one)
   - WiFi passwords are not in it: they never reach the page
 - **Import** reads such a file into this display, also one of another board (e.g. after replacing a board, which
   has a new chip ID):
