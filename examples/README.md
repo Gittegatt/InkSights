@@ -172,6 +172,14 @@ cup in yellow. With **Roast** a cold cup (no steam) stands between the chairs.
 Every page switched off and **The Conversation** with **On cue** off: the product name with its logo, in the
 place it keeps with or without the top line.
 
+## Docker pages (simulator so far)
+
+<img align="top" src="example_22_4-2_docker_page.png" alt="Docker page on a 4.2″ display: seven containers, errors first, then the ones with an update" width="400"> <img align="top" src="example_23_2-13_docker_page.png" alt="Docker page on a red 2.13″ display: error and update highlighted in red boxes" width="400">
+
+One row per Docker container: its name, its state (running, error, stopped) and **update** when a newer image is
+out, errors first, then the ones with an update. On the left a 4.2″ with every container; on the right a red 2.13″
+with **Highlight**: error and update in red boxes. So far only in the simulator, not on the real settings page.
+
 ## Settings page and simulator
 
 ### The settings page

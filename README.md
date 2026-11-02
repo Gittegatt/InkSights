@@ -1016,6 +1016,8 @@ The **Value simulation** card below the displays has these frames:
   - **Versions** sets the version of the WebUI and of the script. Below the status line the page then shows which
     versions run, and a notice for every one that does not match the WebUI, with **Latest release** (the release
     page on GitHub).
+  - **OTA** Off: as if `INKSIGHTS_OTA=off` were set in the Docker settings (firmware updates switched off on the
+    server).
   - **Update notice · Test** shows the line about a new version (one version after the installed one, or after a
     skipped one).
   - **Controller without answer** adds a port that does not answer (e.g. old firmware).
@@ -1031,10 +1033,18 @@ The **Value simulation** card below the displays has these frames:
   they refresh.
 - **Disks:** the drives (with or without ZFS), each with storage, usage, temperature (column **Temp °C**) and spindown
   state.
+- **Containers:** Docker containers for the Docker pages, each with its name, its state (running, error, stopped) and
+  whether an update is out; **Add container**, **Load example**.
 
 Also in the simulator:
 
 - The simulated interfaces cover every case: wired, no cable, switched off, a bridge and WiFi.
+- **Docker** card and pages (a preview of what is planned, not on the real settings page yet): one row per container
+  with its state and "update" when a newer image is out; **Show** all, errors, updates or both; **Color highlight**
+  and **Highlight** (in a box) for errors and updates; **Order and visibility by** State, Name or Custom; a grip like
+  the other page cards.
+
+  <img align="top" src="examples/example_22_4-2_docker_page.png" alt="Docker page on a 4.2″ display: seven containers, errors first, then the ones with an update" width="400"> <img align="top" src="examples/example_23_2-13_docker_page.png" alt="Docker page on a red 2.13″ display: error and update highlighted in red boxes" width="400">
 - The Value simulation card folds (the triangle next to its heading).
 - The **USB** card at the bottom is the [USB setup](#usb-setup), plus **Send to display**: it sends what a simulated
   display gets to the real board, so the display shows it right away (without "NO DATA" later, as the simulated time
