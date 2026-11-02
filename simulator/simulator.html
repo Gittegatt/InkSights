@@ -51,7 +51,7 @@ document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}"
       <div class="field wide boxed"><span class="label">Containers</span>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>State</th><th>Update</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Stack</th><th>State</th><th>Update</th><th></th></tr></thead>
             <tbody id="containers"></tbody>
           </table>
         </div>
@@ -181,15 +181,19 @@ function simNow() {
   return now.getTime();
 }
 // Docker containers: R running, E error (exited with an error, restarting, unhealthy), S stopped; update = a
-// newer image is out
+// newer image is out; stack = its Compose project (empty: none, it is its own)
 const DOCKER_EXAMPLE = [
-  { name: "pihole", state: "R", update: true }, { name: "immich", state: "E", update: false },
-  { name: "jellyfin", state: "R", update: false }, { name: "bitwarden", state: "R", update: false },
-  { name: "tailscale", state: "R", update: true }, { name: "kasm", state: "S", update: false },
-  { name: "paperless", state: "R", update: false },
+  { name: "pihole", stack: "pihole", state: "R", update: true },
+  { name: "immich", stack: "immich", state: "E", update: false }, { name: "immich-ml", stack: "immich", state: "R", update: true },
+  { name: "immich-db", stack: "immich", state: "R", update: false },
+  { name: "jellyfin", stack: "jellyfin", state: "R", update: false }, { name: "bitwarden", stack: "bitwarden", state: "R", update: false },
+  { name: "tailscale", stack: "tailscale", state: "R", update: true }, { name: "kasm", stack: "kasm", state: "S", update: false },
+  { name: "paperless", stack: "paperless", state: "R", update: false }, { name: "paperless-db", stack: "paperless", state: "R", update: false },
+  { name: "paperless-redis", stack: "paperless", state: "S", update: true },
 ];
 // the examples of earlier versions: a saved list that is still one of them gets the current one
-const OLD_DOCKER_EXAMPLES = ["home-assistant,immich-server,inksights,inksights-script,jellyfin,nextcloud,paperless,pihole,vaultwarden", "pihole,immich,jellyfin,bitwarden"];
+const OLD_DOCKER_EXAMPLES = ["home-assistant,immich-server,inksights,inksights-script,jellyfin,nextcloud,paperless,pihole,vaultwarden", "pihole,immich,jellyfin,bitwarden",
+  "pihole,immich,jellyfin,bitwarden,tailscale,kasm,paperless"];
 const SYS_EXAMPLE = { cpu: 37, temp: 52, power: 18, ramUsed: 12.3, ramArc: 40.1, ramTotal: 62.8, rx: 12.3, tx: 1.2, link: 1000, boot: bootExample() };
 const DEFAULTS = {
   source: "list", time: "14:30", host: "SERVER", disks: EXAMPLE, paste: "", sys: SYS_EXAMPLE, docker: DOCKER_EXAMPLE,
@@ -307,7 +311,7 @@ function stateNow(live = false) {
   return { version: sim.scriptVer || "1.1.0",
     host: sim.host || "SERVER", updated: timeOk ? Math.floor(Date.now() / 1000) : 0, timeText: timeOk ? sim.time : "--:--",
     disks, displays, system: systemNow(disks, live ? liveSys() : sim.sys),
-    docker: (sim.docker || []).map(c => ({ name: c.name, state: c.state, update: !!c.update })) };
+    docker: (sim.docker || []).map(c => ({ name: c.name, state: c.state, update: !!c.update, stack: c.stack || "" })) };
 }
 
 // Seconds since the WiFi connected ("Connected since"); empty or in the future = unknown
@@ -375,6 +379,7 @@ const ui = InkSightsUI.start({
   root: $("app"),
   tabs: true,           // one tab per display, the preview beside its cards
   docker: true,         // the Docker card and pages (state.docker)
+  dockerStacks: true,   // Docker: one row per stack
   // Login card: the login of the settings page, off by default (the simulator keeps it in its stored settings)
   login: async (on, current, next) => {
     if (sim.loginOn && current !== sim.loginPass) throw new Error("The current password is wrong.");
@@ -550,10 +555,11 @@ $("example").addEventListener("click", () => { sim.disks = structuredClone(EXAMP
 $("exampleLinux").addEventListener("click", () => { sim.disks = structuredClone(EXAMPLE_LINUX); buildDisks(); update(); });
 $("clear").addEventListener("click", () => { sim.disks = []; buildDisks(); update(); });
 
-// The container list: name, state, update
+// The container list: name, stack, state, update
 function buildContainers() {
   $("containers").replaceChildren(...(sim.docker || []).map((c, i) => el("tr", {},
     el("td", {}, el("input", { type: "text", value: c.name, maxlength: "24", "aria-label": "Container name", oninput: e => { c.name = e.target.value; update(); } })),
+    el("td", {}, el("input", { type: "text", value: c.stack || "", maxlength: "24", "aria-label": "Stack", oninput: e => { c.stack = e.target.value.trim(); update(); } })),
     el("td", {}, el("select", { "aria-label": "State", onchange: e => { c.state = e.target.value; update(); } },
       ...[["R", "Running"], ["E", "Error"], ["S", "Stopped"]].map(([v, l]) => el("option", { value: v, selected: v === c.state }, l)))),
     el("td", {}, el("input", { type: "checkbox", checked: !!c.update, "aria-label": "Update available", onchange: e => { c.update = e.target.checked; update(); } })),

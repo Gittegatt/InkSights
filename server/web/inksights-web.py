@@ -167,21 +167,22 @@ MAX_CONTAINERS = 64   # names in the order and hidden lists
 def docker_from_conf(cols):
     """The Docker settings from conf columns 69-72 (missing: the defaults)."""
     style, sort, order, hidden = cols
-    v = style.split(",") if re.match(r"^[01],[0-3],[01],[01],[01]$", style) else ["1", "0", "1", "0", "0"]
+    v = style.split(",") if re.match(r"^[01],[0-3],[01],[01],[01](,[01])?$", style) else ["1", "0", "1", "0", "0"]
+    v += ["0"] * (6 - len(v))   # rows: 0 containers / 1 stacks (missing: containers)
     names = lambda t: [] if t in ("-", "") else [n for n in t.split(",") if CNAME_RE.match(n)][:MAX_CONTAINERS]
-    return {"dockerIcons": int(v[0]), "dockerFilter": int(v[1]), "dockerColor": int(v[2]), "dockerHi": int(v[3]), "dockerCue": int(v[4]),
+    return {"dockerIcons": int(v[0]), "dockerFilter": int(v[1]), "dockerColor": int(v[2]), "dockerHi": int(v[3]), "dockerCue": int(v[4]), "dockerStacks": int(v[5]),
             "dockerSort": sort if sort in DOCKER_SORTS else "state", "dockerOrder": names(order), "dockerHidden": names(hidden)}
 
 
 def docker_to_conf(s):
     """conf columns 69-72 of the Docker settings."""
-    style = ",".join(str(s.get(k, d)) for k, d in (("dockerIcons", 1), ("dockerFilter", 0), ("dockerColor", 1), ("dockerHi", 0), ("dockerCue", 0)))
+    style = ",".join(str(s.get(k, d)) for k, d in (("dockerIcons", 1), ("dockerFilter", 0), ("dockerColor", 1), ("dockerHi", 0), ("dockerCue", 0), ("dockerStacks", 0)))
     return [style, s.get("dockerSort", "state"), ",".join(s.get("dockerOrder") or []) or "-", ",".join(s.get("dockerHidden") or []) or "-"]
 
 
 def validate_docker(did, s):
     out = {}
-    for key, default in (("showDocker", 1), ("dockerIcons", 1), ("dockerColor", 1), ("dockerHi", 0), ("dockerCue", 0)):
+    for key, default in (("showDocker", 1), ("dockerIcons", 1), ("dockerColor", 1), ("dockerHi", 0), ("dockerCue", 0), ("dockerStacks", 0)):
         v = s.get(key, default)
         if v not in (0, 1) or isinstance(v, bool):
             raise SettingsError(f"Display {did}: invalid {key}.")
@@ -656,7 +657,7 @@ def write_conf(path, conf, interval, page_name=""):
         "#   picture windows = HHMM-HHMM of each picture (scheduled: only that picture), sober = Beverages 0 House Wine / 1 Tabula Rasa / 2 Roast,",
         "#   ota = firmware updates of this display from the settings page 1 allowed / 0 off,",
         "#   picture clocks = Got the time? (a wall clock showing the time now) for C I A, 1 / 0 each (default 000),",
-        "#   docker style = Docker pages: symbols, show 0 all / 1 errors / 2 updates / 3 both, colour, highlight, on cue (default 1,0,1,0,0),",
+        "#   docker style = Docker pages: symbols, show 0 all / 1 errors / 2 updates / 3 both, colour, highlight, on cue, rows 0 containers / 1 stacks (default 1,0,1,0,0,0),",
         "#   docker sort = state / name / manual, docker order = container names (manual first), docker hidden = containers not shown",
     ]
     for did, s in sorted(conf.items()):

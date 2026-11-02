@@ -18,7 +18,8 @@
  *   backend.login(on, current, next) -> Login card: switch the login of the page on (next = its password), change
  *                           its password or switch it off (current = the password while it is on)
  *   backend.tabs          -> one tab per display: its preview on the left (stays in view), its cards on the right (simulator)
- *   backend.docker        -> the Docker card and pages (load() state carries docker: [{ name, state R/E/S, update }])
+ *   backend.docker        -> the Docker card and pages (load() state carries docker: [{ name, state R/E/S, update, stack }])
+ *   backend.dockerStacks  -> the Docker card offers one row per stack (Rows: Stacks / Containers)
  *   backend.offlineNoData -> a display that is not connected previews its "Check connection" screen (simulator)
  *
  * Drawing: inksights-render.js. No description texts next to the controls (labels only).
@@ -309,6 +310,7 @@
       if (s.dockerColor !== 0 && s.dockerColor !== 1) s.dockerColor = 1;   // errors and updates in the third colour
       if (s.dockerHi !== 0 && s.dockerHi !== 1) s.dockerHi = 0;   // errors and updates in a box
       if (s.dockerCue !== 0 && s.dockerCue !== 1) s.dockerCue = 0;   // On cue: the page only when the filter finds a container
+      if (s.dockerStacks !== 0 && s.dockerStacks !== 1) s.dockerStacks = 0;   // rows: 0 containers, 1 stacks
       // order of the containers: state (errors, updates, the rest), name or custom; hidden ones (names)
       if (!["state", "name", "manual"].includes(s.dockerSort)) s.dockerSort = "state";
       if (!Array.isArray(s.dockerOrder)) s.dockerOrder = [];
@@ -486,6 +488,7 @@
       if (!backend.docker) s = { ...s, showDocker: 0 };   // the Docker pages only where the backend has them
       // the screens bits (H field 26) of the cases: On cue and Ink of The Conversation / The Intermission
       s = { ...s, inkNothing: autoOn(s, ARTS[0]) ? 1 : 0, inkNoData: autoOn(s, ARTS[1]) ? 1 : 0 };
+      if (!backend.dockerStacks) s = { ...s, dockerStacks: 0 };   // one row per stack only where the backend has it
       return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st), st.docker || []);
     }
     // date and time of the data YYYYMMDDHHMMSS: the day of the update, the time it shows
@@ -626,7 +629,7 @@
       paint(canvas, fb, w, h, panel.yellow);
       const what = [model.sys ? "system" : "", model.disks.length || (model.diskPages !== 0 && !model.sys && !model.wifiPage && !model.clock && !model.nets.length) ? `${model.disks.length} drives` : "",
         model.nets.length ? `${model.nets.length} network` : model.netPages ? "no interfaces" : "",
-        model.dockerPage ? `${model.containers.length} container${model.containers.length === 1 ? "" : "s"}` : "", model.wifiPage ? "WiFi" : "", model.clock ? "time" : ""].filter(Boolean).join(", ");
+        model.dockerPage ? `${model.containers.length} ${s.dockerStacks === 1 && backend.dockerStacks ? "stack" : "container"}${model.containers.length === 1 ? "" : "s"}` : "", model.wifiPage ? "WiFi" : "", model.clock ? "time" : ""].filter(Boolean).join(", ");
       // what the display shows: a picture in its time window, a case, a picture page, the pages
       const caseText = model.noData ? "The Intermission · no data"
         : nothing && !model.art ? `${(model.screens ?? 7) & 2 ? "The Conversation" : afterhours ? "InkSights" : "Top line only"} · nothing to ink` : "";
@@ -736,7 +739,7 @@
     }
 
     // Docker containers in their order (hidden ones included), like the network interfaces
-    const containersFor = s => EPD.orderContainers(state.docker || [], s);
+    const containersFor = s => EPD.orderContainers(EPD.dockerItems(state.docker || [], backend.dockerStacks ? s : { ...s, dockerStacks: 0 }), s);
     const DOCKER_STATE = { R: "running", E: "error", S: "stopped" };
 
     function renderDockerOrder(entry) {
@@ -750,7 +753,7 @@
           changed(); drawPreview(entry); renderDockerOrder(entry);
         } }),
         el("div", {}, el("span", { class: "dev" }, c.name), " ",
-          el("span", { class: "sub" }, [DOCKER_STATE[c.state] || "", c.update ? "update" : ""].filter(Boolean).join(" · "))),
+          el("span", { class: "sub" }, [c.count ? `${c.count} container${c.count === 1 ? "" : "s"}` : "", DOCKER_STATE[c.state] || "", c.update ? "update" : ""].filter(Boolean).join(" · "))),
         manual ? rowGrip(c.name, keys => { s.dockerOrder = keys; changed(); drawPreview(entry); renderDockerOrder(entry); return box; }) : el("span"))));
     }
 
@@ -1026,20 +1029,22 @@
       const dockerCueTick = el("input", { type: "checkbox", checked: s.dockerCue === 1, disabled: !s.dockerFilter,
         onchange: e => { s.dockerCue = e.target.checked ? 1 : 0; pages[id] = 0; redraw(); } });
       const dockerCard = backend.docker ? subCard("dockerOpen", "Docker", true, "showDocker",
-        // Show over the whole width, below it Icons | Highlight | Color highlight in one row (user)
+        // Show over the whole width, below it Icons | Rows, then Highlight | Color highlight (user)
         el("div", { class: "form" },
           el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Show"),
             // On cue at the right end of the same row (user): the Docker page only when the filter finds a
             // container; with All it always would
             (() => { const r = radios("dockerfilter", [[0, "All"], [1, "Errors"], [2, "Updates"], [3, "Errors and updates"]], s.dockerFilter, v => { s.dockerFilter = v; dockerCueTick.disabled = !v; });
               r.append(el("label", { class: "check push-right" }, dockerCueTick, "On cue")); return r; })()),
-          el("div", { class: "wide trio" },
-            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Icons"),
-              radios("dockericons", [[1, "On"], [0, "Off"]], s.dockerIcons, v => { s.dockerIcons = v; })),
-            // errors and updates in a box (user)
-            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Highlight"),
-              radios("dockerhi", [[1, "On"], [0, "Off"]], s.dockerHi, v => { s.dockerHi = v; })),
-            dockerColBox)),
+          el("div", { class: "field boxed" }, el("span", { class: "label" }, "Icons"),
+            radios("dockericons", [[1, "On"], [0, "Off"]], s.dockerIcons, v => { s.dockerIcons = v; })),
+          // one row per container, or per stack (its containers together; user)
+          backend.dockerStacks ? el("div", { class: "field boxed" }, el("span", { class: "label" }, "Rows"),
+            radios("dockerstacks", [[1, "Stacks"], [0, "Containers"]], s.dockerStacks, v => { s.dockerStacks = v; updateStatus(); })) : el("div"),
+          // errors and updates in a box (user)
+          el("div", { class: "field boxed" }, el("span", { class: "label" }, "Highlight"),
+            radios("dockerhi", [[1, "On"], [0, "Off"]], s.dockerHi, v => { s.dockerHi = v; })),
+          dockerColBox),
         // the order of the containers and which ones show, like the network interfaces (user)
         el("fieldset", { class: `set-${id}` },
           el("details", { class: "fold boxed field", open: pref(id, "dockerOrderOpen", true), ontoggle: e => setPref(id, "dockerOrderOpen", e.target.open) },
@@ -1444,6 +1449,7 @@
             tabs.forEach((t, j) => { t.classList.toggle("on", j === i); t.setAttribute("aria-selected", String(j === i)); });
             views.forEach((v, j) => { v.hidden = j !== i; });
             drawAll();
+            updateStatus();
           } },
           el("span", { class: `dot${e.live ? " on" : ""}`, "aria-label": e.live ? "connected" : "not connected" }), nameOf(e.id, settingsFor(e.id))));
         rows.push(el("div", { class: "tabs", role: "tablist" }, ...tabs), ...views);
@@ -1498,7 +1504,14 @@
       }
       const mins = Math.max(0, Math.round((Date.now() / 1000 - state.updated) / 60));
       const c = typeCounts();
-      const dk = backend.docker && Array.isArray(state.docker) ? ` · ${state.docker.length} ${state.docker.length === 1 ? "container" : "containers"}` : "";
+      // the containers, or the stacks when the display of the tab shown has Rows: Stacks (user)
+      let dk = "";
+      if (backend.docker && Array.isArray(state.docker)) {
+        const ids = displayList().map(e => e.id), at = ids.includes(pref("app", "tab", "")) ? pref("app", "tab", "") : ids[0];
+        const stacks = backend.dockerStacks && at && settingsFor(at).dockerStacks === 1;
+        const n = stacks ? EPD.dockerItems(state.docker, { dockerStacks: 1 }).length : state.docker.length;
+        dk = ` · ${n} ${stacks ? "stack" : "container"}${n === 1 ? "" : "s"}`;
+      }
       st.textContent = `${state.host} · data from ${state.timeText || hhmm(state.updated)} (${mins} min ago) · ${c.hdd} HDD, ${c.ssd} SSD, ${c.nvme} NVMe${dk}`;
       const stale = mins > fullMins() * 2 + 5;
       st.className = stale ? "status warn" : "status";

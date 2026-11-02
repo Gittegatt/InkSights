@@ -1958,6 +1958,20 @@
     return lines.join("\n");
   }
 
+  // The rows of the Docker pages: the containers, or (dockerStacks 1) one per stack (Compose project; a
+  // container without one is its own): error when one of its containers has one, else running when one
+  // runs, else stopped; update when one has a newer image; count = its containers
+  function dockerItems(list, s) {
+    if (s.dockerStacks !== 1) return list || [];
+    const by = new Map();
+    for (const c of list || []) {
+      const k = c.stack || c.name, g = by.get(k) || { name: k, states: [], update: false, count: 0 };
+      g.states.push(c.state); g.update = g.update || !!c.update; g.count++;
+      by.set(k, g);
+    }
+    return [...by.values()].map(g => ({ name: g.name, update: g.update, count: g.count,
+      state: g.states.includes("E") ? "E" : g.states.includes("R") ? "R" : "S" }));
+  }
   // The containers in their order (hidden ones included, the settings list ticks them): dockerSort "state"
   // errors first, then the ones with an update, then the rest, each by name (default); "name"; "manual" the
   // ones in s.dockerOrder first, the rest by name (like the network interfaces)
@@ -1977,7 +1991,7 @@
     const filter = s.dockerFilter || 0, hidden = new Set(s.dockerHidden || []);
     const err = c => c.state === "E", upd = c => !!c.update;
     const keep = c => !hidden.has(c.name) && (filter === 1 ? err(c) : filter === 2 ? upd(c) : filter === 3 ? err(c) || upd(c) : true);
-    return orderContainers(list, s).filter(keep).slice(0, L.MAX_CONTAINERS)
+    return orderContainers(dockerItems(list, s), s).filter(keep).slice(0, L.MAX_CONTAINERS)
       .map(c => ["K", String(c.name).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 24) || "?", c.state === "E" || c.state === "S" ? c.state : "R", upd(c) ? 1 : 0].join("|"));
   }
 
@@ -2032,5 +2046,5 @@
   }
 
 
-  window.EPD = { WH, BK, RD, Fb, clockParts, DEFAULT_LAYOUT, PAGE_ORDER, orderOk, layoutOk, orderNets, orderContainers, drawScreen, drawSplash, parseFrame, buildFrame, noDataSecs, systemLine, uptimeSplit, orderDisks, pageCount, pageCounts, rowsPerPage, hsize, blit };
+  window.EPD = { WH, BK, RD, Fb, clockParts, DEFAULT_LAYOUT, PAGE_ORDER, orderOk, layoutOk, orderNets, orderContainers, dockerItems, drawScreen, drawSplash, parseFrame, buildFrame, noDataSecs, systemLine, uptimeSplit, orderDisks, pageCount, pageCounts, rowsPerPage, hsize, blit };
 })();

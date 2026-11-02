@@ -126,7 +126,7 @@ MAX_CONTAINERS=24        # K lines per frame (like L.MAX_CONTAINERS in inksights
 CNAME_RE='^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 CLIST_RE='^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(,[A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,63}$'
 declare -a DK_NAMES=()
-declare -A DK_STATE=() DK_UPD=()
+declare -A DK_STATE=() DK_UPD=() DK_STACK=()   # DK_STACK: the Compose project (stack) of a container, if any
 PORTS=()
 EXCLUDE=()
 
@@ -695,11 +695,16 @@ if [[ -r "$CONF_FILE" ]]; then
         CFG_NETP[$id]="$nsortc;$norderc;$nhidec;$niconc;$nbarc"
         # Docker pages: symbols, filter (0 all / 1 errors / 2 updates / 3 both), Color highlight, Highlight, On
         # cue; the order (state / name / manual with its container names) and the hidden containers
-        [[ "$dstylec" =~ ^[01],[0-3],[01],[01],[01]$ ]] || dstylec="1,0,1,0,0"
+        # cue, rows (0 containers / 1 stacks; missing: containers); the order (state / name / manual with its
+        # names) and the hidden ones
+        [[ "$dstylec" =~ ^[01],[0-3],[01],[01],[01](,[01])?$ ]] || dstylec="1,0,1,0,0"
+        dstacks=0
+        [[ "$dstylec" == *,*,*,*,*,1 ]] && dstacks=1
+        dstylec=${dstylec:0:9}
         [[ "$dsortc" =~ ^(state|name|manual)$ ]] || dsortc=state
         [[ "$dorderc" =~ $CLIST_RE ]] || dorderc=""
         [[ "$dhidec" =~ $CLIST_RE ]] || dhidec=""
-        CFG_DOCKER[$id]="${dstylec//,/;};$dsortc;$dorderc;$dhidec"
+        CFG_DOCKER[$id]="${dstylec//,/;};$dsortc;$dorderc;$dhidec;$dstacks"
         CFG_DRIVETEMP[$id]=$dtempc
         CFG_STBY[$id]=$stbyc
         CFG_HEADINV[$id]=$headinvc
@@ -865,8 +870,9 @@ else
         DOCKER_ASK=0
         for p in "${CFG_PAGES[@]}"; do [[ ",$p," == *,docker,* ]] && DOCKER_ASK=1; done
         (( ${#CFG_PAGES[@]} )) || DOCKER_ASK=1   # no settings yet: every display shows every page
-        while IFS=$'\t' read -r cname cstate cstatus cimage; do
+        while IFS=$'\t' read -r cname cstate cstatus cimage cstack; do
             [[ "$cname" =~ $CNAME_RE ]] || continue
+            [[ "$cstack" =~ $CNAME_RE ]] || cstack=""   # not started by Compose: its own stack
             case "$cstate" in
                 running) [[ "$cstatus" == *"(unhealthy)"* ]] && cst=E || cst=R ;;
                 restarting|dead) cst=E ;;
@@ -874,14 +880,14 @@ else
                 *) cst=S ;;
             esac
             docker_update "$cimage"
-            DK_NAMES+=("$cname"); DK_STATE[$cname]=$cst; DK_UPD[$cname]=$UPD
-        done < <(timeout 15 docker ps -a --format '{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Image}}' 2>/dev/null)
+            DK_NAMES+=("$cname"); DK_STATE[$cname]=$cst; DK_UPD[$cname]=$UPD; DK_STACK[$cname]=$cstack
+        done < <(timeout 15 docker ps -a --format '{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Image}}\t{{.Label "com.docker.compose.project"}}' 2>/dev/null)
         [ "$DRY_RUN" = false ] && docker_save
     fi
 
     if [ "$DRY_RUN" = false ]; then
         tmp="$(mktemp "$RUN_DIR/.cache.XXXXXX")" && {
-            declare -p HOST DISKS POOL_ORDER UID_ORDER D_UID UID_DEV D_TYPE D_POOL D_USEDB D_TOTALB D_USEDH D_TOTALH D_PCT D_SIZE DK_NAMES DK_STATE DK_UPD > "$tmp"
+            declare -p HOST DISKS POOL_ORDER UID_ORDER D_UID UID_DEV D_TYPE D_POOL D_USEDB D_TOTALB D_USEDH D_TOTALH D_PCT D_SIZE DK_NAMES DK_STATE DK_UPD DK_STACK > "$tmp"
             chmod 600 "$tmp"
             mv -f "$tmp" "$CACHE_FILE"
         }
@@ -1268,23 +1274,38 @@ NET_MAX=8
 # K lines: K|<container>|<R running / E error / S stopped>|<update 1/0>, in the order $1 (state: errors,
 # then the ones with an update, then the rest, each by name; name; manual: the names in $2 first), without
 # the hidden ones ($3) and the ones the filter $4 leaves out (1 errors, 2 updates, 3 both); at most
-# MAX_CONTAINERS (like dockerLines() in inksights-render.js)
+# MAX_CONTAINERS. $5 = 1: one line per stack (Compose project; a container without one is its own): error
+# when one of its containers has one, else running when one runs, else stopped; update when one has a newer
+# image (like dockerItems() and dockerLines() in inksights-render.js)
 docker_lines() {
-    local sort="$1" hidden=",$3," filter="$4" n st u
+    local sort="$1" hidden=",$3," filter="$4" stacks="${5:-0}" n k st u
     local -a names list=() want
-    mapfile -t names < <(printf '%s\n' "${DK_NAMES[@]}" | LC_ALL=C sort)
+    local -A ST=() UP=()
+    DOCKER_LINES=()
+    for n in "${DK_NAMES[@]}"; do
+        k=$n
+        [[ "$stacks" == 1 && -n "${DK_STACK[$n]:-}" ]] && k=${DK_STACK[$n]}
+        st=${DK_STATE[$n]}
+        case "${ST[$k]:-}" in
+            E) ;;
+            R) [[ "$st" == E ]] && ST[$k]=E ;;
+            *) ST[$k]=$st ;;
+        esac
+        [[ "${DK_UPD[$n]:-0}" == 1 ]] && UP[$k]=1
+    done
+    (( ${#ST[@]} )) || return 0
+    mapfile -t names < <(printf '%s\n' "${!ST[@]}" | LC_ALL=C sort)
     if [[ "$sort" == manual ]]; then
         IFS=, read -ra want <<< "$2"
-        for n in "${want[@]}"; do [[ -n "${DK_STATE[$n]+x}" && " ${list[*]} " != *" $n "* ]] && list+=("$n"); done
+        for n in "${want[@]}"; do [[ -n "${ST[$n]+x}" && " ${list[*]} " != *" $n "* ]] && list+=("$n"); done
     elif [[ "$sort" == state ]]; then
-        for n in "${names[@]}"; do [[ "${DK_STATE[$n]}" == E ]] && list+=("$n"); done
-        for n in "${names[@]}"; do [[ "${DK_STATE[$n]}" != E && "${DK_UPD[$n]}" == 1 ]] && list+=("$n"); done
+        for n in "${names[@]}"; do [[ "${ST[$n]}" == E ]] && list+=("$n"); done
+        for n in "${names[@]}"; do [[ "${ST[$n]}" != E && "${UP[$n]:-0}" == 1 ]] && list+=("$n"); done
     fi
     for n in "${names[@]}"; do [[ -n "$n" && " ${list[*]} " != *" $n "* ]] && list+=("$n"); done
-    DOCKER_LINES=()
     for n in "${list[@]}"; do
         [[ "$hidden" == *",$n,"* ]] && continue
-        st=${DK_STATE[$n]}; u=${DK_UPD[$n]:-0}
+        st=${ST[$n]}; u=${UP[$n]:-0}
         case "$filter" in
             1) [[ "$st" == E ]] || continue ;;
             2) [[ "$u" == 1 ]] || continue ;;
@@ -1384,7 +1405,7 @@ build_frame() {
     # fields 32-36: Docker pages 0 off / 1 with symbols / 2 without, the containers shown 0 all / 1 errors /
     # 2 updates / 3 both, errors and updates in the third colour 1 / 0, in a box (Highlight) 1 / 0, On cue
     # 1 / 0 (the page only when the filter finds a container; only with a filter);
-    # dockp = "icons;filter;color;highlight;cue;sort;order;hidden", "" = Docker pages off
+    # dockp = "icons;filter;color;highlight;cue;sort;order;hidden;stacks", "" = Docker pages off
     local -a dp
     IFS=';' read -ra dp <<< "$dockp"
     if [[ -n "$dockp" ]]; then
@@ -1447,7 +1468,7 @@ build_frame() {
         FRAME+=("${NET_LINES[@]}")
     fi
     if [[ -n "$dockp" ]]; then   # Docker pages: one K line per container shown
-        docker_lines "${dp[5]:-state}" "${dp[6]:-}" "${dp[7]:-}" "${dp[1]:-0}"
+        docker_lines "${dp[5]:-state}" "${dp[6]:-}" "${dp[7]:-}" "${dp[1]:-0}" "${dp[8]:-0}"
         FRAME+=("${DOCKER_LINES[@]}")
     fi
     # Pins (and panel type) only when set on the web page; new values make the board save them and restart
@@ -1489,7 +1510,7 @@ frame_for() {
     local wifip=0
     [[ "$pages" == *,wifi,* && "$haswifi" == 1 ]] && wifip=$(( ${CFG_WIFIICONS[$id]:-1} == 0 ? 2 : 1 ))   # WiFi page: 1 with symbols, 2 without
     local dockp=""
-    [[ "$pages" == *,docker,* ]] && dockp="${CFG_DOCKER[$id]:-1;0;1;0;0;state;;}"   # Docker pages switched on
+    [[ "$pages" == *,docker,* ]] && dockp="${CFG_DOCKER[$id]:-1;0;1;0;0;state;;;0}"   # Docker pages switched on
     local porder="${CFG_PORDER[$id]:-TSDNW}"
     [[ -z "${CFG_PAGES[$1]+set}" ]] && porder=TSDNKW
     # K (the Docker pages) only while they are on: a display without them gets the frame it got before
@@ -1761,7 +1782,7 @@ write_state() {
         printf '\n  ],\n  "docker": ['
         sep=""
         for d in "${DK_NAMES[@]}"; do
-            printf '%s\n    {"name": %s, "state": "%s", "update": %s}' "$sep" "$(json_str "$d")" "${DK_STATE[$d]}" "$( [[ "${DK_UPD[$d]}" == 1 ]] && echo true || echo false )"
+            printf '%s\n    {"name": %s, "state": "%s", "update": %s, "stack": %s}' "$sep" "$(json_str "$d")" "${DK_STATE[$d]}" "$( [[ "${DK_UPD[$d]}" == 1 ]] && echo true || echo false )" "$(json_str "${DK_STACK[$d]:-}")"
             sep=","
         done
         printf '\n  ],\n  "system": %s,\n  "displays": [' "$SYS_JSON"

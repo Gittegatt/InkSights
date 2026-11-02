@@ -622,7 +622,7 @@ Open **http://&lt;server&gt;:8099**.
 | System | every row, no ZFS RAM cache, asleep hard disks `STBY` |
 | Drives | every drive type, the used capacity in the bar, no temperatures, no spindown timer (ring, counterclockwise when switched on), highlight from 85 % |
 | Network | symbols, the percentage in the bar |
-| Docker | symbols, every container ordered by state, Color highlight, no boxes, On cue off |
+| Docker | symbols, one row per container, every container ordered by state, Color highlight, no boxes, On cue off |
 | WiFi | symbols, setup access point on after 30 s |
 | The Conversation, The Intermission, The Afterhours | header, caption, in the page turn, On cue on, no time window; Beverages Roast |
 
@@ -843,8 +843,8 @@ The same goes for the network row of the system page. Virtual interfaces (Docker
 
 ### Docker card
 
-Pages with one row per Docker container of the system (by default after the network pages), as many rows per page
-as the drive pages.
+Pages with one row per Docker container of the system, or one per stack (by default after the network pages), as
+many rows per page as the drive pages.
 
 <img align="top" vspace="4" src="examples/example_22_4-2_docker_page.png" alt="Docker page on a 4.2″ display: seven containers, errors first, then the ones with an update, error and update in black boxes, a black top line" width="400"> <img align="top" vspace="4" src="examples/example_23_2-13_docker_page.png" alt="Docker page on a red 2.13″ display: error and update highlighted in red boxes" width="400"> <img align="top" vspace="4" src="examples/example_24_2-13_docker_page_yellow.png" alt="Docker page on a yellow 2.13″ display: error and update in yellow boxes with black text" width="400">
 
@@ -853,22 +853,23 @@ as the drive pages.
 | **Ink** | tick | Shows the Docker pages or not; their settings stay. |
 | **Show** | All, Errors, Updates, Errors and updates | Which containers get a row. None to show: the page says **No containers**, **No errors**, **All up to date** or **All fine**. |
 | **On cue** | tick | Not with All: the Docker page comes only while a container is shown (e.g. one with an error); else it leaves the page turn. |
-| **Icons** | On, Off | A cube in front of each container. |
+| **Icons** | On, Off | A cube in front of each row. |
+| **Rows** | Stacks, Containers | One row per container (default), or one per stack (Compose project): the containers of a stack together, with the name of the stack. A stack shows **error** when one of its containers has one, **running** when one runs (else **stopped**), **update** when one has a newer image. A container without a stack (started with `docker run`) keeps its own row. The line at the top of the page counts what the display of the tab shown has. |
 | **Highlight** | On, Off | `error` and `update` in a box: white on black, or on the third colour with Color highlight (black on yellow). |
 | **Color highlight** | On, Off | `error` and `update` in the third colour (colour panels only). |
-| **Order and visibility by** | State, Name, Custom | State: errors first, then the ones with an update, then the others, each by name. The tick next to each container shows or hides it. At most 24 on the display. Custom: drag a container by its grip, or the arrow keys on it. |
+| **Order and visibility by** | State, Name, Custom | State: errors first, then the ones with an update, then the others, each by name. The tick next to each container (or stack) shows or hides it. At most 24 on the display. Custom: drag a row by its grip, or the arrow keys on it. |
 
 Each row shows:
 
-- the name of the container
+- the name of the container (or the stack)
 - its state: **running**, **error** (stopped with an error, restarting, dead or unhealthy) or **stopped** (stopped
   normally, created or paused)
 - **update** at the right end when a newer image is out for it
 
 Where it comes from:
 
-- The script asks the Docker of the system for its containers at every full run (`docker ps -a`). The card lists
-  them, the line at the top of the page counts them.
+- The script asks the Docker of the system for its containers at every full run (`docker ps -a`), with the stack
+  each one belongs to. The card lists them, the line at the top of the page counts them.
 - **Newer image:** the script asks the registry of each image (Docker Hub, ghcr.io, lscr.io, ...) for the
   fingerprint (digest) of its tag and compares it with the image on the system. Only that short question, nothing is
   downloaded. Every `INKSIGHTS_DOCKER_CHECK` minutes per image (default 360 = 6 hours, set in `docker-compose.yaml`,
@@ -1344,7 +1345,7 @@ the panel status with its next fetch.
 | `C` | local date and time `YYYYMMDDHHMMSS`, date 1/0, weekday 1/0, date format 0-3, NTP 1/0, NTP server, POSIX time zone [, time in the third colour 1/0, black outline 1/0] | Only with the time page. |
 | `T` | HDD °C,… | After the `S` line, only with the HDD row and drive-temp-export running. |
 | `N` | interface, down KiB/s, up KiB/s, link Mb/s, wireless 1/0, state | Only with the network pages, one per interface, at most 8. |
-| `K` | container, state, update 1/0 | Only with the Docker pages, one per container in the order shown, at most 24. |
+| `K` | container (or stack), state, update 1/0 | Only with the Docker pages, one per row in the order shown, at most 24. |
 | `P` | CS, D/C, Reset, Busy [, panel] | Only when pins or the panel type are set on the settings page. |
 | `W` | network, password, host, settings page, access point 1/0, access point name, access point password, access point after (s) | USB only, boards with WiFi; texts hex encoded. |
 | `R` | - | Only after "Redraw now". |
