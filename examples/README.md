@@ -144,14 +144,14 @@ with the time now).
 
 ### The Conversation: 4.2″ with nothing to show
 
-<img align="top" src="example_17_4-2_nothing_to_ink.png" alt="A 4.2″ display with every page switched off: three people at a table, the bottle and the glass (House Wine)" width="32%"> <img align="top" src="example_17_4-2_nothing_to_ink_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="32%"> <img align="top" src="example_17_4-2_nothing_to_ink_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="32%">
+<img align="top" vspace="4" src="example_17_4-2_nothing_to_ink.png" alt="A 4.2″ display with every page switched off: three people at a table, the bottle and the glass (House Wine)" width="32%"> <img align="top" vspace="4" src="example_17_4-2_nothing_to_ink_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="32%"> <img align="top" vspace="4" src="example_17_4-2_nothing_to_ink_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="32%">
 
 Every page of this display is switched off (no system, drive, network, time or WiFi page): **The Conversation**,
 three people at a table, with **Nothing to ink** as its caption, so the display never looks broken.
 
 ### The Intermission: 2.13″ without connection
 
-<img align="top" src="example_16_2-13_no_connection.png" alt="A red 2.13″ display without fresh data: the empty table, the bottle and the glass (House Wine)" width="32%"> <img align="top" src="example_16_2-13_no_connection_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="32%"> <img align="top" src="example_16_2-13_no_connection_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="32%">
+<img align="top" vspace="4" src="example_16_2-13_no_connection.png" alt="A red 2.13″ display without fresh data: the empty table, the bottle and the glass (House Wine)" width="32%"> <img align="top" vspace="4" src="example_16_2-13_no_connection_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="32%"> <img align="top" vspace="4" src="example_16_2-13_no_connection_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="32%">
 
 The display got no fresh data for too long: **The Intermission**, the empty table, with **Check connection** as
 its caption; on this red panel the bottle and the cup in red. With its **Header** ticked the top line shows
@@ -159,7 +159,7 @@ its caption; on this red panel the bottle and the cup in red. With its **Header*
 
 ### The Afterhours: 2.13″ in its quiet hours
 
-<img align="top" src="example_21_2-13_closed.png" alt="A yellow 2.13″ display in its quiet hours: two chairs upside down on a table, the bottle and the glass (House Wine)" width="32%"> <img align="top" src="example_21_2-13_closed_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="32%"> <img align="top" src="example_21_2-13_closed_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="32%">
+<img align="top" vspace="4" src="example_21_2-13_closed.png" alt="A yellow 2.13″ display in its quiet hours: two chairs upside down on a table, the bottle and the glass (House Wine)" width="32%"> <img align="top" vspace="4" src="example_21_2-13_closed_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="32%"> <img align="top" vspace="4" src="example_21_2-13_closed_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="32%">
 
 **The Afterhours** with **Scheduled** 23:00 to 07:00, at 23:37: only its picture, the chairs up on the table, with
 its caption **Closed until 07:00AM** (**12h** with AM/PM in the Time card); on this yellow panel the bottle and the
@@ -174,17 +174,18 @@ place it keeps with or without the top line.
 
 ## Docker pages (simulator so far)
 
-<img align="top" src="example_22_4-2_docker_page.png" alt="Docker page on a 4.2″ display: seven containers, errors first, then the ones with an update" width="400"> <img align="top" src="example_23_2-13_docker_page.png" alt="Docker page on a red 2.13″ display: error and update highlighted in red boxes" width="400">
+<img align="top" vspace="4" src="example_22_4-2_docker_page.png" alt="Docker page on a 4.2″ display: seven containers, errors first, then the ones with an update, error and update in black boxes, a black top line" width="400"> <img align="top" vspace="4" src="example_23_2-13_docker_page.png" alt="Docker page on a red 2.13″ display: error and update highlighted in red boxes" width="400"> <img align="top" vspace="4" src="example_24_2-13_docker_page_yellow.png" alt="Docker page on a yellow 2.13″ display: error and update in yellow boxes with black text" width="400">
 
 One row per Docker container: its name, its state (running, error, stopped) and **update** when a newer image is
-out, errors first, then the ones with an update. On the left a 4.2″ with every container; on the right a red 2.13″
-with **Highlight**: error and update in red boxes. So far only in the simulator, not on the real settings page.
+out, errors first, then the ones with an update. On the left a 4.2″ with every container, **Highlight** on (error and
+update in black boxes) and a black top line; on the right a red 2.13″ with **Highlight**: error
+and update in red boxes; below it the same on a yellow 2.13″, black text on the yellow boxes. So far only in the simulator, not on the real settings page.
 
 ## Settings page and simulator
 
 ### The settings page
 
-<img align="top" src="example_18_settings_page_2-13.png" alt="The settings page, tab of the 2.13″ display: the live preview on the left, its cards on the right with the Display card open" width="49%"> <img align="top" src="example_18_settings_page_4-2.png" alt="The settings page, tab of the 4.2″ display: the live preview on the left, its cards on the right with the Header card open" width="49%">
+<img align="top" vspace="4" src="example_18_settings_page_2-13.png" alt="The settings page, tab of the 2.13″ display: the live preview on the left, its cards on the right with the Display card open" width="49%"> <img align="top" vspace="4" src="example_18_settings_page_4-2.png" alt="The settings page, tab of the 4.2″ display: the live preview on the left, its cards on the right with the Header card open" width="49%">
 
 The settings page with two displays, one tab each (green dot = connected): at the top the versions of the WebUI,
 the script and the firmware on each controller, then the tab of a display with its live preview on the left (it

@@ -606,7 +606,7 @@ Open **http://&lt;server&gt;:8099**.
 - The page itself shows no explanations, to keep it tidy; they are here.
 - Which cards are folded is remembered per browser.
 
-<img align="top" src="examples/example_18_settings_page_2-13.png" alt="The settings page, tab of the 2.13″ display: the live preview on the left, its cards on the right with the Display card open" width="49%"> <img align="top" src="examples/example_18_settings_page_4-2.png" alt="The settings page, tab of the 4.2″ display: the live preview on the left, its cards on the right with the Header card open" width="49%">
+<img align="top" vspace="4" src="examples/example_18_settings_page_2-13.png" alt="The settings page, tab of the 2.13″ display: the live preview on the left, its cards on the right with the Display card open" width="49%"> <img align="top" vspace="4" src="examples/example_18_settings_page_4-2.png" alt="The settings page, tab of the 4.2″ display: the live preview on the left, its cards on the right with the Header card open" width="49%">
 
 **A new display starts with:**
 
@@ -773,9 +773,9 @@ One extra page with the values of the system: CPU, RAM, network and drive temper
 Pages with one row per drive: symbol, device, pool, used/total and the bar, optionally the temperature and the
 spindown timer (see [What a display shows](#what-a-display-shows)).
 
-<img align="top" src="examples/example_04_2-13_drives_page_highlight.png" alt="Drive page on a 2.13″ display with three rows: the pool above 85 % in red, percentages with two decimals, spindown badges" width="400"> <img align="top" src="examples/example_05_2-13_drives_page_rings.png" alt="Drive page on a 2.13″ black/white display with four rows and the spindown timer as rings" width="400">
+<img align="top" vspace="4" src="examples/example_04_2-13_drives_page_highlight.png" alt="Drive page on a 2.13″ display with three rows: the pool above 85 % in red, percentages with two decimals, spindown badges" width="400"> <img align="top" vspace="4" src="examples/example_05_2-13_drives_page_rings.png" alt="Drive page on a 2.13″ black/white display with four rows and the spindown timer as rings" width="400">
 
-<img align="top" src="examples/example_08_4-2_drives_page_three_rows.png" alt="Drive page on a 4.2″ display with three big rows" width="400">
+<img align="top" vspace="4" src="examples/example_08_4-2_drives_page_three_rows.png" alt="Drive page on a 4.2″ display with three big rows" width="400">
 
 | Setting | Options | Notes |
 |---|---|---|
@@ -813,7 +813,7 @@ spindown timer (see [What a display shows](#what-a-display-shows)).
 Pages with one row per network interface (by default after the drive pages), as many rows per page as the drive
 pages.
 
-<img align="top" src="examples/example_11_4-2_network_page.png" alt="Network page on a 4.2″ display: download, upload and link speed per interface" width="400"> <img align="top" src="examples/example_12_4-2_network_page_percentage.png" alt="Network page on a 4.2″ display without symbols: how busy each link is in percent" width="400">
+<img align="top" vspace="4" src="examples/example_11_4-2_network_page.png" alt="Network page on a 4.2″ display: download, upload and link speed per interface" width="400"> <img align="top" vspace="4" src="examples/example_12_4-2_network_page_percentage.png" alt="Network page on a 4.2″ display without symbols: how busy each link is in percent" width="400">
 
 | Setting | Options | Notes |
 |---|---|---|
@@ -840,7 +840,7 @@ The same goes for the network row of the system page. Virtual interfaces (Docker
 
 A page with the time in big, below it the weekday and the date (each when ticked); by default the first page.
 
-<img align="top" src="examples/example_14_4-2_time_page.png" alt="Time page on a 4.2″ display: the time in big, weekday and date below, no top line" width="400"> <img align="top" src="examples/example_15_2-13_time_page_12h.png" alt="Time page on a 2.13″ display in 12 hours with PM" width="400">
+<img align="top" vspace="4" src="examples/example_14_4-2_time_page.png" alt="Time page on a 4.2″ display: the time in big, weekday and date below, no top line" width="400"> <img align="top" vspace="4" src="examples/example_15_2-13_time_page_12h.png" alt="Time page on a 2.13″ display in 12 hours with PM" width="400">
 
 | Setting | Options | Notes |
 |---|---|---|
@@ -1044,7 +1044,7 @@ Also in the simulator:
   and **Highlight** (in a box) for errors and updates; **Order and visibility by** State, Name or Custom; a grip like
   the other page cards.
 
-  <img align="top" src="examples/example_22_4-2_docker_page.png" alt="Docker page on a 4.2″ display: seven containers, errors first, then the ones with an update" width="400"> <img align="top" src="examples/example_23_2-13_docker_page.png" alt="Docker page on a red 2.13″ display: error and update highlighted in red boxes" width="400">
+  <img align="top" vspace="4" src="examples/example_22_4-2_docker_page.png" alt="Docker page on a 4.2″ display: seven containers, errors first, then the ones with an update, error and update in black boxes, a black top line" width="400"> <img align="top" vspace="4" src="examples/example_23_2-13_docker_page.png" alt="Docker page on a red 2.13″ display: error and update highlighted in red boxes" width="400"> <img align="top" vspace="4" src="examples/example_24_2-13_docker_page_yellow.png" alt="Docker page on a yellow 2.13″ display: error and update in yellow boxes with black text" width="400">
 - The Value simulation card folds (the triangle next to its heading).
 - The **USB** card at the bottom is the [USB setup](#usb-setup), plus **Send to display**: it sends what a simulated
   display gets to the real board, so the display shows it right away (without "NO DATA" later, as the simulated time
@@ -1171,7 +1171,7 @@ The pictures of this part without the top line (the default), three per screen: 
 glass, no caption), **Roast** (a coffee cup, the default of [Beverages](#beverages), with its **Caption**) and
 **Tabula Rasa** (nothing on the table) with its **Caption** and **Got the time?** (a wall clock):
 
-<img align="top" src="examples/example_17_4-2_nothing_to_ink.png" alt="A 4.2″ display with every page switched off: three people at a table, the bottle and the glass (House Wine)" width="270"> <img align="top" src="examples/example_17_4-2_nothing_to_ink_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="270"> <img align="top" src="examples/example_17_4-2_nothing_to_ink_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="270">
+<img align="top" vspace="4" src="examples/example_17_4-2_nothing_to_ink.png" alt="A 4.2″ display with every page switched off: three people at a table, the bottle and the glass (House Wine)" width="270"> <img align="top" vspace="4" src="examples/example_17_4-2_nothing_to_ink_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="270"> <img align="top" vspace="4" src="examples/example_17_4-2_nothing_to_ink_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="270">
 
 ### The Intermission
 
@@ -1187,7 +1187,7 @@ that gets nothing any more would look the same as one that works.
 - Reasons: the board is unplugged or the system is off, the script or the settings page does not run, or a WiFi
   board lost its WiFi.
 
-<img align="top" src="examples/example_16_2-13_no_connection.png" alt="A red 2.13″ display without fresh data: the empty table, the bottle and the glass (House Wine)" width="270"> <img align="top" src="examples/example_16_2-13_no_connection_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="270"> <img align="top" src="examples/example_16_2-13_no_connection_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="270">
+<img align="top" vspace="4" src="examples/example_16_2-13_no_connection.png" alt="A red 2.13″ display without fresh data: the empty table, the bottle and the glass (House Wine)" width="270"> <img align="top" vspace="4" src="examples/example_16_2-13_no_connection_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="270"> <img align="top" vspace="4" src="examples/example_16_2-13_no_connection_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="270">
 
 ### The Afterhours
 
@@ -1196,7 +1196,7 @@ the display shows only this picture, the chairs up on the table, with **Closed u
 format of the display, with 12h `Closed until 07:00AM` as in the pictures), and spares the panel: new data do not
 redraw it. With **Roast** the cup stands between the chairs, without steam: a cold cup left at closing time.
 
-<img align="top" src="examples/example_21_2-13_closed.png" alt="A yellow 2.13″ display in its quiet hours: two chairs upside down on a table, the bottle and the glass (House Wine)" width="270"> <img align="top" src="examples/example_21_2-13_closed_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="270"> <img align="top" src="examples/example_21_2-13_closed_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="270">
+<img align="top" vspace="4" src="examples/example_21_2-13_closed.png" alt="A yellow 2.13″ display in its quiet hours: two chairs upside down on a table, the bottle and the glass (House Wine)" width="270"> <img align="top" vspace="4" src="examples/example_21_2-13_closed_roast_caption.png" alt="The same with its caption and a coffee cup (Roast)" width="270"> <img align="top" vspace="4" src="examples/example_21_2-13_closed_tabula_rasa_clock.png" alt="The same with its caption, nothing on the table and a wall clock (Tabula Rasa, Got the time?)" width="270">
 
 ### InkSights
 
