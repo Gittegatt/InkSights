@@ -43,7 +43,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
-VERSION = "1.0"   # of InkSights (firmware, script and this app go together); the page compares it with the latest release
+VERSION = "1.1.0"   # of InkSights (firmware, script and this app go together); the page compares it with the latest release
 ID_RE = re.compile(r"^[0-9A-F]{8}$")
 NAME_RE = re.compile(r"^[A-Za-z0-9 ._+/-]{0,12}$")
 PAGE_NAME_RE = re.compile(r"^[^\x00-\x1f\x7f]{0,32}$")   # name of this page (header, browser tab); no tabs/line breaks

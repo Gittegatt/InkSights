@@ -2,7 +2,7 @@ name: Build Docker image
 
 # The settings page (WebUI) and the script as an image on the GitHub Container Registry:
 # ghcr.io/gittegatt/inksights:<version> and :latest, for amd64 and arm64.
-# Only in the public repository, on a version tag (v1.0, ...) or by hand.
+# Only in the public repository, on a version tag (v1.1.0, ...) or by hand.
 
 on:
   workflow_dispatch:

@@ -207,6 +207,10 @@ function load() {
       merged.hw = saved.hw.map((h, i) => Object.assign(structuredClone(DEFAULTS.hw[i]), h));
       for (const h of merged.hw) if (typeof h.panel === "string") h.panel = OLD_PANELS[h.panel] || 1;
       if (merged.host === "TRUENAS") merged.host = DEFAULTS.host;   // the host name of an earlier version
+      // versions picked while 1.0 was the current one: the current one again
+      if (merged.appVer === "1.0" || merged.appVer === "1.1") delete merged.appVer;
+      if (merged.scriptVer === "1.0" || merged.scriptVer === "1.1") delete merged.scriptVer;
+      for (const h of merged.hw) if (h.fw === "1.0" || h.fw === "1.1" || h.fw === "0.9") delete h.fw;
       if (Array.isArray(merged.docker) && OLD_DOCKER_EXAMPLES.includes(merged.docker.map(c => c.name).join(","))) merged.docker = structuredClone(DOCKER_EXAMPLE);
       return merged;
     }
@@ -291,7 +295,7 @@ function stateNow(live = false) {
     const panel = panelById(h.panel);
     const pins = (sim.config[IDS[i]] && sim.config[IDS[i]].pins) || board.defaults;
     displays.push({ id: IDS[i], port: wifi ? "WiFi" : PORTS[i], transport: wifi ? "wifi" : "usb", size: panel.size.join("x"),
-      colors: panel.colors, panel: panel.id, pins: pins.join(","), board: h.board, wifi: board.wifi ? 1 : 0, fw: h.fw || "1.0", net, ota: otaRun[i] || null,
+      colors: panel.colors, panel: panel.id, pins: pins.join(","), board: h.board, wifi: board.wifi ? 1 : 0, fw: h.fw || "1.1.0", net, ota: otaRun[i] || null,
       ssid: net === "sta" ? h.ssid || "" : "", online: net === "sta" ? onlineSecs(h.since) : -1,   // seconds connected
       ip: net === "sta" ? IPS[i] : net === "ap" ? "192.168.4.1" : "", fast: panel.fast ? 1 : 0, answer: "OK",
       nothingToInk: !!h.noData,   // "No data": connected, but nothing to show -> "Nothing to ink"
@@ -300,7 +304,7 @@ function stateNow(live = false) {
   });
   if (sim.oldFw) displays.push({ port: "/dev/ttyACM2", id: "", error: "No answer with chip ID (old firmware?)" });
   const disks = sim.disks.map((d, i) => toState(live ? liveDisk(d, i) : d));
-  return { version: sim.scriptVer || "1.0",
+  return { version: sim.scriptVer || "1.1.0",
     host: sim.host || "SERVER", updated: timeOk ? Math.floor(Date.now() / 1000) : 0, timeText: timeOk ? sim.time : "--:--",
     disks, displays, system: systemNow(disks, live ? liveSys() : sim.sys),
     docker: (sim.docker || []).map(c => ({ name: c.name, state: c.state, update: !!c.update })) };
@@ -379,10 +383,10 @@ const ui = InkSightsUI.start({
     save();
   },
   offlineNoData: true,  // "Connected" off: the display shows "NO DATA" / "Check connection"
-  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights", version: sim.appVer || "1.0", versionCheck: true, afterhours: true, otaEnabled: !sim.otaOff,
+  load: async () => ({ state: stateNow(), config: publicConfig(), interval: sim.interval, pagename: sim.pagename, defaultPagename: "InkSights", version: sim.appVer || "1.1.0", versionCheck: true, afterhours: true, otaEnabled: !sim.otaOff,
     login: { on: !!sim.loginOn, user: "inksights" },
     // the firmware the WebUI carries: one per board with WiFi, the version of the WebUI
-    firmware: Object.fromEntries(Object.entries(InkSightsUI.BOARDS).filter(([, b]) => b.wifi).map(([k]) => [k, { version: sim.appVer || "1.0", size: 1147760 }])) }),
+    firmware: Object.fromEntries(Object.entries(InkSightsUI.BOARDS).filter(([, b]) => b.wifi).map(([k]) => [k, { version: sim.appVer || "1.1.0", size: 1147760 }])) }),
   // OTA update: the board waits for its next fetch, loads the firmware and restarts with it (not kept)
   ota: async (id, version) => {
     const i = IDS.indexOf(id);
@@ -394,7 +398,7 @@ const ui = InkSightsUI.start({
   otaFile: async id => {
     const i = IDS.indexOf(id);
     if (i < 0) throw new Error("Unknown display.");
-    otaSteps(i, sim.appVer || "1.0");
+    otaSteps(i, sim.appVer || "1.1.0");
   },
   save: async body => {
     const next = {};
@@ -441,7 +445,7 @@ function otaSteps(i, version) {
   })();
 }
 // a version to choose: earlier, this one, a later one
-const SIM_VERSIONS = ["0.9", "1.0", "1.1"];
+const SIM_VERSIONS = ["1.0", "1.1.0", "1.2.0"];   // older, this one, newer
 function verSel(cur, onPick, label) {
   return el("select", { "aria-label": label, onchange: e => onPick(e.target.value) },
     ...SIM_VERSIONS.map(v => el("option", { value: v, selected: v === cur }, v)));
@@ -481,7 +485,7 @@ function buildHw() {
       f("WiFi network", el("input", { type: "text", maxlength: "32", value: h.ssid || "", disabled: !board.wifi, autocomplete: "off", style: "width: 9em",
         "aria-label": `WiFi network of display ${IDS[i]}`, oninput: e => { h.ssid = e.target.value; update(); } })),
       el("span", { class: "sim-break" }),   // second line: firmware and the ticks
-      f("Firmware", verSel(h.fw || "1.0", v => { h.fw = v; update(true); }, `Firmware of display ${IDS[i]}`)),
+      f("Firmware", verSel(h.fw || "1.1.0", v => { h.fw = v; update(true); }, `Firmware of display ${IDS[i]}`)),
       el("label", { class: "check" }, el("input", { type: "checkbox", checked: h.connected, onchange: e => { h.connected = e.target.checked; update(true); } }), "Connected"),
       el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!h.noData, onchange: e => { h.noData = e.target.checked; update(); } }), "No data"),
       el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!h.splash, onchange: e => { h.splash = e.target.checked; update(); } }), "Start screen"),
@@ -531,8 +535,8 @@ $("oldfw").replaceChildren(el("label", { class: "check" },
 $("testUpdate").addEventListener("click", () => ui.testUpdate());
 // Versions: of the WebUI and inksights.sh here, of the firmware per display below
 $("versions-sim").replaceChildren(
-  el("label", { class: "check" }, "WebUI ", verSel(sim.appVer || "1.0", v => { sim.appVer = v; update(true); }, "Version of the WebUI")),
-  el("label", { class: "check" }, "Script ", verSel(sim.scriptVer || "1.0", v => { sim.scriptVer = v; update(true); }, "Version of the script")));
+  el("label", { class: "check" }, "WebUI ", verSel(sim.appVer || "1.1.0", v => { sim.appVer = v; update(true); }, "Version of the WebUI")),
+  el("label", { class: "check" }, "Script ", verSel(sim.scriptVer || "1.1.0", v => { sim.scriptVer = v; update(true); }, "Version of the script")));
 // OTA in the Docker settings of the server: off = no firmware updates from the page
 $("ota-sim").replaceChildren(simRadios("simota", [[1, "On"], [0, "Off"]], sim.otaOff ? 0 : 1, v => { sim.otaOff = v === 0; update(true); }));
 $("paste").value = sim.paste;

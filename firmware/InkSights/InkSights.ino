@@ -46,7 +46,7 @@
  *     rows   : 2 to 6 (6 only on the 4.2"), 0/missing = automatic
  *     warn   : % used from which bar and used/total are highlighted (third colour, or inverted
  *              on black/white panels); 0 = never, missing = WARN_PCT
- *     rot    : quarter turns clockwise from ROTATION (0 = 0°, 1 = 90°, 2 = 180°, 3 = 270°)
+ *     rot    : quarter turns clockwise from landscape (0 = 0°, 1 = 90°, 2 = 180°, 3 = 270°)
  *     page   : seconds between automatic page turns; 0 = off (always page 1),
  *              missing = PAGE_SECS. Never faster than MIN_REFRESH_MS.
  *     timer  : 0 = badge (MM:SS in a frame, default), 1 = ring
@@ -180,7 +180,7 @@
 
 const char PRODUCT_NAME[] = "InkSights";  // name in the start screen header (display name only;
                                                 // "PONG InkSights" below stays, the server looks for it)
-const char FW_VERSION[]   = "1.0";             // shown on the start screen and reported in PONG
+const char FW_VERSION[]   = "1.1.0";             // shown on the start screen and reported in PONG
 
 // ============================== Settings ===============================
 
@@ -202,7 +202,7 @@ const char FW_VERSION[]   = "1.0";             // shown on the start screen and 
   #error "DEFAULT_PANEL must be 1 to 8"
 #endif
 
-#define ROTATION 1               // orientation for 0° (1 = landscape); the web page turns it further
+#define ROTATION 1               // orientation for 0° of the 2.13" panels (1 = landscape); the web page turns it further
 
 // Default control pins: per board in BoardProfile.h
 
@@ -239,17 +239,18 @@ struct PanelInfo {
   bool        color;   // black / white / colour (red or yellow)
   bool        fast;    // partial refresh in under a second without flashing (black / white panels)
   bool        yellow;  // the third colour is yellow: text on it is black
+  bool        wide;    // landscape by nature (4.2": 400 x 300); the 2.13" panels are upright by nature
 };
 const uint8_t PANEL_COUNT = 8;
 const PanelInfo PANELS[PANEL_COUNT] = {   // panel type 1 to 8
-  { "GDEW0213Z16", true,  false, false },
-  { "GDEH0213Z19", true,  false, false },
-  { "GDEY0213Z98", true,  false, false },
-  { "GDEY0213B74", false, true,  false },
-  { "GDEY042T81",  false, true,  false },
-  { "GDEW0213Z16", true,  false, true  },   // 6 to 8: the yellow versions of 1 to 3, same drivers
-  { "GDEH0213Z19", true,  false, true  },
-  { "GDEY0213Z98", true,  false, true  },
+  { "GDEW0213Z16", true,  false, false, false },
+  { "GDEH0213Z19", true,  false, false, false },
+  { "GDEY0213Z98", true,  false, false, false },
+  { "GDEY0213B74", false, true,  false, false },
+  { "GDEY042T81",  false, true,  false, true  },
+  { "GDEW0213Z16", true,  false, true,  false },   // 6 to 8: the yellow versions of 1 to 3, same drivers
+  { "GDEH0213Z19", true,  false, true,  false },
+  { "GDEY0213Z98", true,  false, true,  false },
 };
 
 GxEPD2_GFX* epd = nullptr;   // created in setup() with the panel type and pins from flash
@@ -699,7 +700,10 @@ uint8_t splitFields(char* s, char* fields[], uint8_t maxFields) {
   return n;
 }
 
-uint8_t currentRotation() { return (ROTATION + head.rot) % 4; }
+// 0°: landscape. The 2.13" panels are upright by nature (122 x 250) and need ROTATION; the 4.2" GDEY042T81
+// is landscape by nature (400 x 300) and needs none (it showed 0° upright and 90° upside down; user)
+uint8_t baseRotation() { return panelInfo().wide ? 0 : ROTATION; }
+uint8_t currentRotation() { return (baseRotation() + head.rot) % 4; }
 
 // Wide panels (4.2" in landscape): everything in double text size
 bool isBig(int16_t w, int16_t h) { return imax(w, h) >= 360; }
@@ -3799,7 +3803,7 @@ void setup() {
   if (pins.busy >= 0) pinMode(pins.busy, INPUT);
   // Reset/Busy = -1: GxEPD2 then waits a fixed time instead of reading Busy and
   // only powers the panel off instead of putting it into deep sleep.
-  epd->setRotation(ROTATION);     // first: rows per page depend on it
+  epd->setRotation(baseRotation());   // first: rows per page depend on it
   readChipId();
 #if HAS_WIFI
   loadNet();

@@ -612,7 +612,7 @@
         const [sw, sh] = panelSize(panel, 0), sfb = new EPD.Fb(sw, sh), board = boardOf(live);
         const pins = String(live.pins || "").split(",").map(Number);
         const net = live.transport === "wifi" ? "sta" : live.net || "off";
-        EPD.drawSplash(sfb, { product: "InkSights", fw: live.fw || "1.0", id, board: board.name, panel: panel.name, color: panel.colors === 3,
+        EPD.drawSplash(sfb, { product: "InkSights", fw: live.fw || "1.1.0", id, board: board.name, panel: panel.name, color: panel.colors === 3,
           pinTitle: board.samd ? "Pins D" : "GPIO", pins: pins.length === 4 ? pins : [-1, -1, -1, -1],
           wifi: !board.wifi ? null : net === "sta" ? live.ip || "" : net === "ap" ? `AP ${s.wifi.apSsid || DEFAULT_AP_SSID} 192.168.4.1` : s.wifi.ssid ? "connecting ..." : "off",
           key: board.wifi && net === "ap" ? live.apKey || "" : null });
@@ -1852,7 +1852,7 @@
     }
     // simulator: a release one step after this installation (or after the skipped one)
     function testUpdate() {
-      const skip = pref("app", "skipVersion", ""), base = skip && newer(skip, appVersion) ? skip : appVersion || "1.0";
+      const skip = pref("app", "skipVersion", ""), base = skip && newer(skip, appVersion) ? skip : appVersion || "1.1.0";
       const p = verParts(base);
       latestRel = { version: `v${p[0] || 0}.${(p[1] || 0) + 1}`, url: "https://github.com/Gittegatt/InkSights/releases" };
       muted = false;

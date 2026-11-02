@@ -192,7 +192,7 @@ chosen later on the settings page.
 
 Download the file of your board from the [releases](https://github.com/Gittegatt/InkSights/releases). The name
 ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
-`inksights-v1.0-esp32-c3-supermini-factory.bin`. `SHA256SUMS.txt` in the release lists the checksums of all files.
+`inksights-v1.1.0-esp32-c3-supermini-factory.bin`. `SHA256SUMS.txt` in the release lists the checksums of all files.
 
 **ESP32 boards (`-factory.bin`) in the browser** with [ESPWebTool](https://esptool.spacehuhn.com/) (Chrome or Edge):
 
@@ -214,7 +214,7 @@ ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
 
 1. Plug in the board and press RESET twice quickly (the two pads next to the USB port; touch them twice with
    tweezers or a wire). The orange LED pulses and a drive named **Arduino** appears.
-2. Copy `inksights-v1.0-xiao-samd21.uf2` onto that drive.
+2. Copy `inksights-v1.1.0-xiao-samd21.uf2` onto that drive.
 3. The board restarts with the new firmware by itself; the drive disappears.
 
 > [!TIP]
@@ -238,9 +238,9 @@ ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
 
 - `python scripts/build_release.py` builds every board and writes the files to `dist/v<version>/`
   (`--environment <env>` for one board only).
-- Pushing a tag such as `v1.0` to GitHub builds them there as well and creates a draft release with them.
+- Pushing a tag such as `v1.1.0` to GitHub builds them there as well and creates a draft release with them.
 - In the public repository the tag also builds the Docker image of the settings page and the script
-  (`ghcr.io/gittegatt/inksights:1.0` and `:latest`).
+  (`ghcr.io/gittegatt/inksights:1.1.0` and `:latest`).
 
 </details>
 
@@ -276,7 +276,7 @@ After power-up every display shows a start screen until the first data arrives: 
 InkSights in big letters with its logo. It can be switched off in the [Advanced Ink card](#advanced-ink-card).
 
 ```
-InkSights                    v1.0
+InkSights                  v1.1.0
            InkSights
 ID     1A2B3C4D
 Board  ESP32-C3 Super Mini
@@ -384,7 +384,7 @@ The settings are in `docker-compose.yaml` itself. The lines to adjust are marked
 | `- ./data:/data` (in both containers) | the data folder from b), left of the colon; the same in both | `- /mnt/apps/docker/data/inksights:/data` |
 | `user: 568:568` | the user that may write to the data folder (TrueNAS: `apps`) | `user: 1000:1000` |
 | `- 8099:8099` | left: the port of the page on your server | `- 8100:8099` |
-| `image: ...:latest` (in both containers) | a fixed version instead of the newest | `image: ghcr.io/gittegatt/inksights:1.0` |
+| `image: ...:latest` (in both containers) | a fixed version instead of the newest | `image: ghcr.io/gittegatt/inksights:1.1.0` |
 | `- INKSIGHTS_OTA=on` | firmware updates of the WiFi boards from the page: `on` or `off` (see [Security](#security)) | `- INKSIGHTS_OTA=off` |
 | `# - INKSIGHTS_PASSWORD=` | remove the `#` and enter a password: the login is on (a `$` in it is written `$$`); or switch it on in the **Login** card of the page | `- INKSIGHTS_PASSWORD=MyPassword` |
 | `# - INKSIGHTS_USER=inksights` | the user name of the login | `- INKSIGHTS_USER=admin` |
@@ -659,7 +659,7 @@ used, and how to support the project.
 
 - **Export** saves the settings of this display as a JSON file, with the InkSights version it was made with:
   - name: `inksights-v<version>-<name>-<chip id>-<date>.json`, e.g.
-    `inksights-v1.0-living-room-1a2b3c4d-2026-10-26.json` (the name only when the display has one)
+    `inksights-v1.1.0-living-room-1a2b3c4d-2026-10-26.json` (the name only when the display has one)
   - WiFi passwords are not in it: they never reach the page
 - **Import** reads such a file into this display, also one of another board (e.g. after replacing a board, which
   has a new chip ID):
@@ -1274,7 +1274,7 @@ updates, at least once a minute while such a display is there.
 <summary><b>The lines between the script and a board</b></summary>
 
 ```
-PING                                   -> PONG InkSights id=1A2B3C4D size=212x104 colors=3 rows=4 pins=7,9,6,5 panel=1 board=xiao-samd21 wifi=0 fw=1.0
+PING                                   -> PONG InkSights id=1A2B3C4D size=212x104 colors=3 rows=4 pins=7,9,6,5 panel=1 board=xiao-samd21 wifi=0 fw=1.1.0
 #BEGIN
 H|HDD|14:30|5|85|0|600
 D|sda|data|3.18T|8.95T|35|3|10|A

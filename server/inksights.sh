@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# inksights.sh v1.0.0
+# inksights.sh v1.1.0
 #
 # Collects drive status and system values (CPU, RAM, network, NVMe temperatures) on a Linux
 # server and sends them to one or more e-paper displays (firmware: firmware/InkSights):
@@ -104,7 +104,7 @@ ALL_TYPES="hdd,ssd,nvme"
 DEFAULT_BOXES=0           # spindown timer off for a new display
 DEFAULT_WARN=85          # bar is highlighted from this % used
 DEFAULT_TITLE="InkSights" # title of the top line when the settings page sets none
-VERSION="1.0"             # of InkSights (firmware, script and settings page go together; state.json "version")
+VERSION="1.1.0"           # of InkSights (firmware, script and settings page go together; state.json "version")
 DEFAULT_PAGE=600         # seconds between automatic page turns on the display, 0 = off
 WIFI_STALE=300           # a WiFi display that has not fetched its frame for this long is left out
 TEMPS_EVERY=30           # seconds between NVMe / SSD temperature readings
