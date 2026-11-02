@@ -193,7 +193,8 @@ stays in view while the page scrolls) and its cards on the right. On the left pi
 **Display** card open (names, panel, rotation, rows per page, refresh, page turn, Sync with display, display
 pins), on the right picture the 4.2″ with its **Header** card open (title, places, colours, divider line). The
 other cards are folded, each with its **Ink** tick that switches that page on or off and its grip (two lines) to
-change the order of the pages. Below the page cards the cards of the three pictures (**The Conversation**, **The
+change the order of the pages; among them **Docker** below Network (so far only in the simulator, where these pictures
+come from). Below the page cards the cards of the three pictures (**The Conversation**, **The
 Intermission**, **The Afterhours**) and **Advanced Ink**. At the bottom, for the whole page, the **Login** card
 (the login of the page, off by default) and the **About** card (versions, project links, license, support), both
 folded.

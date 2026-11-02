@@ -415,7 +415,7 @@ const ui = InkSightsUI.start({
   frameOverride: () => (sim.source === "paste" ? sim.paste : null),
   // "Live values": the frame of a display with fast refresh from changing values (none when off)
   live: async id => (sim.liveOn ? { frame: ui.frameFor(id, stateNow(true)), age: 0 } : { frame: null, age: -1 }),
-  serverAddress: "http://hostname:8099",
+  serverAddress: "http://server:8099",
   titleSuffix: " · Simulator",
 });
 

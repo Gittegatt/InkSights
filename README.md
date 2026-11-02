@@ -535,8 +535,8 @@ Boards with WiFi work over USB without any WiFi setup. To run a display over WiF
 
 1. **Set up the WiFi**, in one of three ways:
    - **On the settings page**, while the board is plugged into the system: open its **WiFi** card, enter the
-     WiFi network, password and the address of the settings page (e.g. `http://192.168.1.10:8099`), *Save*. The
-     settings go to the board over USB with the next update.
+     WiFi network, password and the address of the settings page (e.g. `http://192.168.1.10:8099`; `http://` may be
+     left out, it is put in front), *Save*. The settings go to the board over USB with the next update.
    - **On the board itself:** without a WiFi network the board opens its own access point **InkSights** (password
      **ink!1234**, also on the start screen).
      - Connect your phone to it; the setup page opens by itself. That takes a few seconds on most phones, up to

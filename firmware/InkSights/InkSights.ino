@@ -1180,7 +1180,7 @@ void handleRoot() {
          "<label>WiFi network<input name=ssid id=ssid autocomplete=off value='");
   h += htmlEscape(net.ssid) + F("'></label><label>Password<input name=pass id=pass type=password autocomplete=off placeholder='");
   h += net.pass.isEmpty() ? "" : "unchanged";
-  h += F("'></label><label>Settings page<input name=server autocomplete=off placeholder='http://hostname:8099' value='");
+  h += F("'></label><label>Settings page<input name=server autocomplete=off placeholder='http://server:8099' value='");
   h += htmlEscape(net.server) + F("'></label><label>Host name<input name=host autocomplete=off value='");
   h += htmlEscape(net.host) + F("'></label><label class=row><input type=checkbox name=apOn value=1");
   h += net.apOn ? " checked" : "";
@@ -1206,12 +1206,14 @@ void handleSave() {
   if (web.arg("pass").length()) n.pass = web.arg("pass");
   if (n.ssid.isEmpty()) n.pass = "";
   const String host = web.arg("host");
-  const String server = web.arg("server");
+  String server = web.arg("server");
+  server.trim();
+  if (server.length() && server.indexOf("://") < 0) server = "http://" + server;   // "server:8099" is enough (user)
   String err;
   if (n.ssid.length() > 32) err = "WiFi network: max. 32 characters.";
   else if (n.pass.length() && (n.pass.length() < 8 || n.pass.length() > 63)) err = "Password: 8 to 63 characters.";
   else if (!hostValid(host)) err = "Host name: letters, digits and -, max. 32.";
-  else if (!serverValid(server)) err = "Settings page: an address like http://hostname:8099.";
+  else if (!serverValid(server)) err = "Settings page: an address like http://server:8099.";
   else if (web.arg("apSsid").length() > 32) err = "Access point name: max. 32 characters.";
   else if (web.hasArg("apDelay") && !delayValid(web.arg("apDelay"))) err = "Access point after: 0 to 3600 seconds.";
   else if (web.arg("apPass").length() && (web.arg("apPass").length() < 8 || web.arg("apPass").length() > 63)) err = "Access point password: 8 to 63 characters.";

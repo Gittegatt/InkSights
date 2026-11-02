@@ -1711,11 +1711,15 @@
     let rx = null, done = null;
     for (const raw of text.split("\n")) {
       const line = raw.replace(/\r/g, "").slice(0, 127);
-      if (line === "#BEGIN") { rx = { host: "", time: "", rows: 0, warn: L.WARN_PCT, timer: 0, ringDir: 0, icons: 1, pctBar: 0, fast: 0, uptime: -1, upMonths: 0, wifiPage: 0, wifiIcons: true, netBar: 0, netIcons: 1, driveTemp: 0, stby: 0, headInv: 0, headCol: 0, timeFmt: 0, screens: 7, headLine: 1, order: PAGE_ORDER, clockHead: 0, headFill: 0, clock: null, disks: [], nets: [], containers: [], dockerPage: 0, dockerFilter: 0, dockerColor: 1, dockerHi: 0, sys: null, page: 0 }; continue; }
+      if (line === "#BEGIN") { rx = { host: "", time: "", rows: 0, warn: L.WARN_PCT, timer: 0, ringDir: 0, icons: 1, pctBar: 0, fast: 0, uptime: -1, upMonths: 0, wifiPage: 0, wifiIcons: true, netBar: 0, netIcons: 1, driveTemp: 0, stby: 0, headInv: 0, headCol: 0, timeFmt: 0, screens: 7, headLine: 1, order: PAGE_ORDER, clockHead: 0, headFill: 0, clock: null, disks: [], nets: [], containers: [], dockerPage: 0, dockerFilter: 0, dockerColor: 1, dockerHi: 0, dockerCue: 0, sys: null, page: 0 }; continue; }
       if (!rx) continue;
-      if (line === "#END") { done = rx; rx = null; continue; }
+      if (line === "#END") {
+        // Docker On cue: nothing the filter found, no Docker page at all
+        if (rx.dockerCue && !rx.containers.length) rx.dockerPage = 0;
+        done = rx; rx = null; continue;
+      }
       if (line.startsWith("H|")) {
-        const f = splitFields(line, 35);
+        const f = splitFields(line, 36);
         if (f.length >= 3) {
           rx.host = f[1].slice(0, 16); rx.time = f[2].slice(0, 5);
           rx.rows = f.length >= 4 ? clamp(atoi(f[3]), 0, 6) : 0;
@@ -1751,6 +1755,7 @@
           rx.dockerFilter = f.length >= 33 ? clamp(atoi(f[32]), 0, 3) : 0;   // shown: 0 all, 1 errors, 2 updates, 3 both
           rx.dockerColor = f.length >= 34 && f[33] === "0" ? 0 : 1;   // errors and updates in the third colour (colour panels)
           rx.dockerHi = f.length >= 35 && f[34] === "1" ? 1 : 0;     // errors and updates highlighted: in a box
+          rx.dockerCue = f.length >= 36 && f[35] === "1" ? 1 : 0;    // On cue: the page only when the filter finds a container
         }
       } else if (line.startsWith("S|")) {
         // system page: components (C R N V S) | cpu % | cpu °C | cpu W | RAM used MiB | ZFS cache MiB |
@@ -1889,8 +1894,9 @@
       s.showDocker === 1 ? (s.dockerIcons === 0 ? 2 : 1) : 0,   // H field 32: Docker pages, 1 with symbols, 2 without
       s.showDocker === 1 ? s.dockerFilter || 0 : 0,   // H field 33: the containers shown: 0 all, 1 errors, 2 updates, 3 both
       s.showDocker === 1 && s.dockerColor === 0 ? 0 : 1,   // H field 34: errors and updates in the third colour (Color highlight)
-      s.showDocker === 1 && s.dockerHi === 1 ? 1 : 0];   // H field 35: errors and updates highlighted, in a box
-    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, PAGE_ORDER, 0, 0, 0, 0, 0, 1, 0];
+      s.showDocker === 1 && s.dockerHi === 1 ? 1 : 0,   // H field 35: errors and updates highlighted, in a box
+      s.showDocker === 1 && s.dockerCue === 1 && s.dockerFilter ? 1 : 0];   // H field 36: On cue (only with a filter)
+    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, PAGE_ORDER, 0, 0, 0, 0, 0, 1, 0, 0];
     while (extra.length && extra[extra.length - 1] === defaults[extra.length - 1]) extra.pop();
     const head = [`H|${title}|${time}|${s.rows || 0}|${s.warn ?? L.WARN_PCT}|${Math.trunc((s.rot || 0) / 90)}|${s.page ?? 600}`, ...extra].join("|");
     const lines = ["#BEGIN", head];

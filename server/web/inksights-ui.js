@@ -112,6 +112,8 @@
   }
   const HOST_RE = /^[A-Za-z0-9-]{1,32}$/;
   const SERVER_RE = /^https?:\/\/[^\s|]{1,120}$/;
+  // the address of the settings page as typed: "server:8099" gets "http://" in front (user)
+  const serverAddr = v => { v = String(v || "").trim(); return v && !/^https?:\/\//i.test(v) ? "http://" + v : v; };
   const DEFAULT_WARN = 85;
   const DEFAULT_PAGE = 600;
   const DEFAULT_TITLE = "InkSights";   // the title of the top line when none is set (user; was the host name)
@@ -306,6 +308,7 @@
       if (![0, 1, 2, 3].includes(s.dockerFilter)) s.dockerFilter = 0;
       if (s.dockerColor !== 0 && s.dockerColor !== 1) s.dockerColor = 1;   // errors and updates in the third colour
       if (s.dockerHi !== 0 && s.dockerHi !== 1) s.dockerHi = 0;   // errors and updates in a box
+      if (s.dockerCue !== 0 && s.dockerCue !== 1) s.dockerCue = 0;   // On cue: the page only when the filter finds a container
       // order of the containers: state (errors, updates, the rest), name or custom; hidden ones (names)
       if (!["state", "name", "manual"].includes(s.dockerSort)) s.dockerSort = "state";
       if (!Array.isArray(s.dockerOrder)) s.dockerOrder = [];
@@ -379,7 +382,7 @@
           if (w.ssid.length > 32) out.push(`${who}: WiFi network max. 32 characters.`);
           if (typeof w.pass === "string" && w.pass && (w.pass.length < 8 || w.pass.length > 63)) out.push(`${who}: WiFi password 8 to 63 characters.`);
           if (w.host && !HOST_RE.test(w.host)) out.push(`${who}: host name only letters, digits and -, max. 32.`);
-          if (w.server && !SERVER_RE.test(w.server)) out.push(`${who}: settings page address like http://hostname:8099.`);
+          if (w.server && !SERVER_RE.test(serverAddr(w.server))) out.push(`${who}: settings page address like http://server:8099.`);
           if (typeof w.apPass === "string" && w.apPass && (w.apPass.length < 8 || w.apPass.length > 63)) out.push(`${who}: access point password 8 to 63 characters.`);
           if (!Number.isInteger(w.apDelay) || w.apDelay < 0 || w.apDelay > MAX_AP_DELAY) out.push(`${who}: access point after 0 to ${MAX_AP_DELAY} seconds.`);
         }
@@ -920,7 +923,9 @@
               wifiInput("ssid", "WiFi network", { maxlength: "32" }),
               wifiInput("pass", "Password", { type: "password", maxlength: "63", value: "", placeholder: w.passSet ? "unchanged" : "" })),
             el("div", { class: "wifi-box boxed" },
-              wifiInput("server", "Settings page", { maxlength: "120", placeholder: backend.serverAddress || "http://hostname:8099" }),
+              wifiInput("server", "Settings page", { maxlength: "120", placeholder: backend.serverAddress || "http://server:8099",
+                // typed without http://: it is put in front when the field is left
+                onchange: e => { e.target.value = w.server = serverAddr(e.target.value); changed(); } }),
               wifiInput("host", "Host name", { maxlength: "32", placeholder: `inksights-${id.toLowerCase()}` })),
             el("div", { class: "wifi-box boxed" },
               wifiInput("apSsid", "Access point name", { maxlength: "32", placeholder: DEFAULT_AP_SSID }),
@@ -1018,17 +1023,23 @@
       const dockerColBox = el("div", { class: "field boxed" }, el("span", { class: "label" }, "Color highlight"),
         radios("dockercol", [[1, "On"], [0, "Off"]], s.dockerColor, v => { s.dockerColor = v; }));
       setDisabled(dockerColBox, panel.colors === 2);
+      const dockerCueTick = el("input", { type: "checkbox", checked: s.dockerCue === 1, disabled: !s.dockerFilter,
+        onchange: e => { s.dockerCue = e.target.checked ? 1 : 0; pages[id] = 0; redraw(); } });
       const dockerCard = backend.docker ? subCard("dockerOpen", "Docker", true, "showDocker",
+        // Show over the whole width, below it Icons | Highlight | Color highlight in one row (user)
         el("div", { class: "form" },
-          el("div", { class: "wide one-two" },   // Icons a third, Show two thirds (user); Color highlight below Icons
+          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Show"),
+            // On cue at the right end of the same row (user): the Docker page only when the filter finds a
+            // container; with All it always would
+            (() => { const r = radios("dockerfilter", [[0, "All"], [1, "Errors"], [2, "Updates"], [3, "Errors and updates"]], s.dockerFilter, v => { s.dockerFilter = v; dockerCueTick.disabled = !v; });
+              r.append(el("label", { class: "check push-right" }, dockerCueTick, "On cue")); return r; })()),
+          el("div", { class: "wide trio" },
             el("div", { class: "field boxed" }, el("span", { class: "label" }, "Icons"),
               radios("dockericons", [[1, "On"], [0, "Off"]], s.dockerIcons, v => { s.dockerIcons = v; })),
-            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Show"),
-              radios("dockerfilter", [[0, "All"], [1, "Errors"], [2, "Updates"], [3, "Errors and updates"]], s.dockerFilter, v => { s.dockerFilter = v; })),
-            dockerColBox,
-            // beside Color highlight: errors and updates in a box (user)
+            // errors and updates in a box (user)
             el("div", { class: "field boxed" }, el("span", { class: "label" }, "Highlight"),
-              radios("dockerhi", [[1, "On"], [0, "Off"]], s.dockerHi, v => { s.dockerHi = v; })))),
+              radios("dockerhi", [[1, "On"], [0, "Off"]], s.dockerHi, v => { s.dockerHi = v; })),
+            dockerColBox)),
         // the order of the containers and which ones show, like the network interfaces (user)
         el("fieldset", { class: `set-${id}` },
           el("details", { class: "fold boxed field", open: pref(id, "dockerOrderOpen", true), ontoggle: e => setPref(id, "dockerOrderOpen", e.target.open) },
@@ -1530,7 +1541,7 @@
       const displays = {};
       for (const { id } of displayList()) {
         const s = settingsFor(id), w = s.wifi;
-        displays[id] = { ...s, wifi: { ssid: w.ssid, host: w.host, server: w.server, apOn: w.apOn, apDelay: w.apDelay, apSsid: w.apSsid,
+        displays[id] = { ...s, wifi: { ssid: w.ssid, host: w.host, server: serverAddr(w.server), apOn: w.apOn, apDelay: w.apDelay, apSsid: w.apSsid,
           pass: typeof w.pass === "string" ? w.pass : null, apPass: typeof w.apPass === "string" && w.apPass ? w.apPass : null } };
       }
       $("save").disabled = true;
@@ -1912,6 +1923,6 @@
       frameFor: (id, st) => { const e = displayList().find(x => x.id === id); return e ? buildFor(e, st) : null; } };
   }
 
-  window.InkSightsUI = { start, BOARDS, DEFAULT_BOARD, PANELS, YELLOW_PANELS, panelLabel, pinLabel, PIN_NONE, PIN_NAMES, HOST_RE, SERVER_RE,
+  window.InkSightsUI = { start, BOARDS, DEFAULT_BOARD, PANELS, YELLOW_PANELS, panelLabel, pinLabel, PIN_NONE, PIN_NAMES, HOST_RE, SERVER_RE, serverAddr,
     DEFAULT_AP_SSID, DEFAULT_AP_PASS, DEFAULT_AP_DELAY, MAX_AP_DELAY, hexText };
 })();

@@ -404,7 +404,7 @@ def validate_wifi(did, w, old):
     if out["host"] and not HOST_RE.match(out["host"]):
         raise SettingsError(f"Display {did}: host name only letters, digits and -, max. 32.")
     if out["server"] and not SERVER_RE.match(out["server"]):
-        raise SettingsError(f"Display {did}: settings page address like http://hostname:8099.")
+        raise SettingsError(f"Display {did}: settings page address like http://server:8099.")
     out["apOn"] = w.get("apOn", True) is not False
     d = w.get("apDelay", DEFAULT_AP_DELAY)
     if not is_int(d) or not 0 <= d <= MAX_AP_DELAY:

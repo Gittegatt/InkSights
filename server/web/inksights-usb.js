@@ -317,7 +317,7 @@
       const box = el("form", { class: "wifi-grid field wide boxed", autocomplete: "off", onsubmit: e => e.preventDefault() },   // a form, so browsers handle the password fields properly
         input("ssid", "WiFi network", { maxlength: "32", value: pong.ssid }),
         input("pass", "Password", { type: "password", maxlength: "63", value: "", placeholder: pong.passSet ? "unchanged" : "" }),
-        input("server", "Settings page", { maxlength: "120", value: pong.server, placeholder: "http://hostname:8099" }),
+        input("server", "Settings page", { maxlength: "120", value: pong.server, placeholder: "http://server:8099" }),
         input("host", "Host name", { maxlength: "32", value: pong.host, placeholder: `inksights-${pong.id.toLowerCase()}` }),
         el("div", { class: "field" }, el("span", { class: "label" }, "Setup access point"),
           el("div", { class: "choices" }, el("label", { class: "check" }, apOnBox.on, "On"), el("label", { class: "check" }, apOnBox.off, "Off"))),
@@ -342,13 +342,13 @@
       const out = { pins, panel, pinsChanged: !pong.pins || panel !== pong.panel || pins.some((p, i) => p !== pong.pins[i]), wifi: null };
       if (pong.wifi && pong.settings) {
         const w = {
-          ssid: wifi.ssid.value.trim(), pass: wifi.pass.value, server: wifi.server.value.trim(), host: wifi.host.value.trim(),
+          ssid: wifi.ssid.value.trim(), pass: wifi.pass.value, server: UI.serverAddr(wifi.server.value), host: wifi.host.value.trim(),   // without http://: put in front
           apOn: apOnBox.on.checked, apDelay: wifi.apDelay.value.trim(), apSsid: wifi.apSsid.value.trim(), apPass: wifi.apPass.value,
         };
         const ctrl = s => /[\x00-\x1f\x7f]/.test(s);
         if (bytes(w.ssid) > 32 || ctrl(w.ssid)) return "WiFi network max. 32 characters, no control characters.";
         if (w.pass && (w.pass.length < 8 || w.pass.length > 63 || ctrl(w.pass))) return "WiFi password 8 to 63 characters.";
-        if (w.server && !UI.SERVER_RE.test(w.server)) return "Settings page address like http://hostname:8099.";
+        if (w.server && !UI.SERVER_RE.test(w.server)) return "Settings page address like http://server:8099.";
         if (w.host && !UI.HOST_RE.test(w.host)) return "Host name only letters, digits and -, max. 32.";
         if (!/^\d{1,4}$/.test(w.apDelay) || Number(w.apDelay) > UI.MAX_AP_DELAY) return `Access point after 0 to ${UI.MAX_AP_DELAY} seconds.`;
         if (bytes(w.apSsid) > 32 || ctrl(w.apSsid)) return "Access point name max. 32 characters, no control characters.";
