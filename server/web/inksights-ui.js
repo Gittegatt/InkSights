@@ -18,6 +18,7 @@
  *   backend.login(on, current, next) -> Login card: switch the login of the page on (next = its password), change
  *                           its password or switch it off (current = the password while it is on)
  *   backend.tabs          -> one tab per display: its preview on the left (stays in view), its cards on the right (simulator)
+ *   backend.docker        -> the Docker card and pages (load() state carries docker: [{ name, state R/E/S, update }]; simulator so far)
  *   backend.offlineNoData -> a display that is not connected previews its "Check connection" screen (simulator)
  *
  * Drawing: inksights-render.js. No description texts next to the controls (labels only).
@@ -83,7 +84,8 @@
   // the order of the cards that move: the pages (S D N T W, H field 28) and the pictures (C I A, their
   // place in the page turn)
   const CARD_LETTERS = "SDNTWCIA";
-  const cardOrderOk = o => typeof o === "string" && o.length === CARD_LETTERS.length && [...CARD_LETTERS].every(k => o.includes(k));
+  // dk: with the Docker card (K, simulator so far)
+  const cardOrderOk = (o, dk = false) => { const L = dk ? "SDNTWKCIA" : CARD_LETTERS; return typeof o === "string" && o.length === L.length && [...L].every(k => o.includes(k)); };
   const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
   const minsOf = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
   // is minute m of the day in the window from..to (it may go past midnight; from = to: empty)
@@ -202,6 +204,7 @@
     let config = {};
     let interval = 10, pageName = "", defaultPageName = "InkSights";
     let dirty = false, lastKey = "", appProblem = "";
+    const PAGE_LETTERS = "SDNTWK";   // the letters of the pages in the card order (K: Docker, simulator so far)
     const pages = {}, lastWarn = {};
     let prefs = {};
     try { prefs = JSON.parse(localStorage.getItem(PREFS) || "{}") || {}; } catch (e) { prefs = {}; }
@@ -280,9 +283,16 @@
         if (!HHMM_RE.test(s[a.p + "To"] || "")) s[a.p + "To"] = a.to;
       }
       if (!EPD.orderOk(s.pageOrder)) s.pageOrder = NEW_PAGE_ORDER;   // the page order: S system, D drives, N network, T time, W WiFi
+      // K: the Docker pages (simulator so far): a place in the orders, right after the network pages at first
+      const dk = !!backend.docker;
+      if (dk && !s.pageOrder.includes("K")) s.pageOrder = s.pageOrder.replace("N", "NK");
+      if (!dk) s.pageOrder = s.pageOrder.replace("K", "");
       // the card order with the pictures; its pages always in the page order (that one is saved)
-      if (!cardOrderOk(s.cardOrder)) s.cardOrder = s.pageOrder + "CIA";
-      { let i = 0; s.cardOrder = [...s.cardOrder].map(k => (EPD.PAGE_ORDER.includes(k) ? s.pageOrder[i++] : k)).join(""); }
+      let co = typeof s.cardOrder === "string" ? s.cardOrder : "";
+      if (dk && cardOrderOk(co)) co = co.replace("N", "NK");
+      if (!dk && cardOrderOk(co, true)) co = co.replace("K", "");
+      if (!cardOrderOk(co, dk)) co = s.pageOrder + "CIA";
+      { let i = 0; s.cardOrder = [...co].map(k => (PAGE_LETTERS.includes(k) ? s.pageOrder[i++] : k)).join(""); }
       if (![0, 1, 2, 3].includes(s.dateFmt)) s.dateFmt = 1;   // time page: 26 Oct 2026, ISO, US, German
       if (typeof s.ntpServer !== "string" || !NTP_RE.test(s.ntpServer)) s.ntpServer = NTP_SERVERS[0];
       if (!ZONES.some(([n]) => n === s.tz)) s.tz = "UTC";
@@ -290,6 +300,16 @@
       if (![0, 1, 2].includes(s.pctDec)) s.pctDec = 1;   // decimals of the percentage in the drive bars
       // network pages: details in the bar 0 none / 1 percentage / 2 link speed, order by name or custom, hidden interfaces
       if (![0, 1, 2].includes(s.netBar)) s.netBar = 1;
+      // Docker pages (simulator so far): on with symbols for a new display, every container shown
+      if (s.showDocker !== 0 && s.showDocker !== 1) s.showDocker = 1;
+      if (s.dockerIcons !== 0 && s.dockerIcons !== 1) s.dockerIcons = 1;
+      if (![0, 1, 2, 3].includes(s.dockerFilter)) s.dockerFilter = 0;
+      if (s.dockerColor !== 0 && s.dockerColor !== 1) s.dockerColor = 1;   // errors and updates in the third colour
+      if (s.dockerHi !== 0 && s.dockerHi !== 1) s.dockerHi = 0;   // errors and updates in a box
+      // order of the containers: state (errors, updates, the rest), name or custom; hidden ones (names)
+      if (!["state", "name", "manual"].includes(s.dockerSort)) s.dockerSort = "state";
+      if (!Array.isArray(s.dockerOrder)) s.dockerOrder = [];
+      if (!Array.isArray(s.dockerHidden)) s.dockerHidden = [];
       if (s.netSort !== "manual") s.netSort = "name";
       if (!Array.isArray(s.netOrder)) s.netOrder = [];
       if (!Array.isArray(s.netHidden)) s.netHidden = [];
@@ -460,9 +480,10 @@
     function buildFor(entry, st) {
       const s0 = settingsFor(entry.id), title = (s0.name || DEFAULT_TITLE).slice(0, 12);
       let s = boardOf(entry.live).wifi ? s0 : { ...s0, showWifi: 0 };   // a board without WiFi has no WiFi page
+      if (!backend.docker) s = { ...s, showDocker: 0 };   // the Docker pages: simulator so far
       // the screens bits (H field 26) of the cases: On cue and Ink of The Conversation / The Intermission
       s = { ...s, inkNothing: autoOn(s, ARTS[0]) ? 1 : 0, inkNoData: autoOn(s, ARTS[1]) ? 1 : 0 };
-      return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st));
+      return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st), st.docker || []);
     }
     // date and time of the data YYYYMMDDHHMMSS: the day of the update, the time it shows
     function dataStamp(st) {
@@ -509,11 +530,12 @@
         return;
       }
       // simulator "No data": connected, but nothing to show -> the "Nothing to ink" screen
-      if (live && live.nothingToInk) { model.sys = null; model.nets = []; model.disks = []; model.diskPages = 0; model.wifiPage = 0; model.clock = null; }
+      if (live && live.nothingToInk) { model.sys = null; model.nets = []; model.disks = []; model.diskPages = 0; model.wifiPage = 0; model.clock = null; model.containers = []; model.dockerPage = 0; }
       if (model.clock) model.now = clockNow(model, live, s);
       // every page off ("Nothing to ink"); with pictures in the page turn those are all the pages
-      const nothing = !model.sys && !model.wifiPage && !model.clock && !model.nets.length && !model.netPages && model.disks.length === 0 && model.diskPages === 0;
-      const counts = EPD.pageCounts(model.disks.length, h, model.rows, w, !!model.sys, !!model.wifiPage, model.layout !== "---", model.nets.length, !!model.clock, !!model.netPages, model.diskPages !== 0);
+      const nothing = !model.sys && !model.wifiPage && !model.clock && !model.nets.length && !model.netPages && !model.dockerPage && model.disks.length === 0 && model.diskPages === 0;
+      const counts = EPD.pageCounts(model.disks.length, h, model.rows, w, !!model.sys, !!model.wifiPage, model.layout !== "---", model.nets.length, !!model.clock, !!model.netPages, model.diskPages !== 0,
+        model.dockerPage ? model.containers.length : -1);
       // the pictures: the one whose time window holds the time of the frame
       // shows alone; the ones in the page turn have their place in the card order; m.artHead: with a header
       const hm = /^(\d\d):(\d\d)/.exec(model.time || ""), now = hm ? Number(hm[1]) * 60 + Number(hm[2]) : -1;
@@ -528,7 +550,7 @@
       // m.pageNo: its number in the whole turn, for the header)
       const turn = [];
       let bi = 0;
-      for (const k of s.cardOrder) {
+      for (const k of s.cardOrder.includes("K") ? s.cardOrder : s.cardOrder.replace("N", "NK")) {   // Docker: its place, else after the network pages
         const a = extra.find(x => x.key === k);
         if (a) turn.push({ art: a });
         else if (!model.extraOnly) for (let i = 0; i < (counts[k] || 0); i++) turn.push({ base: bi++ });
@@ -578,7 +600,7 @@
         // The Conversation and The Intermission as their case shows them (with the caption), The Afterhours as itself
         const sm = { ...model, screens: 7, noData: k === "D", art: k === "Q" ? "Q" : "", until: k === "Q" && s.afterCap === 1 && s.afterSched === 1 ? s.afterTo : "",
           wallTime: wallNow };
-        if (k !== "D") Object.assign(sm, { sys: null, nets: [], disks: [], diskPages: 0, wifiPage: 0, clock: null });
+        if (k !== "D") Object.assign(sm, { sys: null, nets: [], disks: [], diskPages: 0, wifiPage: 0, clock: null, containers: [], dockerPage: 0 });
         const sfb = new EPD.Fb(w, h);
         EPD.drawScreen(sfb, sm);
         paint(c, sfb, w, h, panel.yellow);
@@ -600,7 +622,8 @@
       EPD.drawScreen(fb, model);
       paint(canvas, fb, w, h, panel.yellow);
       const what = [model.sys ? "system" : "", model.disks.length || (model.diskPages !== 0 && !model.sys && !model.wifiPage && !model.clock && !model.nets.length) ? `${model.disks.length} drives` : "",
-        model.nets.length ? `${model.nets.length} network` : model.netPages ? "no interfaces" : "", model.wifiPage ? "WiFi" : "", model.clock ? "time" : ""].filter(Boolean).join(", ");
+        model.nets.length ? `${model.nets.length} network` : model.netPages ? "no interfaces" : "",
+        model.dockerPage ? `${model.containers.length} container${model.containers.length === 1 ? "" : "s"}` : "", model.wifiPage ? "WiFi" : "", model.clock ? "time" : ""].filter(Boolean).join(", ");
       // what the display shows: a picture in its time window, a case, a picture page, the pages
       const caseText = model.noData ? "The Intermission · no data"
         : nothing && !model.art ? `${(model.screens ?? 7) & 2 ? "The Conversation" : afterhours ? "InkSights" : "Top line only"} · nothing to ink` : "";
@@ -623,7 +646,7 @@
       EPD.blit(canvas, fb, whole === 1 && fit >= 1.25 ? fit : whole, yellow);
     }
 
-    function drawAll() { displayList().forEach(e => { drawPreview(e); renderOrder(e); renderNetOrder(e); }); }
+    function drawAll() { displayList().forEach(e => { drawPreview(e); renderOrder(e); renderNetOrder(e); renderDockerOrder(e); }); }
 
     // Disks of the display's types in its order (hidden ones included, so they can be ticked again)
     const orderedFor = s => EPD.orderDisks(state.disks || [], s);
@@ -632,27 +655,62 @@
       const id = entry.id, box = $(`ord-${id}`);
       if (!box) return;
       const s = settingsFor(id), list = orderedFor(s), manual = s.sort === "manual", hidden = new Set(s.hidden);
-      box.replaceChildren(...list.map((d, j) => el("li", { class: hidden.has(d.uid) ? "off" : "" },
+      box.replaceChildren(...list.map((d, j) => el("li", { class: hidden.has(d.uid) ? "off" : "", "data-key": d.uid },
         el("span", { class: "pos" }, String(j + 1)),
         el("input", { type: "checkbox", checked: !hidden.has(d.uid), "aria-label": `Show ${d.dev}`, onchange: e => {
           s.hidden = e.target.checked ? s.hidden.filter(u => u !== d.uid) : [...new Set([...s.hidden, d.uid])];
           changed(); drawPreview(entry); renderOrder(entry);
         } }),
         el("div", {}, el("span", { class: "dev" }, d.dev), " ", el("span", { class: "sub" }, `${d.pool || "not mounted"} · ${d.uid || "?"}`)),
-        manual ? el("div", { class: "mv" },
-          el("button", { class: "btn", type: "button", id: `mv-${id}-${j}-up`, "aria-label": `Move ${d.dev} up`, disabled: j === 0, onclick: () => move(entry, j, -1) }, "▲"),
-          el("button", { class: "btn", type: "button", id: `mv-${id}-${j}-dn`, "aria-label": `Move ${d.dev} down`, disabled: j === list.length - 1, onclick: () => move(entry, j, 1) }, "▼"))
-          : el("span"))));
+        manual ? rowGrip(d.dev, keys => { s.order = keys; changed(); drawPreview(entry); renderOrder(entry); return box; }) : el("span"))));
     }
 
-    function move(entry, j, dir) {
-      const s = settingsFor(entry.id), uids = orderedFor(s).map(d => d.uid), t = j + dir;
-      if (t < 0 || t >= uids.length) return;
-      [uids[j], uids[t]] = [uids[t], uids[j]];
-      s.order = uids;
-      changed(); drawPreview(entry); renderOrder(entry);
-      const same = $(`mv-${entry.id}-${t}-${dir < 0 ? "up" : "dn"}`);
-      (same && !same.disabled ? same : $(`mv-${entry.id}-${t}-${dir < 0 ? "dn" : "up"}`))?.focus();
+    // Custom order of a list (drives, network interfaces, containers): a grip in every row, dragged like the
+    // grip of a card, or the arrow keys on it. done(keys) takes the new order (the data-key of every row)
+    // and returns the list built again, where the moved row's grip gets the focus back
+    function rowGrip(label, done) {
+      const g = el("button", { class: "grip row-grip", type: "button", "aria-label": `Move ${label}` });
+      const finish = li => {
+        const key = li.dataset.key, box = done([...li.parentElement.children].map(x => x.dataset.key));
+        const again = [...(box?.children || [])].find(x => x.dataset.key === key);
+        again?.querySelector(".row-grip")?.focus();
+      };
+      g.addEventListener("keydown", e => {
+        if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+        e.preventDefault();
+        const li = g.closest("li"), to = e.key === "ArrowUp" ? li.previousElementSibling : li.nextElementSibling;
+        if (!to) return;
+        if (e.key === "ArrowUp") to.before(li); else to.after(li);
+        finish(li);
+      });
+      // the moves and the release from the whole window (moving the row ends a pointer capture on the grip)
+      g.addEventListener("pointerdown", e => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const li = g.closest("li"), id0 = e.pointerId;
+        const move = ev => {
+          if (ev.pointerId !== id0) return;
+          for (const o of li.parentElement.children) {   // past the middle of a neighbour: the row takes its place
+            if (o === li) continue;
+            const r = o.getBoundingClientRect(), mid = r.top + r.height / 2;
+            const below = li.compareDocumentPosition(o) & Node.DOCUMENT_POSITION_FOLLOWING;
+            if (below ? ev.clientY > mid : ev.clientY < mid) { if (below) o.after(li); else o.before(li); return; }
+          }
+        };
+        const end = ev => {
+          if (ev.pointerId !== id0) return;
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", end);
+          window.removeEventListener("pointercancel", end);
+          li.classList.remove("dragging");
+          finish(li);
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", end);
+        window.addEventListener("pointercancel", end);
+        li.classList.add("dragging");
+      });
+      return g;
     }
 
     // Network interfaces of the network pages in their order (hidden ones included), like the disks
@@ -663,7 +721,7 @@
       if (!box) return;
       const s = settingsFor(id), list = netsFor(s), manual = s.netSort === "manual", hidden = new Set(s.netHidden);
       const state_ = i => (i.state === "D" ? "down" : i.state === "L" ? "no link" : "");
-      box.replaceChildren(...list.map((i, j) => el("li", { class: hidden.has(i.name) ? "off" : "" },
+      box.replaceChildren(...list.map((i, j) => el("li", { class: hidden.has(i.name) ? "off" : "", "data-key": i.name },
         el("span", { class: "pos" }, String(j + 1)),
         el("input", { type: "checkbox", checked: !hidden.has(i.name), "aria-label": `Show ${i.name}`, onchange: e => {
           s.netHidden = e.target.checked ? s.netHidden.filter(n => n !== i.name) : [...new Set([...s.netHidden, i.name])];
@@ -671,27 +729,33 @@
         } }),
         el("div", {}, el("span", { class: "dev" }, i.name), " ",
           el("span", { class: "sub" }, [i.wireless ? "wireless" : "wired", state_(i)].filter(Boolean).join(" · "))),
-        manual ? el("div", { class: "mv" },
-          el("button", { class: "btn", type: "button", id: `nmv-${id}-${j}-up`, "aria-label": `Move ${i.name} up`, disabled: j === 0, onclick: () => moveNet(entry, j, -1) }, "▲"),
-          el("button", { class: "btn", type: "button", id: `nmv-${id}-${j}-dn`, "aria-label": `Move ${i.name} down`, disabled: j === list.length - 1, onclick: () => moveNet(entry, j, 1) }, "▼"))
-          : el("span"))));
+        manual ? rowGrip(i.name, keys => { s.netOrder = keys; changed(); drawPreview(entry); renderNetOrder(entry); return box; }) : el("span"))));
     }
 
-    function moveNet(entry, j, dir) {
-      const s = settingsFor(entry.id), names = netsFor(s).map(i => i.name), t = j + dir;
-      if (t < 0 || t >= names.length) return;
-      [names[j], names[t]] = [names[t], names[j]];
-      s.netOrder = names;
-      changed(); drawPreview(entry); renderNetOrder(entry);
-      const same = $(`nmv-${entry.id}-${t}-${dir < 0 ? "up" : "dn"}`);
-      (same && !same.disabled ? same : $(`nmv-${entry.id}-${t}-${dir < 0 ? "dn" : "up"}`))?.focus();
+    // Docker containers in their order (hidden ones included), like the network interfaces
+    const containersFor = s => EPD.orderContainers(state.docker || [], s);
+    const DOCKER_STATE = { R: "running", E: "error", S: "stopped" };
+
+    function renderDockerOrder(entry) {
+      const id = entry.id, box = $(`dord-${id}`);
+      if (!box) return;
+      const s = settingsFor(id), list = containersFor(s), manual = s.dockerSort === "manual", hidden = new Set(s.dockerHidden);
+      box.replaceChildren(...list.map((c, j) => el("li", { class: hidden.has(c.name) ? "off" : "", "data-key": c.name },
+        el("span", { class: "pos" }, String(j + 1)),
+        el("input", { type: "checkbox", checked: !hidden.has(c.name), "aria-label": `Show ${c.name}`, onchange: e => {
+          s.dockerHidden = e.target.checked ? s.dockerHidden.filter(n => n !== c.name) : [...new Set([...s.dockerHidden, c.name])];
+          changed(); drawPreview(entry); renderDockerOrder(entry);
+        } }),
+        el("div", {}, el("span", { class: "dev" }, c.name), " ",
+          el("span", { class: "sub" }, [DOCKER_STATE[c.state] || "", c.update ? "update" : ""].filter(Boolean).join(" · "))),
+        manual ? rowGrip(c.name, keys => { s.dockerOrder = keys; changed(); drawPreview(entry); renderDockerOrder(entry); return box; }) : el("span"))));
     }
 
     // ---------------------------------------------------------- cards
     function card(entry) {
       const { id, live } = entry;
       const s = settingsFor(id), board = boardOf(live), w = s.wifi;
-      const redraw = () => { changed(); drawPreview(entry); renderOrder(entry); renderNetOrder(entry); };
+      const redraw = () => { changed(); drawPreview(entry); renderOrder(entry); renderNetOrder(entry); renderDockerOrder(entry); };
       const radios = (name, options, current, onPick) => el("div", { class: "choices" }, ...options.map(([value, label]) =>
         el("label", { class: "check" },
           el("input", { type: "radio", name: `${name}-${id}`, value: String(value), checked: value === current, onchange: () => { onPick(value); redraw(); } }),
@@ -947,6 +1011,34 @@
               s.netSort = v;
             }),
             el("ol", { class: "order", id: `nord-${id}`, "aria-label": `Network interface order of display ${id}` }))));
+
+      // Docker (simulator so far): one row per container; Show: all of them, the ones with an error, the
+      // ones with an update, or both. Moves with its grip like the other page cards
+      // errors and updates in the third colour; panels without one: off
+      const dockerColBox = el("div", { class: "field boxed" }, el("span", { class: "label" }, "Color highlight"),
+        radios("dockercol", [[1, "On"], [0, "Off"]], s.dockerColor, v => { s.dockerColor = v; }));
+      setDisabled(dockerColBox, panel.colors === 2);
+      const dockerCard = backend.docker ? subCard("dockerOpen", "Docker", true, "showDocker",
+        el("div", { class: "form" },
+          el("div", { class: "wide one-two" },   // Icons a third, Show two thirds (user); Color highlight below Icons
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Icons"),
+              radios("dockericons", [[1, "On"], [0, "Off"]], s.dockerIcons, v => { s.dockerIcons = v; })),
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Show"),
+              radios("dockerfilter", [[0, "All"], [1, "Errors"], [2, "Updates"], [3, "Errors and updates"]], s.dockerFilter, v => { s.dockerFilter = v; })),
+            dockerColBox,
+            // beside Color highlight: errors and updates in a box (user)
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Highlight"),
+              radios("dockerhi", [[1, "On"], [0, "Off"]], s.dockerHi, v => { s.dockerHi = v; })))),
+        // the order of the containers and which ones show, like the network interfaces (user)
+        el("fieldset", { class: `set-${id}` },
+          el("details", { class: "fold boxed field", open: pref(id, "dockerOrderOpen", true), ontoggle: e => setPref(id, "dockerOrderOpen", e.target.open) },
+            el("summary", {}, "Order and visibility by"),
+            radios("dockersort", [["state", "State"], ["name", "Name"], ["manual", "Custom"]], s.dockerSort, v => {
+              // start the custom order from the order shown right now
+              if (v === "manual" && !s.dockerOrder.length) s.dockerOrder = containersFor(s).map(c => c.name);
+              s.dockerSort = v;
+            }),
+            el("ol", { class: "order", id: `dord-${id}`, "aria-label": `Container order of display ${id}` })))) : null;
 
       // System page: components, network interface, ZFS cache
       // framed: the components, the settings of single rows, the symbols
@@ -1238,7 +1330,7 @@
       // Advanced Ink stay where they are.
       // The Conversation, The Intermission and The Afterhours move too: their
       // place is their place in the page turn (Turn candidate)
-      const movable = { S: sysCard, D: disksCard, N: netCard, T: timeCard, W: wifiCard,
+      const movable = { S: sysCard, D: disksCard, N: netCard, K: dockerCard, T: timeCard, W: wifiCard,
         ...(afterhours ? Object.fromEntries(artsShown().map((a, i) => [a.key, screenCards[i]])) : {}) };
       const takeOrder = c => {
         let o = [...c.parentElement.querySelectorAll(".sub-card[data-page]")].map(x => x.dataset.page).join("");
@@ -1246,7 +1338,7 @@
         [...s.cardOrder].forEach((k, i) => { if (!o.includes(k)) o = o.slice(0, i) + k + o.slice(i); });
         if (o !== s.cardOrder) {
           s.cardOrder = o;
-          s.pageOrder = [...o].filter(k => EPD.PAGE_ORDER.includes(k)).join("");
+          s.pageOrder = [...o].filter(k => PAGE_LETTERS.includes(k)).join("");
           pages[id] = 0;
           redraw();
         }
@@ -1303,7 +1395,7 @@
       // the Header card stays while the Time card's Header is ticked (the time page then has the header)
       const justTime = () => {
         const on = s.justTime === 1, ink = timeCard.querySelector(".page-toggle input");
-        for (const c of [sysCard, disksCard, netCard, wifiCard]) if (c) c.hidden = on;
+        for (const c of [sysCard, disksCard, netCard, dockerCard, wifiCard]) if (c) c.hidden = on;
         headerCard.hidden = on && s.timeHead !== 1;
         if (on) { s.showTime = 1; ink.checked = true; timeCard.classList.remove("off"); }
         ink.disabled = on;

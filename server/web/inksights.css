@@ -148,6 +148,8 @@ input:disabled, select:disabled { opacity: 0.45; }
 .form .wide { grid-column: 1 / -1; }
 .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 18px; min-width: 0; }   /* three frames in a row, the next row in the same columns */
 @media (max-width: 560px) { .trio { grid-template-columns: minmax(0, 1fr); } }
+.one-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 14px 18px; min-width: 0; }   /* a narrow frame and a wide one (Docker: Icons | Show) */
+@media (max-width: 560px) { .one-two { grid-template-columns: minmax(0, 1fr); } }
 .col { display: grid; gap: 14px; align-content: start; min-width: 0; }
 .group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
 @media (max-width: 560px) { .group { grid-template-columns: minmax(0, 1fr); } }
@@ -229,8 +231,11 @@ td select { padding: 3px 6px; }
 .order li .pos { color: var(--muted); font-family: var(--font-mono); font-size: 0.8rem; }
 .order .dev { font-family: var(--font-mono); font-weight: 500; }
 .order .sub { color: var(--muted); font-family: var(--font-mono); font-size: 0.78rem; overflow-wrap: anywhere; }
-.order .mv { display: flex; gap: 4px; }
-.order .mv .btn { padding: 0 8px; line-height: 1.6; }
+/* Custom: a grip at the right of every row (like the grip of a card), dragged or the arrow keys on it */
+.order .row-grip { position: relative; top: auto; right: auto; width: 26px; height: 24px; }
+.order .row-grip::before { top: 9px; }
+.order li.dragging { opacity: 0.6; }
+html:has(.order li.dragging) { overflow-anchor: none; }
 .order .btn:disabled { opacity: 0.35; cursor: default; }
 .pct { display: inline-block; width: 3.2em; text-align: right; font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
 

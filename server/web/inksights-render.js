@@ -51,7 +51,7 @@
   // text on the third colour: white, black on the yellow panels (white on yellow is hard to read;
   // user); set per screen from m.yellow in drawScreen()
   let onThird = WH;
-  const L = { HEADER_H: 11, ROW_H_AUTO: 22, ROW_H_MIN: 17, ROW_H_WIDE: 34, ROW_H_UPRIGHT: 32, ROW_H_BIG_UPRIGHT: 63, CHAR_W: 6, BAR_H: 8, BAR_H_MAX: 16, MAX_BOXES: 20, MAX_DISKS: 32, MAX_NETS: 8, WARN_PCT: 85 };
+  const L = { HEADER_H: 11, ROW_H_AUTO: 22, ROW_H_MIN: 17, ROW_H_WIDE: 34, ROW_H_UPRIGHT: 32, ROW_H_BIG_UPRIGHT: 63, CHAR_W: 6, BAR_H: 8, BAR_H_MAX: 16, MAX_BOXES: 20, MAX_DISKS: 32, MAX_NETS: 8, MAX_CONTAINERS: 24, WARN_PCT: 85 };
 
 
   class Fb {
@@ -98,10 +98,13 @@
   // of H field 28; without disks the others are the only pages
   // netOn: the network pages switched on (H field 31) also without interfaces: then one page "No
   // interfaces" when nothing else is there (user), and no "No drives" page while the drive pages are off
-  const pageCounts = (n, h, wanted = 0, w = 0, sys = false, wifi = false, head = true, nets = 0, clock = false, netOn = false, diskOn = true) => {
+  // docker: the Docker pages (H field 32) with this many containers (K lines), -1 = off; switched on they
+  // always have a page, also with none to show ("No errors", "All up to date")
+  const pageCounts = (n, h, wanted = 0, w = 0, sys = false, wifi = false, head = true, nets = 0, clock = false, netOn = false, diskOn = true, docker = -1) => {
     const per = rowsPerPage(h, wanted, w, head);
-    const c = { S: sys ? 1 : 0, N: nets ? Math.ceil(nets / per) : netOn && !sys && !wifi && !clock && n === 0 ? 1 : 0, T: clock ? 1 : 0, W: wifi ? 1 : 0 };
-    c.D = n === 0 ? (sys || wifi || nets || clock || (netOn && !diskOn) ? 0 : 1) : Math.ceil(n / per);
+    const c = { S: sys ? 1 : 0, N: nets ? Math.ceil(nets / per) : netOn && !sys && !wifi && !clock && n === 0 && docker < 0 ? 1 : 0, T: clock ? 1 : 0, W: wifi ? 1 : 0,
+      K: docker < 0 ? 0 : Math.max(1, Math.ceil(docker / per)) };
+    c.D = n === 0 ? (sys || wifi || nets || clock || docker >= 0 || (netOn && !diskOn) ? 0 : 1) : Math.ceil(n / per);
     return c;
   };
   const pageCount = (...a) => Object.values(pageCounts(...a)).reduce((x, y) => x + y, 0);
@@ -111,11 +114,13 @@
   // caption on by default; the card order holds the pages and the pictures C I A each once
   const PICS = [["conv", "18:00", "19:00", 0], ["inter", "12:00", "13:00", 1], ["after", "23:00", "07:00", 1]];
   const PIC_FLAGS = "011", PIC_WIN = "1800-1900,1200-1300,2300-0700";
-  const cardOrderOk = o => typeof o === "string" && o.length === 8 && [..."SDNTWCIA"].every(k => o.includes(k));
-  const orderOk = o => typeof o === "string" && o.length === 5 && [...PAGE_ORDER].every(k => o.includes(k));
+  // K: the Docker pages (simulator so far), in the order when their card has a place, else right after N
+  const cardOrderOk = o => typeof o === "string" && (o.length === 8 || (o.length === 9 && o.includes("K"))) && [..."SDNTWCIA"].every(k => o.includes(k));
+  const orderOk = o => typeof o === "string" && (o.length === 5 || (o.length === 6 && o.includes("K"))) && [...PAGE_ORDER].every(k => o.includes(k));
   // page p in that order: [kind, index within its kind]
   function pageAt(p, order, counts) {
-    for (const k of orderOk(order) ? order : PAGE_ORDER) { if (p < counts[k]) return [k, p]; p -= counts[k]; }
+    const o = orderOk(order) ? order : PAGE_ORDER;
+    for (const k of o.includes("K") ? o : o.replace("N", "NK")) { if (p < (counts[k] || 0)) return [k, p]; p -= counts[k] || 0; }
     return ["D", 0];
   }
 
@@ -1239,7 +1244,8 @@
     const wide = isBig(W, fb.h), hs = wide ? 2 : 1, hx = wide ? 4 : 2;
     const stacked = W < fb.h;   // upright: device | used/total, the pool in a second line
     const nets = m.nets || [];
-    const counts = pageCounts(m.disks.length, fb.h, wanted, W, !!m.sys, !!m.wifiPage, head, nets.length, !!m.clock, !!m.netPages, m.diskPages !== 0);
+    const counts = pageCounts(m.disks.length, fb.h, wanted, W, !!m.sys, !!m.wifiPage, head, nets.length, !!m.clock, !!m.netPages, m.diskPages !== 0,
+      m.dockerPage ? (m.containers || []).length : -1);
     // pages with a picture in the page turn (m.extraPages)
     // (m.extraOnly: every page off, the pictures in the page turn are all there is)
     const pages = (m.extraOnly ? 0 : Object.values(counts).reduce((x, y) => x + y, 0)) + (m.extraPages || 0);
@@ -1253,7 +1259,7 @@
     // header is off, so they match there too (user). Caption (m.artCap: the letters with one; only when
     // the case shows the picture, not for m.art): "Nothing to ink" / "Check connection" below it as
     // before: the block as high as the taller picture with its text, the text at its bottom
-    const nothing = !m.sys && !m.wifiPage && !m.clock && !nets.length && !m.netPages && m.disks.length === 0 && m.diskPages === 0;
+    const nothing = !m.sys && !m.wifiPage && !m.clock && !nets.length && !m.netPages && !m.dockerPage && m.disks.length === 0 && m.diskPages === 0;
     // Advanced Ink: "Nothing to ink" switched off = only the top line ("Check connection" off: the
     // pages go on, m.noData stays false)
     const art = m.art || (m.noData ? "D" : nothing && ((m.screens ?? 7) & 2) ? "N" : "");
@@ -1324,6 +1330,15 @@
       if (!nets.length) { fb.text(hx, HH + 6, "No interfaces", BK, hs); return; }   // network pages on, no interface
       const part = nets.slice(idx * rows, idx * rows + rows).map(n => netRow(n, m.netBar || 0));
       drawRows(fb, part, HH, wide, stacked, m.netIcons !== 0, false, Math.min(nets.length, rows));
+      return;
+    }
+    // Docker pages: one row per container, sized like the network pages; none to show: what the filter
+    // looked for (H field 33)
+    if (kind === "K") {
+      const cs = m.containers || [];
+      if (!cs.length) { fb.text(hx, HH + 6, ["No containers", "No errors", "All up to date", "All fine"][m.dockerFilter || 0], BK, hs); return; }
+      const part = cs.slice(idx * rows, idx * rows + rows).map(c => dockerRow(c, m.mono || m.dockerColor === 0 ? BK : RD, m.dockerHi === 1));
+      drawRows(fb, part, HH, wide, stacked, m.dockerPage === 1, 2, rows);   // a list: always from the top
       return;
     }
     if (m.disks.length === 0) { fb.text(hx, HH + 6, "No drives", BK, hs); return; }
@@ -1398,6 +1413,17 @@
       bar: pct >= 0 ? [pct, pct] : null, pair: true,   // down and up belong together
       barText: pct < 0 ? null : barMode === 1 ? `${pct}%` : barMode === 2 ? linkText(n.link) : null };
   }
+  // A container of the Docker pages: its name, its state (running / error / stopped; error in the third
+  // colour) and "update" at the right when a newer image is out (third colour). Text rows like the
+  // temperature rows; upright the state below the name.
+  // Highlight (H field 35): "error" and "update" white in a box of that colour instead (black on a yellow box)
+  const DOCKER_STATES = { R: "running", E: "error", S: "stopped" };
+  function dockerRow(c, third, hi) {
+    const on = third === BK ? WH : onThird;
+    return { icon: "docker", label: c.name, info: DOCKER_STATES[c.st] || "--", infoC: c.st === "E" ? (hi ? on : third) : BK, infoBox: c.st === "E" && hi ? third : null,
+      value: c.upd ? "update" : "", valueC: hi ? on : third, valueBox: hi ? third : null, inline: true };
+  }
+
   function sysRows(sys) {
     const rows = [], on = c => sys.parts.includes(c);
     const temps = list => list.map(t => tempText(t, sys.stby)).join(" ");
@@ -1488,6 +1514,24 @@
     fb.fillRect(x + c - Math.trunc((w - 1) / 2), y + c - hand + 1, w, hand, BK);   // up
     fb.fillRect(x + c, y + c - Math.trunc((w - 1) / 2), Math.max(1, hand - 1), w, BK);   // to the right
   }
+  // Docker: cubes in pixels, edges two pixels across per pixel down. A cube of m is 4m + 1 wide: the top
+  // face a flat diamond, the side faces hgt high, a 1 px outline, top and left face light, right face black.
+  // One cube as big as fits, on every panel (user)
+  function drawCube(fb, ox, oy, m, hgt) {
+    const w = 4 * m + 1;
+    for (let x = 0; x < w; x++) {
+      // the outline flat at the top and the bottom, the front edges of the top face meeting in one pixel
+      const d = Math.trunc((Math.abs(x - 2 * m) + 1) / 2), e = Math.max(d, 1), t = e, b = 2 * m + hgt - e, mid = 2 * m - d;
+      for (let y = t; y <= b; y++) {
+        const black = (x > 2 * m && y > mid) || y === t || y === b || x === 0 || x === w - 1 || (x === 2 * m && y >= mid) || y === mid;
+        fb.pixel(ox + x, oy + y, black ? BK : WH);
+      }
+    }
+  }
+  function drawContainer(fb, x, y, B) {
+    const m = Math.trunc((B - 1) / 4), hgt = B === 13 ? 4 : B - 2 * m - 2;   // 13 px: a little flatter, it looks better
+    drawCube(fb, x + Math.trunc((B - 4 * m - 1) / 2), y + Math.trunc((B - 2 * m - hgt - 1) / 2), m, hgt);
+  }
   // hdd / hddAsleep: the spinning / asleep disc of the drive pages, in the style of its size (like
   // there; wide = 4.2")
   function drawSysIcon(fb, kind, x, y, B, deep, wide = false) {
@@ -1498,6 +1542,7 @@
     else if (kind === "wifi") drawWifiIcon(fb, x, y, B);
     else if (kind === "ram") drawRam(fb, x, y, B);
     else if (kind === "net") drawNet(fb, x, y, B);
+    else if (kind === "docker") drawContainer(fb, x, y, B);
     else drawChip(fb, x, y, B, deep);
   }
 
@@ -1533,7 +1578,9 @@
     const icon = icons ? (wide ? Math.max(21, (sc.bar + 3) | 1) : (sc.bar + 3) | 1) : 0;
     const ix0 = wide ? 4 : 2, x0 = icon ? ix0 + icon + (icon >= 17 ? 5 : 3) : ix0, end = W - ix0;
     const colGap = fAsc(sc.dev) >= 12 ? 8 : 6;
-    const labelMax = stacked ? (longLabels ? end - x0 : Math.trunc((end - x0) / 2)) : Math.trunc(W / (longLabels ? 3 : 4));
+    // longLabels 2 (Docker): the name is what matters, it may take all the room "running" and "update" leave
+    const labelMax = stacked ? (longLabels ? end - x0 : Math.trunc((end - x0) / 2))
+      : longLabels === 2 ? end - x0 - 2 * colGap - fW(sc.pool, "running") - fW(sc.pool, "update") : Math.trunc(W / (longLabels ? 3 : 4));
     for (const r of rows) r.label = fFit(sc.dev, r.label, labelMax);
     const labelW = Math.max(...rows.map(r => fW(sc.dev, r.label)));
     const lineAsc = stacked ? Math.max(fAsc(sc.dev), fAsc(sc.cap)) : Math.max(fAsc(sc.dev), fAsc(sc.pool), fAsc(sc.cap));
@@ -1555,10 +1602,24 @@
       }
       fText(fb, sc.dev, x0, base - fAsc(sc.dev), r.label, BK);
       if (r.inline) {   // NVMe: landscape the temperatures after the name (info column), upright in the second line
-        const ix = stacked ? x0 : x0 + labelW + colGap;
+        let ix = stacked ? x0 : x0 + labelW + colGap;
+        // Docker: the three columns over the whole width (user): the state as far from the names as from
+        // "update" at the right edge, the same place in every row
+        if (longLabels === 2 && !stacked) {
+          const last = end - fW(sc.pool, "update") - colGap - fW(sc.pool, "running");
+          if (last > ix) ix += Math.trunc((last - ix) / 2);
+        }
         // a duration drops its smallest units instead of being cut
         const info = r.dur >= 0 ? uptimeText(0, r.dur, Math.trunc((end - ix + 1) / (fAsc(sc.pool) === 14 ? 12 : 6))) || "--" : r.info;
-        fText(fb, sc.pool, ix, (stacked ? base + line2 : base) - fAsc(sc.pool), fFit(sc.pool, info, end - ix), BK);
+        const iy = (stacked ? base + line2 : base) - fAsc(sc.pool);
+        // a value at the right end of the same line (Docker: "update"); the info is cut before it
+        const pad = fAsc(sc.pool) >= 12 ? 2 : 1;   // a highlight box reaches this far around its text
+        const vX = r.value ? end - fW(sc.pool, r.value) - (r.valueBox != null ? pad : 0) : end + colGap;
+        const boxed = (x, s, c) => { if (c != null) fb.fillRect(x - pad, iy - pad, fW(sc.pool, s) + 2 * pad, fAsc(sc.pool) + 2 * pad, c); };
+        if (r.value) { boxed(vX, r.value, r.valueBox); fText(fb, sc.pool, vX, iy, r.value, r.valueC ?? BK); }
+        const shown = fFit(sc.pool, info, vX - colGap - ix);
+        boxed(ix + (r.infoBox != null ? pad : 0), shown, r.infoBox);
+        fText(fb, sc.pool, ix + (r.infoBox != null ? pad : 0), iy, shown, r.infoC ?? BK);
         return;
       }
       if (!r.bar) {   // no bar: the values below the name, where the bar would be (upright: in the second line)
@@ -1650,11 +1711,11 @@
     let rx = null, done = null;
     for (const raw of text.split("\n")) {
       const line = raw.replace(/\r/g, "").slice(0, 127);
-      if (line === "#BEGIN") { rx = { host: "", time: "", rows: 0, warn: L.WARN_PCT, timer: 0, ringDir: 0, icons: 1, pctBar: 0, fast: 0, uptime: -1, upMonths: 0, wifiPage: 0, wifiIcons: true, netBar: 0, netIcons: 1, driveTemp: 0, stby: 0, headInv: 0, headCol: 0, timeFmt: 0, screens: 7, headLine: 1, order: PAGE_ORDER, clockHead: 0, headFill: 0, clock: null, disks: [], nets: [], sys: null, page: 0 }; continue; }
+      if (line === "#BEGIN") { rx = { host: "", time: "", rows: 0, warn: L.WARN_PCT, timer: 0, ringDir: 0, icons: 1, pctBar: 0, fast: 0, uptime: -1, upMonths: 0, wifiPage: 0, wifiIcons: true, netBar: 0, netIcons: 1, driveTemp: 0, stby: 0, headInv: 0, headCol: 0, timeFmt: 0, screens: 7, headLine: 1, order: PAGE_ORDER, clockHead: 0, headFill: 0, clock: null, disks: [], nets: [], containers: [], dockerPage: 0, dockerFilter: 0, dockerColor: 1, dockerHi: 0, sys: null, page: 0 }; continue; }
       if (!rx) continue;
       if (line === "#END") { done = rx; rx = null; continue; }
       if (line.startsWith("H|")) {
-        const f = splitFields(line, 31);
+        const f = splitFields(line, 35);
         if (f.length >= 3) {
           rx.host = f[1].slice(0, 16); rx.time = f[2].slice(0, 5);
           rx.rows = f.length >= 4 ? clamp(atoi(f[3]), 0, 6) : 0;
@@ -1686,6 +1747,10 @@
           rx.clockHead = f.length >= 29 && f[28] === "1" ? 1 : 0;   // the time page with the header line 1 / without 0 (default)
           rx.headFill = f.length >= 30 && f[29] === "1" ? 1 : 0;    // header: the gaps between the boxes filled
           rx.netPages = f.length >= 31 && f[30] === "1" ? 1 : 0;    // network pages on (also without interfaces)
+          rx.dockerPage = f.length >= 32 ? clamp(atoi(f[31]), 0, 2) : 0;   // Docker pages: 0 off, 1 with symbols, 2 without
+          rx.dockerFilter = f.length >= 33 ? clamp(atoi(f[32]), 0, 3) : 0;   // shown: 0 all, 1 errors, 2 updates, 3 both
+          rx.dockerColor = f.length >= 34 && f[33] === "0" ? 0 : 1;   // errors and updates in the third colour (colour panels)
+          rx.dockerHi = f.length >= 35 && f[34] === "1" ? 1 : 0;     // errors and updates highlighted: in a box
         }
       } else if (line.startsWith("S|")) {
         // system page: components (C R N V S) | cpu % | cpu °C | cpu W | RAM used MiB | ZFS cache MiB |
@@ -1718,6 +1783,11 @@
         if (f.length >= 5) rx.clock = { dt: /^\d{14}$/.test(f[1]) ? f[1] : "", date: f[2] === "1" ? 1 : 0, wday: f[3] === "1" ? 1 : 0,
           dfmt: clamp(atoi(f[4]), 0, 3), ntp: f[5] === "1" ? 1 : 0, server: f[6] && f[6] !== "-" ? f[6] : "", tz: f[7] && f[7] !== "-" ? f[7] : "",
           color: f[8] === "1" ? 1 : 0, frame: f[8] === "1" && f[9] === "1" ? 1 : 0 };
+      } else if (line.startsWith("K|")) {
+        // Docker pages: container | state R running / E error / S stopped | update 1 / 0
+        const f = splitFields(line, 4);
+        if (f.length < 4 || rx.containers.length >= L.MAX_CONTAINERS) continue;
+        rx.containers.push({ name: f[1].replace(/[^A-Za-z0-9._-]/g, "").slice(0, 24), st: f[2] === "E" || f[2] === "S" ? f[2] : "R", upd: f[3] === "1" });
       } else if (line.startsWith("N|")) {
         // network pages: interface | down KiB/s | up KiB/s | link Mb/s | wireless 1/0 | state U up / L no link / D down
         const f = splitFields(line, 7);
@@ -1791,10 +1861,10 @@
   // nvme, ssd; none = no system page; s.net = interface,
   // "" = the one with the default route; s.zfs = 0: ZFS cache hidden). fast: the panel can do fast refreshes (s.fast seconds).
   // dt: local date and time of the data YYYYMMDDHHMMSS for the time page (missing: today at time)
-  function buildFrame(disks, s, title, time, system = null, fast = false, interval = 0, dt = "") {
+  function buildFrame(disks, s, title, time, system = null, fast = false, interval = 0, dt = "", docker = null) {
     // Advanced Ink, Just give me time: only the time page, the header line as the Time card's Show
     // header says (the other settings stay)
-    if (s.justTime === 1) s = { ...s, showSys: 0, showDisks: 0, showNet: 0, showWifi: 0, showTime: 1, showHeader: s.timeHead === 1 ? 1 : 0 };
+    if (s.justTime === 1) s = { ...s, showSys: 0, showDisks: 0, showNet: 0, showDocker: 0, showWifi: 0, showTime: 1, showHeader: s.timeHead === 1 ? 1 : 0 };
     // H field 17: header layout, "---" = header switched off (s.showHeader 0, the layout stays);
     // H fields 13 and 14: uptime (when the header shows it) as minutes after the full calendar
     // months, and the months; -1 = none
@@ -1815,8 +1885,12 @@
       orderOk(s.pageOrder) ? s.pageOrder : PAGE_ORDER,   // H field 28: the page order
       s.timeHead === 1 ? 1 : 0,   // H field 29: the time page with the header line (default without)
       s.headFill === 1 && s.headInv === 1 && s.headCol === 1 ? 1 : 0,  // H field 30: header filled in the third colour (with Highlight color only)
-      s.showNet === 1 ? 1 : 0];   // H field 31: network pages on (without interfaces: "No interfaces")
-    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, PAGE_ORDER, 0, 0, 0];
+      s.showNet === 1 ? 1 : 0,   // H field 31: network pages on (without interfaces: "No interfaces")
+      s.showDocker === 1 ? (s.dockerIcons === 0 ? 2 : 1) : 0,   // H field 32: Docker pages, 1 with symbols, 2 without
+      s.showDocker === 1 ? s.dockerFilter || 0 : 0,   // H field 33: the containers shown: 0 all, 1 errors, 2 updates, 3 both
+      s.showDocker === 1 && s.dockerColor === 0 ? 0 : 1,   // H field 34: errors and updates in the third colour (Color highlight)
+      s.showDocker === 1 && s.dockerHi === 1 ? 1 : 0];   // H field 35: errors and updates highlighted, in a box
+    const defaults = [0, 0, 1, 0, 0, -1, 0, 0, 0, DEFAULT_LAYOUT, 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, PAGE_ORDER, 0, 0, 0, 0, 0, 1, 0];
     while (extra.length && extra[extra.length - 1] === defaults[extra.length - 1]) extra.pop();
     const head = [`H|${title}|${time}|${s.rows || 0}|${s.warn ?? L.WARN_PCT}|${Math.trunc((s.rot || 0) / 90)}|${s.page ?? 600}`, ...extra].join("|");
     const lines = ["#BEGIN", head];
@@ -1870,8 +1944,32 @@
       if (s.sys.includes("hdd") && Array.isArray(system.hdd) && system.hdd.length) lines.push("T|" + system.hdd.slice(0, 6).map(x => (Number.isInteger(x.temp) ? x.temp : -1)).join(","));
     }
     if (s.showNet === 1 && system) lines.push(...netLines(system, s));   // network pages
+    if (s.showDocker === 1 && Array.isArray(docker)) lines.push(...dockerLines(docker, s));   // Docker pages
     lines.push("#END");
     return lines.join("\n");
+  }
+
+  // The containers in their order (hidden ones included, the settings list ticks them): dockerSort "state"
+  // errors first, then the ones with an update, then the rest, each by name (default); "name"; "manual" the
+  // ones in s.dockerOrder first, the rest by name (like the network interfaces)
+  function orderContainers(list, s) {
+    const byName = [...(list || [])].sort((a, b) => cmp(a.name, b.name));
+    if (s.dockerSort === "name") return byName;
+    if (s.dockerSort === "manual") {
+      const first = (s.dockerOrder || []).map(n => byName.find(c => c.name === n)).filter(Boolean);
+      return [...first, ...byName.filter(c => !first.includes(c))];
+    }
+    const rank = c => (c.state === "E" ? 0 : c.update ? 1 : 2);
+    return byName.sort((a, b) => rank(a) - rank(b));
+  }
+  // K lines: the containers shown (not hidden) that the filter lets through (1 errors, 2 updates, 3 both,
+  // 0 all), in their order; at most L.MAX_CONTAINERS
+  function dockerLines(list, s) {
+    const filter = s.dockerFilter || 0, hidden = new Set(s.dockerHidden || []);
+    const err = c => c.state === "E", upd = c => !!c.update;
+    const keep = c => !hidden.has(c.name) && (filter === 1 ? err(c) : filter === 2 ? upd(c) : filter === 3 ? err(c) || upd(c) : true);
+    return orderContainers(list, s).filter(keep).slice(0, L.MAX_CONTAINERS)
+      .map(c => ["K", String(c.name).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 24) || "?", c.state === "E" || c.state === "S" ? c.state : "R", upd(c) ? 1 : 0].join("|"));
   }
 
   // Interfaces of the network pages in their order, like net_lines() in inksights.sh: by name, or
@@ -1925,5 +2023,5 @@
   }
 
 
-  window.EPD = { WH, BK, RD, Fb, clockParts, DEFAULT_LAYOUT, PAGE_ORDER, orderOk, layoutOk, orderNets, drawScreen, drawSplash, parseFrame, buildFrame, noDataSecs, systemLine, uptimeSplit, orderDisks, pageCount, pageCounts, rowsPerPage, hsize, blit };
+  window.EPD = { WH, BK, RD, Fb, clockParts, DEFAULT_LAYOUT, PAGE_ORDER, orderOk, layoutOk, orderNets, orderContainers, drawScreen, drawSplash, parseFrame, buildFrame, noDataSecs, systemLine, uptimeSplit, orderDisks, pageCount, pageCounts, rowsPerPage, hsize, blit };
 })();

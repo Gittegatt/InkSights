@@ -791,7 +791,7 @@ spindown timer (see [What a display shows](#what-a-display-shows)).
 | **Temperature** | On, Off | The temperature of each drive (off by default); `--` = unknown. |
 | **Asleep** | STBY, -- | What a hard disk that is asleep shows instead of its temperature. |
 | **Color highlight** | on/off, from … % used | Bar and used/total are highlighted once a pool is this full. |
-| **Order and visibility by** | Pool, UID, Device, Custom (▲▼) | The tick next to each disk shows or hides it on this display. |
+| **Order and visibility by** | Pool, UID, Device, Custom | The tick next to each disk shows or hides it on this display. Custom: drag a disk by its grip (two lines at the right), or the arrow keys on the grip. |
 
 - **Drive types:** the number of drives of each type is shown in brackets.
 - **Details** Capacity: the top right then shows only the total.
@@ -821,7 +821,7 @@ pages.
 | **Icons** | On, Off | Linked boxes for a wired interface, the WiFi symbol for a wireless one. |
 | **Details in bar** | On, Off | Text inside the bar, only where the bar is high and wide enough. |
 | **Details** | Percentage, Link speed | How busy the link is (e.g. 10%) or its speed (e.g. 1G). |
-| **Order and visibility by** | Name, Custom (▲▼) | The tick next to each interface shows or hides it. At most 8. |
+| **Order and visibility by** | Name, Custom | The tick next to each interface shows or hides it. At most 8. Custom: drag an interface by its grip, or the arrow keys on it. |
 
 Each row shows:
 

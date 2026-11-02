@@ -47,6 +47,19 @@ document.write(`<link rel="stylesheet" href="../server/web/inksights.css${BUST}"
       </div>
       <div class="field wide boxed"><span class="label">Displays</span><div class="sim-grid" id="hw"></div></div>
       <div class="field wide boxed"><span class="label">System</span><div class="choices" id="sys"></div></div>
+      <!-- the Docker containers of the server: name, state, a newer image out -->
+      <div class="field wide boxed"><span class="label">Containers</span>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>State</th><th>Update</th><th></th></tr></thead>
+            <tbody id="containers"></tbody>
+          </table>
+        </div>
+        <div class="choices">
+          <button class="btn" id="addContainer" type="button">Add container</button>
+          <button class="btn" id="exampleContainers" type="button">Load example</button>
+        </div>
+      </div>
     </div>
 
     <div class="field boxed" id="disksBox">
@@ -167,9 +180,19 @@ function simNow() {
   now.setHours(hh, mm, 0, 0);
   return now.getTime();
 }
+// Docker containers: R running, E error (exited with an error, restarting, unhealthy), S stopped; update = a
+// newer image is out
+const DOCKER_EXAMPLE = [
+  { name: "pihole", state: "R", update: true }, { name: "immich", state: "E", update: false },
+  { name: "jellyfin", state: "R", update: false }, { name: "bitwarden", state: "R", update: false },
+  { name: "tailscale", state: "R", update: true }, { name: "kasm", state: "S", update: false },
+  { name: "paperless", state: "R", update: false },
+];
+// the examples of earlier versions: a saved list that is still one of them gets the current one
+const OLD_DOCKER_EXAMPLES = ["home-assistant,immich-server,inksights,inksights-script,jellyfin,nextcloud,paperless,pihole,vaultwarden", "pihole,immich,jellyfin,bitwarden"];
 const SYS_EXAMPLE = { cpu: 37, temp: 52, power: 18, ramUsed: 12.3, ramArc: 40.1, ramTotal: 62.8, rx: 12.3, tx: 1.2, link: 1000, boot: bootExample() };
 const DEFAULTS = {
-  source: "list", time: "14:30", host: "SERVER", disks: EXAMPLE, paste: "", sys: SYS_EXAMPLE,
+  source: "list", time: "14:30", host: "SERVER", disks: EXAMPLE, paste: "", sys: SYS_EXAMPLE, docker: DOCKER_EXAMPLE,
   pagename: "", interval: 10, oldFw: false, config: {},
   hw: [hwDefaults("xiao-samd21", 1), hwDefaults("esp32-c3-supermini", 5)],
 };
@@ -184,6 +207,7 @@ function load() {
       merged.hw = saved.hw.map((h, i) => Object.assign(structuredClone(DEFAULTS.hw[i]), h));
       for (const h of merged.hw) if (typeof h.panel === "string") h.panel = OLD_PANELS[h.panel] || 1;
       if (merged.host === "TRUENAS") merged.host = DEFAULTS.host;   // the host name of an earlier version
+      if (Array.isArray(merged.docker) && OLD_DOCKER_EXAMPLES.includes(merged.docker.map(c => c.name).join(","))) merged.docker = structuredClone(DOCKER_EXAMPLE);
       return merged;
     }
   } catch (e) { /* private window or blocked storage: start with the defaults */ }
@@ -278,7 +302,8 @@ function stateNow(live = false) {
   const disks = sim.disks.map((d, i) => toState(live ? liveDisk(d, i) : d));
   return { version: sim.scriptVer || "1.0",
     host: sim.host || "SERVER", updated: timeOk ? Math.floor(Date.now() / 1000) : 0, timeText: timeOk ? sim.time : "--:--",
-    disks, displays, system: systemNow(disks, live ? liveSys() : sim.sys) };
+    disks, displays, system: systemNow(disks, live ? liveSys() : sim.sys),
+    docker: (sim.docker || []).map(c => ({ name: c.name, state: c.state, update: !!c.update })) };
 }
 
 // Seconds since the WiFi connected ("Connected since"); empty or in the future = unknown
@@ -345,6 +370,7 @@ let usb = null;   // the USB card, mounted below
 const ui = InkSightsUI.start({
   root: $("app"),
   tabs: true,           // one tab per display, the preview beside its cards
+  docker: true,         // the Docker card and pages (state.docker)
   // Login card: the login of the settings page, off by default (the simulator keeps it in its stored settings)
   login: async (on, current, next) => {
     if (sim.loginOn && current !== sim.loginPass) throw new Error("The current password is wrong.");
@@ -520,8 +546,25 @@ $("example").addEventListener("click", () => { sim.disks = structuredClone(EXAMP
 $("exampleLinux").addEventListener("click", () => { sim.disks = structuredClone(EXAMPLE_LINUX); buildDisks(); update(); });
 $("clear").addEventListener("click", () => { sim.disks = []; buildDisks(); update(); });
 
+// The container list: name, state, update
+function buildContainers() {
+  $("containers").replaceChildren(...(sim.docker || []).map((c, i) => el("tr", {},
+    el("td", {}, el("input", { type: "text", value: c.name, maxlength: "24", "aria-label": "Container name", oninput: e => { c.name = e.target.value; update(); } })),
+    el("td", {}, el("select", { "aria-label": "State", onchange: e => { c.state = e.target.value; update(); } },
+      ...[["R", "Running"], ["E", "Error"], ["S", "Stopped"]].map(([v, l]) => el("option", { value: v, selected: v === c.state }, l)))),
+    el("td", {}, el("input", { type: "checkbox", checked: !!c.update, "aria-label": "Update available", onchange: e => { c.update = e.target.checked; update(); } })),
+    el("td", {}, el("button", { class: "btn link", type: "button", "aria-label": `Remove ${c.name}`, onclick: () => { sim.docker.splice(i, 1); buildContainers(); update(); } }, "✕")))));
+}
+$("addContainer").addEventListener("click", () => {
+  if (!Array.isArray(sim.docker)) sim.docker = [];
+  sim.docker.push({ name: `app-${sim.docker.length + 1}`, state: "R", update: false });
+  buildContainers(); update();
+});
+$("exampleContainers").addEventListener("click", () => { sim.docker = structuredClone(DOCKER_EXAMPLE); buildContainers(); update(); });
+
 buildHw();
 buildSys();
+buildContainers();
 // USB: set up a real board, or send it what a simulated display gets ("Send to display")
 usb = InkSightsUSB.mount($("usbBox"), { frames: () => ui.frames() });
 // the Value simulation card folds; remembered like the rest of the simulation
