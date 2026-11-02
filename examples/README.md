@@ -172,14 +172,14 @@ cup in yellow. With **Roast** a cold cup (no steam) stands between the chairs.
 Every page switched off and **The Conversation** with **On cue** off: the product name with its logo, in the
 place it keeps with or without the top line.
 
-## Docker pages (simulator so far)
+## Docker pages
 
 <img align="top" vspace="4" src="example_22_4-2_docker_page.png" alt="Docker page on a 4.2″ display: seven containers, errors first, then the ones with an update, error and update in black boxes, a black top line" width="400"> <img align="top" vspace="4" src="example_23_2-13_docker_page.png" alt="Docker page on a red 2.13″ display: error and update highlighted in red boxes" width="400"> <img align="top" vspace="4" src="example_24_2-13_docker_page_yellow.png" alt="Docker page on a yellow 2.13″ display: error and update in yellow boxes with black text" width="400">
 
 One row per Docker container: its name, its state (running, error, stopped) and **update** when a newer image is
 out, errors first, then the ones with an update. On the left a 4.2″ with every container, **Highlight** on (error and
 update in black boxes) and a black top line; on the right a red 2.13″ with **Highlight**: error
-and update in red boxes; below it the same on a yellow 2.13″, black text on the yellow boxes. So far only in the simulator, not on the real settings page.
+and update in red boxes; below it the same on a yellow 2.13″, black text on the yellow boxes.
 
 ## Settings page and simulator
 
@@ -193,8 +193,7 @@ stays in view while the page scrolls) and its cards on the right. On the left pi
 **Display** card open (names, panel, rotation, rows per page, refresh, page turn, Sync with display, display
 pins), on the right picture the 4.2″ with its **Header** card open (title, places, colours, divider line). The
 other cards are folded, each with its **Ink** tick that switches that page on or off and its grip (two lines) to
-change the order of the pages; among them **Docker** below Network (so far only in the simulator, where these pictures
-come from). Below the page cards the cards of the three pictures (**The Conversation**, **The
+change the order of the pages; among them **Docker** below Network. Below the page cards the cards of the three pictures (**The Conversation**, **The
 Intermission**, **The Afterhours**) and **Advanced Ink**. At the bottom, for the whole page, the **Login** card
 (the login of the page, off by default) and the **About** card (versions, project links, license, support), both
 folded.

@@ -114,7 +114,7 @@
   // caption on by default; the card order holds the pages and the pictures C I A each once
   const PICS = [["conv", "18:00", "19:00", 0], ["inter", "12:00", "13:00", 1], ["after", "23:00", "07:00", 1]];
   const PIC_FLAGS = "011", PIC_WIN = "1800-1900,1200-1300,2300-0700";
-  // K: the Docker pages (simulator so far), in the order when their card has a place, else right after N
+  // K: the Docker pages, in the order when their card has a place, else right after N
   const cardOrderOk = o => typeof o === "string" && (o.length === 8 || (o.length === 9 && o.includes("K"))) && [..."SDNTWCIA"].every(k => o.includes(k));
   const orderOk = o => typeof o === "string" && (o.length === 5 || (o.length === 6 && o.includes("K"))) && [...PAGE_ORDER].every(k => o.includes(k));
   // page p in that order: [kind, index within its kind]
@@ -1866,6 +1866,9 @@
   // nvme, ssd; none = no system page; s.net = interface,
   // "" = the one with the default route; s.zfs = 0: ZFS cache hidden). fast: the panel can do fast refreshes (s.fast seconds).
   // dt: local date and time of the data YYYYMMDDHHMMSS for the time page (missing: today at time)
+  // the page order of the frame: K (the Docker pages) only while they are on, so a display without them gets
+  // the frame it got before (also from an older firmware)
+  const pageOrderOf = s => { const o = orderOk(s.pageOrder) ? s.pageOrder : PAGE_ORDER; return s.showDocker === 1 ? o : o.replace("K", ""); };
   function buildFrame(disks, s, title, time, system = null, fast = false, interval = 0, dt = "", docker = null) {
     // Advanced Ink, Just give me time: only the time page, the header line as the Time card's Show
     // header says (the other settings stay)
@@ -1887,7 +1890,7 @@
       s.timeFmt === 1 ? (s.ampm === 0 ? 2 : 1) : 0,   // H field 25: 0 24 hours, 12 hours 1 with AM/PM, 2 without
       (s.inkSplash === 0 ? 0 : 1) | (s.inkNothing === 0 ? 0 : 2) | (s.inkNoData === 0 ? 0 : 4),   // H field 26: screens shown (Advanced Ink)
       s.lineBottom === 0 ? 0 : 1,   // H field 27: inverted header, the divider line at its bottom
-      orderOk(s.pageOrder) ? s.pageOrder : PAGE_ORDER,   // H field 28: the page order
+      pageOrderOf(s),   // H field 28: the page order
       s.timeHead === 1 ? 1 : 0,   // H field 29: the time page with the header line (default without)
       s.headFill === 1 && s.headInv === 1 && s.headCol === 1 ? 1 : 0,  // H field 30: header filled in the third colour (with Highlight color only)
       s.showNet === 1 ? 1 : 0,   // H field 31: network pages on (without interfaces: "No interfaces")
@@ -1903,7 +1906,7 @@
     // A line, the pictures (only when not the defaults): per picture C I A one hex digit (1 caption, 2 header,
     // 4 in the page turn, 8 scheduled; 0 when its Ink is off), Beverages, the card order (the pages and the
     // pictures: their place in the page turn), the time windows HHMM-HHMM
-    const po = orderOk(s.pageOrder) ? s.pageOrder : PAGE_ORDER, card = cardOrderOk(s.cardOrder) ? s.cardOrder : po + "CIA";
+    const po = pageOrderOf(s), card0 = cardOrderOk(s.cardOrder) ? s.cardOrder : po + "CIA", card = s.showDocker === 1 ? card0 : card0.replace("K", "");
     const flags = PICS.map(([p, , , cap]) => (s[p + "Ink"] === 0 ? 0 : ((s[p + "Cap"] ?? cap) === 1 ? 1 : 0) | (s[p + "Head"] === 1 ? 2 : 0)
       | (s[p + "Rot"] === 1 ? 4 : 0) | (s[p + "Sched"] === 1 ? 8 : 0)).toString(16)).join("");
     const win = PICS.map(([p, f, t]) => `${(s[p + "From"] || f).replace(":", "")}-${(s[p + "To"] || t).replace(":", "")}`).join(",");

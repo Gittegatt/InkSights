@@ -69,6 +69,7 @@
 #   frames/      frames of the WiFi displays, read by the settings page (<id>.txt)
 #   live/        frames of the USB displays with fast refresh, only for the live preview of the
 #                settings page (<id>.txt, without WiFi settings)
+#   docker-updates  per Docker image when its registry was last asked and whether a newer image is out
 #   stamp, lock  time and signature of the last full update, one run at a time
 #   loop.lock    one loop (-l) at a time
 #   inksights.log  what the script did and problems (also on stderr); trimmed to the last
@@ -114,6 +115,18 @@ SYS_PARTS_RE='^(cpu|ram|net|nvme|ssd|hdd)(,(cpu|ram|net|nvme|ssd|hdd))*$'
 # HDD_TEMPS_STALE seconds = the tool does not run: no HDD temperatures.
 DRIVE_TEMP_STATUS="${DRIVE_TEMP_STATUS:-/run/system-metrics/output/disk-temp/status}"
 HDD_TEMPS_STALE=300
+# Docker pages: the containers come from the docker command of the system (name, state); whether a newer
+# image is out is asked from its registry (the digest of the manifest, a HEAD request, nothing is pulled), at
+# most every DOCKER_CHECK minutes per image: INKSIGHTS_DOCKER_CHECK in docker-compose.yaml (10 to 10080,
+# default 360 = 6 hours). Nothing of it touches the disks.
+DOCKER_CHECK="${INKSIGHTS_DOCKER_CHECK:-360}"
+[[ "$DOCKER_CHECK" =~ ^[0-9]{2,5}$ ]] && (( 10#$DOCKER_CHECK >= 10 && 10#$DOCKER_CHECK <= 10080 )) && DOCKER_CHECK=$((10#$DOCKER_CHECK)) || DOCKER_CHECK=360
+DOCKER_ASKS=10           # registry checks per run at most (the others in the next runs)
+MAX_CONTAINERS=24        # K lines per frame (like L.MAX_CONTAINERS in inksights-render.js)
+CNAME_RE='^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+CLIST_RE='^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(,[A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,63}$'
+declare -a DK_NAMES=()
+declare -A DK_STATE=() DK_UPD=()
 PORTS=()
 EXCLUDE=()
 
@@ -207,6 +220,7 @@ REFRESH_FILE="$DATA_DIR/refresh-request"
 REDRAW_FILE="$DATA_DIR/redraw-request"
 WIFI_DIR="$DATA_DIR/wifi"
 FRAMES_DIR="$RUN_DIR/frames"      # frames of the WiFi displays, in memory (written often)
+DOCKER_FILE="$RUN_DIR/docker-updates"   # <epoch of the check> <update 1/0> <image>
 LIVE_DIR="$RUN_DIR/live"          # frames of the USB displays with fast refresh, for the live preview
 
 # -----------------------
@@ -332,6 +346,75 @@ if [ "$FORCE" = false ] && [ "$DRY_RUN" = false ] && [[ ! -e "$REFRESH_FILE" ]];
         FORCE_ALL=0
     fi
 fi
+# -----------------------
+# Docker: is a newer image out? The registry is asked for the digest of the image's tag (a HEAD request on
+# the manifest; Docker Hub does not count it as a pull), the image here knows the digests it was pulled with.
+# -----------------------
+declare -A DKU_AT=() DKU_VAL=()
+docker_load() {   # the checks of the last runs: <epoch> <update 1/0> <image>
+    local at v img
+    [[ -r "$DOCKER_FILE" ]] || return 0
+    while read -r at v img; do
+        [[ "$at" =~ ^[0-9]+$ && "$v" =~ ^[01]$ && "$img" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,200}$ ]] || continue
+        DKU_AT[$img]=$at; DKU_VAL[$img]=$v
+    done < "$DOCKER_FILE"
+}
+docker_save() {
+    local tmp img
+    tmp="$(mktemp "$RUN_DIR/.docker.XXXXXX")" || return
+    for img in "${!DKU_AT[@]}"; do
+        (( NOW - DKU_AT[$img] < 7 * 86400 )) && printf '%s %s %s\n' "${DKU_AT[$img]}" "${DKU_VAL[$img]}" "$img"
+    done > "$tmp"
+    chmod 600 "$tmp"; mv -f "$tmp" "$DOCKER_FILE"
+}
+# REMOTE_DIGEST of <registry> <repository> <tag>; a registry that wants a token says where to get one
+registry_digest() {
+    local url="https://$1/v2/$2/manifests/$3" hdrs auth realm service scope json token
+    local accept="Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json"
+    REMOTE_DIGEST=""
+    command -v curl >/dev/null 2>&1 || return 1
+    hdrs=$(curl -sSI --max-time 8 -H "$accept" "$url" 2>/dev/null | tr -d '\r') || return 1
+    if [[ "$hdrs" =~ ^HTTP/[0-9.]+\ 401 ]]; then
+        auth=$(grep -i '^www-authenticate:' <<< "$hdrs" | head -n 1)
+        [[ "$auth" =~ realm=\"([^\"]+)\" ]] && realm=${BASH_REMATCH[1]} || return 1
+        [[ "$auth" =~ service=\"([^\"]+)\" ]] && service=${BASH_REMATCH[1]}
+        [[ "$auth" =~ scope=\"([^\"]+)\" ]] && scope=${BASH_REMATCH[1]} || scope="repository:$2:pull"
+        json=$(curl -sS --max-time 8 -G "$realm" --data-urlencode "service=$service" --data-urlencode "scope=$scope" 2>/dev/null) || return 1
+        [[ "$json" =~ \"(access_)?token\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]] && token=${BASH_REMATCH[2]} || return 1
+        hdrs=$(curl -sSI --max-time 8 -H "$accept" -H "Authorization: Bearer $token" "$url" 2>/dev/null | tr -d '\r') || return 1
+    fi
+    [[ "$hdrs" =~ ^HTTP/[0-9.]+\ 200 ]] || return 1
+    REMOTE_DIGEST=$(grep -i '^docker-content-digest:' <<< "$hdrs" | tail -n 1 | awk '{print $2}')
+    [[ "$REMOTE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+}
+# UPD = 1 when a newer image is out for <image> (as docker ps names it), else 0 (also when unknown: built
+# here, pinned to a digest, the registry not reachable). Asked at most every DOCKER_CHECK minutes, only with
+# DOCKER_ASK and at most DOCKER_ASKS times per run
+docker_update() {
+    local img="$1" rest reg tag digests
+    UPD=0
+    [[ "$img" =~ ^[A-Za-z0-9][A-Za-z0-9._/:-]{0,200}$ ]] || return 0   # an image ID or a digest: nothing to compare
+    UPD=${DKU_VAL[$img]:-0}
+    [[ -n "${DKU_AT[$img]:-}" ]] && (( NOW - DKU_AT[$img] < DOCKER_CHECK * 60 )) && return 0
+    (( DOCKER_ASK && DOCKER_ASKS > 0 )) || return 0
+    DOCKER_ASKS=$(( DOCKER_ASKS - 1 ))
+    # registry, repository and tag: "nginx" = docker.io library/nginx:latest, "ghcr.io/a/b:1" = ghcr.io a/b:1
+    rest=$img; reg=docker.io
+    if [[ "$rest" == */* && ( "${rest%%/*}" == *[.:]* || "${rest%%/*}" == localhost ) ]]; then reg=${rest%%/*}; rest=${rest#*/}; fi
+    tag=latest
+    if [[ "${rest##*/}" == *:* ]]; then tag=${rest##*:}; rest=${rest%:*}; fi
+    if [[ "$reg" == docker.io ]]; then [[ "$rest" == */* ]] || rest="library/$rest"; reg=registry-1.docker.io; fi
+    DKU_AT[$img]=$NOW
+    if ! registry_digest "$reg" "$rest" "$tag"; then
+        # not reachable: the last answer stays, asked again in 30 minutes (or the interval, when shorter)
+        (( DOCKER_CHECK > 30 )) && DKU_AT[$img]=$(( NOW - (DOCKER_CHECK - 30) * 60 ))
+        return 0
+    fi
+    digests=$(timeout 10 docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$img" 2>/dev/null)
+    if [[ "$digests" == *"@sha256:"* && "$digests" != *"@$REMOTE_DIGEST"* ]]; then UPD=1; else UPD=0; fi
+    DKU_VAL[$img]=$UPD
+}
+
 if [ "$MODE" = full ]; then
     [ "$DRY_RUN" = false ] && rm -f "$REFRESH_FILE"
     read_fast_file   # keeps the last frame times
@@ -403,7 +486,7 @@ fi
 # -----------------------
 NTP_RE='^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$'              # time page: NTP server
 TZPOSIX_RE='^[A-Za-z<][A-Za-z0-9<>+,./:-]{0,47}$'      # time page: POSIX time zone for the board
-declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH CFG_TIMEFMT CFG_CLOCK CFG_SCREENS CFG_LINES CFG_PORDER CFG_THEAD CFG_HFILL CFG_PICS CFG_WIFIICONS CFG_PICSALL CFG_ACLOCK
+declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH CFG_TIMEFMT CFG_CLOCK CFG_SCREENS CFG_LINES CFG_PORDER CFG_THEAD CFG_HFILL CFG_PICS CFG_WIFIICONS CFG_PICSALL CFG_ACLOCK CFG_DOCKER
 IFLIST_RE='^[A-Za-z0-9._-]{1,15}(,[A-Za-z0-9._-]{1,15}){0,31}$'
 NAME_RE='^[A-Za-z0-9 ._+/-]{0,12}$'
 ORDER_RE='^[A-Za-z0-9._-]{1,40}(,[A-Za-z0-9._-]{1,40}){0,31}$'
@@ -440,30 +523,33 @@ layout_valid() {
 # Page order: S (system), D (drives), N (network), T (time), W (WiFi), each once
 # The card order of the settings page: the pages S D N T W and the pictures C I A (their place in the page
 # turn), each once
+# K: the Docker pages; an order with them has 6 (card order 9) letters, else they come after N
 card_valid() {
     local c="$1" k
-    [[ ${#c} == 8 ]] || return 1
+    [[ ${#c} == 8 || ( ${#c} == 9 && "$c" == *K* ) ]] || return 1
     for k in S D N T W C I A; do [[ "$c" == *"$k"* ]] || return 1; done
 }
 # CARD = the card order $1 with its pages in the page order $2 (that one decides the order of the pages)
 card_fix() {
     local c="$1" p="$2" j i=0 k
     card_valid "$c" || c="${p}CIA"
+    [[ "$p" == *K* && "$c" != *K* ]] && c="${c/N/NK}"   # the Docker pages new: after the network pages
+    [[ "$p" != *K* ]] && c="${c/K/}"
     CARD=""
-    for (( j = 0; j < 8; j++ )); do
+    for (( j = 0; j < ${#c}; j++ )); do
         k=${c:j:1}
-        if [[ "SDNTW" == *"$k"* ]]; then CARD+=${p:i:1}; i=$((i + 1)); else CARD+=$k; fi
+        if [[ "SDNTWK" == *"$k"* ]]; then CARD+=${p:i:1}; i=$((i + 1)); else CARD+=$k; fi
     done
 }
 order_valid() {
     local c
-    [[ "$1" =~ ^[SDNTW]{5}$ ]] || return 1
+    [[ "$1" =~ ^[SDNTW]{5}$ || ( "$1" =~ ^[SDNTWK]{6}$ && "$1" == *K* ) ]] || return 1
     for c in S D N T W; do [[ "$1" == *"$c"* ]] || return 1; done
     return 0
 }
 
 if [[ -r "$CONF_FILE" ]]; then
-    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc tcolc tframec picinkc picflagc cardc picwinc soberc _otac aclockc; do
+    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc tcolc tframec picinkc picflagc cardc picwinc soberc _otac aclockc dstylec dsortc dorderc dhidec; do
         name="${name%$'\r'}"; wappass="${wappass%$'\r'}"; wapdelay="${wapdelay%$'\r'}"
         fastc="${fastc%$'\r'}"; sysc="${sysc%$'\r'}"; netc="${netc%$'\r'}"; zfsc="${zfsc%$'\r'}"; pagesc="${pagesc%$'\r'}"; sysiconc="${sysiconc%$'\r'}"; headerc="${headerc%$'\r'}"; panelc="${panelc%$'\r'}"
         layoutc="${layoutc%$'\r'}"; headonc="${headonc%$'\r'}"
@@ -477,7 +563,8 @@ if [[ -r "$CONF_FILE" ]]; then
         theadc="${theadc%$'\r'}"
         hfillc="${hfillc%$'\r'}"; tcolc="${tcolc%$'\r'}"
         tframec="${tframec%$'\r'}"; picinkc="${picinkc%$'\r'}"; picflagc="${picflagc%$'\r'}"; cardc="${cardc%$'\r'}"; picwinc="${picwinc%$'\r'}"
-        aclockc="${aclockc%%[$'\t\r']*}"   # last column: also cut anything after it
+        aclockc="${aclockc%$'\r'}"; dstylec="${dstylec%$'\r'}"; dsortc="${dsortc%$'\r'}"; dorderc="${dorderc%$'\r'}"
+        dhidec="${dhidec%%[$'\t\r']*}"   # last column: also cut anything after it
         soberc="${soberc%$'\r'}"
         # Just give me time: the header line as the Time card's Header tick says (default off)
         if [[ "$justc" == 1 ]]; then [[ "$theadc" == 1 ]] && headonc=1 || headonc=0; fi
@@ -518,7 +605,7 @@ if [[ -r "$CONF_FILE" ]]; then
         if ! layout_valid "$layoutc"; then [[ "$headerc" == 1 ]] && layoutc=TCU || layoutc=TCP; fi
         [[ "$headonc" == "0" ]] && layoutc="---"
         [[ "${layoutc^^}" == *U* ]] && headerc=1 || headerc=0
-        [[ "$pagesc" =~ ^(system|disks|network|time|wifi)(,(system|disks|network|time|wifi)){0,4}$ || "$pagesc" == none ]] || pagesc="system,disks"   # missing = both; none = every page off
+        [[ "$pagesc" =~ ^(system|disks|network|time|wifi|docker)(,(system|disks|network|time|wifi|docker)){0,5}$ || "$pagesc" == none ]] || pagesc="system,disks"   # missing = both; none = every page off
         # time: 12 hours 1 / 24 hours 0; time page: date and weekday 1/0, date format 0-3, NTP 1/0 with
         # server and POSIX time zone (boards with WiFi; the board sets its clock itself)
         [[ "$tfmtc" =~ ^[012]$ ]] || tfmtc=0   # 0 24 hours, 12 hours: 1 with AM/PM, 2 without
@@ -606,6 +693,13 @@ if [[ -r "$CONF_FILE" ]]; then
         CFG_PANEL[$id]=$panelc
         CFG_LAYOUT[$id]=$layoutc
         CFG_NETP[$id]="$nsortc;$norderc;$nhidec;$niconc;$nbarc"
+        # Docker pages: symbols, filter (0 all / 1 errors / 2 updates / 3 both), Color highlight, Highlight, On
+        # cue; the order (state / name / manual with its container names) and the hidden containers
+        [[ "$dstylec" =~ ^[01],[0-3],[01],[01],[01]$ ]] || dstylec="1,0,1,0,0"
+        [[ "$dsortc" =~ ^(state|name|manual)$ ]] || dsortc=state
+        [[ "$dorderc" =~ $CLIST_RE ]] || dorderc=""
+        [[ "$dhidec" =~ $CLIST_RE ]] || dhidec=""
+        CFG_DOCKER[$id]="${dstylec//,/;};$dsortc;$dorderc;$dhidec"
         CFG_DRIVETEMP[$id]=$dtempc
         CFG_STBY[$id]=$stbyc
         CFG_HEADINV[$id]=$headinvc
@@ -761,9 +855,33 @@ else
         fi
     done
 
+    # -----------------------
+    # Docker containers (Docker pages; the settings page lists them too): name, state R running / E error
+    # (exited with an error, restarting, dead, unhealthy) / S stopped (exited 0, created, paused), and whether
+    # a newer image is out (asked only while a display shows the Docker pages)
+    # -----------------------
+    if command -v docker >/dev/null 2>&1; then
+        docker_load
+        DOCKER_ASK=0
+        for p in "${CFG_PAGES[@]}"; do [[ ",$p," == *,docker,* ]] && DOCKER_ASK=1; done
+        (( ${#CFG_PAGES[@]} )) || DOCKER_ASK=1   # no settings yet: every display shows every page
+        while IFS=$'\t' read -r cname cstate cstatus cimage; do
+            [[ "$cname" =~ $CNAME_RE ]] || continue
+            case "$cstate" in
+                running) [[ "$cstatus" == *"(unhealthy)"* ]] && cst=E || cst=R ;;
+                restarting|dead) cst=E ;;
+                exited) [[ "$cstatus" == "Exited (0)"* ]] && cst=S || cst=E ;;
+                *) cst=S ;;
+            esac
+            docker_update "$cimage"
+            DK_NAMES+=("$cname"); DK_STATE[$cname]=$cst; DK_UPD[$cname]=$UPD
+        done < <(timeout 15 docker ps -a --format '{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Image}}' 2>/dev/null)
+        [ "$DRY_RUN" = false ] && docker_save
+    fi
+
     if [ "$DRY_RUN" = false ]; then
         tmp="$(mktemp "$RUN_DIR/.cache.XXXXXX")" && {
-            declare -p HOST DISKS POOL_ORDER UID_ORDER D_UID UID_DEV D_TYPE D_POOL D_USEDB D_TOTALB D_USEDH D_TOTALH D_PCT D_SIZE > "$tmp"
+            declare -p HOST DISKS POOL_ORDER UID_ORDER D_UID UID_DEV D_TYPE D_POOL D_USEDB D_TOTALB D_USEDH D_TOTALH D_PCT D_SIZE DK_NAMES DK_STATE DK_UPD > "$tmp"
             chmod 600 "$tmp"
             mv -f "$tmp" "$CACHE_FILE"
         }
@@ -1147,6 +1265,36 @@ system_line() {
 #   N|<interface>|<down KiB/s>|<up KiB/s>|<link Mb/s>|<wireless 1/0>|<state U up / L no link / D down>
 # name: by name; manual: the listed interfaces first, in that order, then the others by name
 NET_MAX=8
+# K lines: K|<container>|<R running / E error / S stopped>|<update 1/0>, in the order $1 (state: errors,
+# then the ones with an update, then the rest, each by name; name; manual: the names in $2 first), without
+# the hidden ones ($3) and the ones the filter $4 leaves out (1 errors, 2 updates, 3 both); at most
+# MAX_CONTAINERS (like dockerLines() in inksights-render.js)
+docker_lines() {
+    local sort="$1" hidden=",$3," filter="$4" n st u
+    local -a names list=() want
+    mapfile -t names < <(printf '%s\n' "${DK_NAMES[@]}" | LC_ALL=C sort)
+    if [[ "$sort" == manual ]]; then
+        IFS=, read -ra want <<< "$2"
+        for n in "${want[@]}"; do [[ -n "${DK_STATE[$n]+x}" && " ${list[*]} " != *" $n "* ]] && list+=("$n"); done
+    elif [[ "$sort" == state ]]; then
+        for n in "${names[@]}"; do [[ "${DK_STATE[$n]}" == E ]] && list+=("$n"); done
+        for n in "${names[@]}"; do [[ "${DK_STATE[$n]}" != E && "${DK_UPD[$n]}" == 1 ]] && list+=("$n"); done
+    fi
+    for n in "${names[@]}"; do [[ -n "$n" && " ${list[*]} " != *" $n "* ]] && list+=("$n"); done
+    DOCKER_LINES=()
+    for n in "${list[@]}"; do
+        [[ "$hidden" == *",$n,"* ]] && continue
+        st=${DK_STATE[$n]}; u=${DK_UPD[$n]:-0}
+        case "$filter" in
+            1) [[ "$st" == E ]] || continue ;;
+            2) [[ "$u" == 1 ]] || continue ;;
+            3) [[ "$st" == E || "$u" == 1 ]] || continue ;;
+        esac
+        DOCKER_LINES+=("K|$n|$st|$u")
+        (( ${#DOCKER_LINES[@]} >= MAX_CONTAINERS )) && break
+    done
+}
+
 net_lines() {
     local sort="$1" hidden=",$3," n k=0
     local -a names list=()
@@ -1211,9 +1359,9 @@ order_disks() {
 # -----------------------
 build_frame() {
     local title="$1" types=",$2," maxb="$3" rows="$4" warn="$7" turns=$(( ${8:-0} / 90 )) pagesec="${9:-$DEFAULT_PAGE}"
-    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-1}" porder="${30:-SDNTW}" thead="${31:-0}" hfill="${32:-0}" pics="${33:-}" wifip="${34:-0}"
+    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-1}" porder="${30:-SDNTW}" thead="${31:-0}" hfill="${32:-0}" pics="${33:-}" wifip="${34:-0}" dockp="${35:-}"
     local d steps idle tmo poll st remain tsec head i dt pct pdec u t
-    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0 0 7 1 SDNTW 0 0 0)
+    local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0 0 7 1 SDNTW 0 0 0 0 0 1 0 0)
     order_disks "$5" "$6"
     local hm
     printf -v hm '%(%H:%M)T' -1
@@ -1233,7 +1381,18 @@ build_frame() {
     sv=("${sv[@]:0:4}" "$fast" -1 0 "$wifip" "$nodata" "$layout" "$([[ -n "$2" ]] && echo 1 || echo 0)" "${np[4]:-0}" "${np[3]:-1}" "$dtemp" "$stby" "$headinv" "$headcol" "$timefmt" "$screens" "$lines" "$porder" "$thead" "$hfill" "$([[ -n "$netp" ]] && echo 1 || echo 0)")   # field 31: network pages on 1 / 0 (without interfaces "No interfaces"); field 30: header, gaps between the boxes filled 1 / 0; field 29: the time page with the header line 1 / without 0 (default); field 28: page order; field 27: inverted header, divider line at its bottom 1 / 0; field 26: screens shown (1 start, 2 nothing to ink, 4 no connection); field 25: 0 24 hours, 12 hours 1 with AM/PM / 2 without; field 21: drive temperatures 1 on / 0 off, 22: asleep 1 "STBY" / 0 "--", 23: header inverted 1 / 0, 24: its highlighted boxes in the third colour 1 / 0
     # header: uptime instead of the page number (minutes after the full months, months)
     [[ "$header" == 1 && "$UP_REST" =~ ^[0-9]+$ ]] && sv[5]=$UP_REST sv[6]=$UP_MONTHS
-    local n=24
+    # fields 32-36: Docker pages 0 off / 1 with symbols / 2 without, the containers shown 0 all / 1 errors /
+    # 2 updates / 3 both, errors and updates in the third colour 1 / 0, in a box (Highlight) 1 / 0, On cue
+    # 1 / 0 (the page only when the filter finds a container; only with a filter);
+    # dockp = "icons;filter;color;highlight;cue;sort;order;hidden", "" = Docker pages off
+    local -a dp
+    IFS=';' read -ra dp <<< "$dockp"
+    if [[ -n "$dockp" ]]; then
+        sv+=("$(( ${dp[0]:-1} == 0 ? 2 : 1 ))" "${dp[1]:-0}" "${dp[2]:-1}" "${dp[3]:-0}" "$(( ${dp[1]:-0} > 0 ? ${dp[4]:-0} : 0 ))")
+    else
+        sv+=(0 0 1 0 0)
+    fi
+    local n=29
     while (( n > 0 )) && [[ "${sv[n-1]}" == "${defs[n-1]}" ]]; do n=$((n - 1)); done
     for (( i = 0; i < n; i++ )); do head+="|${sv[i]}"; done
     FRAME=("#BEGIN" "$head")
@@ -1287,6 +1446,10 @@ build_frame() {
         net_lines "${np[0]:-name}" "${np[1]:-}" "${np[2]:-}"
         FRAME+=("${NET_LINES[@]}")
     fi
+    if [[ -n "$dockp" ]]; then   # Docker pages: one K line per container shown
+        docker_lines "${dp[5]:-state}" "${dp[6]:-}" "${dp[7]:-}" "${dp[1]:-0}"
+        FRAME+=("${DOCKER_LINES[@]}")
+    fi
     # Pins (and panel type) only when set on the web page; new values make the board save them and restart
     [[ -n "$pins" ]] && FRAME+=("P|${pins//,/|}")
     FRAME+=("#END")
@@ -1300,10 +1463,10 @@ frame_for() {
     local pages=",${CFG_PAGES[$1]:-system,disks},"
     # a display without settings yet: every page, the system page with all components (like a new
     # display on the settings page)
-    [[ -z "${CFG_PAGES[$1]+set}" ]] && sysp="cpu,ram,net,nvme,ssd,hdd" pages=",system,disks,network,time,wifi,"
+    [[ -z "${CFG_PAGES[$1]+set}" ]] && sysp="cpu,ram,net,nvme,ssd,hdd" pages=",system,disks,network,time,wifi,docker,"
     # ... and the pictures with header, caption and in the page turn (like a new display on the settings page)
     local pics="${CFG_PICS[$id]:-}"
-    [[ -z "${CFG_PAGES[$1]+set}" ]] && pics="777|2|TSDNWCIA|1800-1900,1200-1300,2300-0700"
+    [[ -z "${CFG_PAGES[$1]+set}" ]] && pics="777|2|TSDNKWCIA|1800-1900,1200-1300,2300-0700"
     local pins="${CFG_PINS[$1]:-}"
     (( fastcap )) && fast="${CFG_FAST[$id]:-0}"
     # "NO DATA" after two of its updates missed plus 2 minutes, at least 10 minutes
@@ -1325,12 +1488,18 @@ frame_for() {
     [[ "$pages" == *,time,* ]] && clock="${CFG_CLOCK[$id]:-1|1|1|0|-|-|0|0}"   # time page switched on
     local wifip=0
     [[ "$pages" == *,wifi,* && "$haswifi" == 1 ]] && wifip=$(( ${CFG_WIFIICONS[$id]:-1} == 0 ? 2 : 1 ))   # WiFi page: 1 with symbols, 2 without
+    local dockp=""
+    [[ "$pages" == *,docker,* ]] && dockp="${CFG_DOCKER[$id]:-1;0;1;0;0;state;;}"   # Docker pages switched on
+    local porder="${CFG_PORDER[$id]:-TSDNW}"
+    [[ -z "${CFG_PAGES[$1]+set}" ]] && porder=TSDNKW
+    # K (the Docker pages) only while they are on: a display without them gets the frame it got before
+    [[ -z "$dockp" ]] && { porder=${porder/K/}; pics=${pics/K/}; }
     build_frame "${title:-$DEFAULT_TITLE}" "$types" "${CFG_BOXES[$id]:-$DEFAULT_BOXES}" "${CFG_ROWS[$id]:-0}" \
         "${CFG_SORT[$id]:-pool}" "${CFG_ORDER[$id]:-}" "${CFG_WARN[$id]:-$DEFAULT_WARN}" "${CFG_ROT[$id]:-0}" \
         "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-1,1,1,1,1,1}" "${CFG_HIDDEN[$id]:-}" \
         "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-0}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-1}" \
         "${CFG_LAYOUT[$id]:-CTU}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-1}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}" "$nodata" \
-        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-0}" "${CFG_PORDER[$id]:-TSDNW}" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}" "$pics" "$wifip"
+        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-0}" "$porder" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}" "$pics" "$wifip" "$dockp"
 }
 
 # Display with fast refresh: remember it (port or wifi) for the fast runs in between
@@ -1586,6 +1755,13 @@ write_state() {
             printf '%s\n    {"dev": %s, "uid": %s, "type": "%s", "pool": %s, "used": %s, "total": %s, "state": "%s", "stale": %s, "idle": %s, "timeout": %s, "poll": %s, "temp": %s, "size": %s}' \
                 "$sep" "$(json_str "$d")" "$(json_str "${D_UID[$d]}")" "${D_TYPE[$d]}" "$(json_str "$pool")" "${D_USEDB[$d]}" "${D_TOTALB[$d]}" \
                 "${D_ST[$d]}" "$( (( ${D_STALE[$d]:-0} )) && echo true || echo false )" "${D_IDLE[$d]}" "${D_TMO[$d]}" "${D_POLL[$d]}" "$temp" "${D_SIZE[$d]:-0}"
+            sep=","
+        done
+        # the Docker containers: name, state R / E / S, a newer image out (true / false)
+        printf '\n  ],\n  "docker": ['
+        sep=""
+        for d in "${DK_NAMES[@]}"; do
+            printf '%s\n    {"name": %s, "state": "%s", "update": %s}' "$sep" "$(json_str "$d")" "${DK_STATE[$d]}" "$( [[ "${DK_UPD[$d]}" == 1 ]] && echo true || echo false )"
             sep=","
         done
         printf '\n  ],\n  "system": %s,\n  "displays": [' "$SYS_JSON"

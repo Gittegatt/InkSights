@@ -18,7 +18,7 @@
  *   backend.login(on, current, next) -> Login card: switch the login of the page on (next = its password), change
  *                           its password or switch it off (current = the password while it is on)
  *   backend.tabs          -> one tab per display: its preview on the left (stays in view), its cards on the right (simulator)
- *   backend.docker        -> the Docker card and pages (load() state carries docker: [{ name, state R/E/S, update }]; simulator so far)
+ *   backend.docker        -> the Docker card and pages (load() state carries docker: [{ name, state R/E/S, update }])
  *   backend.offlineNoData -> a display that is not connected previews its "Check connection" screen (simulator)
  *
  * Drawing: inksights-render.js. No description texts next to the controls (labels only).
@@ -84,7 +84,7 @@
   // the order of the cards that move: the pages (S D N T W, H field 28) and the pictures (C I A, their
   // place in the page turn)
   const CARD_LETTERS = "SDNTWCIA";
-  // dk: with the Docker card (K, simulator so far)
+  // dk: with the Docker card (K)
   const cardOrderOk = (o, dk = false) => { const L = dk ? "SDNTWKCIA" : CARD_LETTERS; return typeof o === "string" && o.length === L.length && [...L].every(k => o.includes(k)); };
   const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
   const minsOf = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
@@ -206,7 +206,7 @@
     let config = {};
     let interval = 10, pageName = "", defaultPageName = "InkSights";
     let dirty = false, lastKey = "", appProblem = "";
-    const PAGE_LETTERS = "SDNTWK";   // the letters of the pages in the card order (K: Docker, simulator so far)
+    const PAGE_LETTERS = "SDNTWK";   // the letters of the pages in the card order (K: Docker)
     const pages = {}, lastWarn = {};
     let prefs = {};
     try { prefs = JSON.parse(localStorage.getItem(PREFS) || "{}") || {}; } catch (e) { prefs = {}; }
@@ -285,7 +285,7 @@
         if (!HHMM_RE.test(s[a.p + "To"] || "")) s[a.p + "To"] = a.to;
       }
       if (!EPD.orderOk(s.pageOrder)) s.pageOrder = NEW_PAGE_ORDER;   // the page order: S system, D drives, N network, T time, W WiFi
-      // K: the Docker pages (simulator so far): a place in the orders, right after the network pages at first
+      // K: the Docker pages: a place in the orders, right after the network pages at first
       const dk = !!backend.docker;
       if (dk && !s.pageOrder.includes("K")) s.pageOrder = s.pageOrder.replace("N", "NK");
       if (!dk) s.pageOrder = s.pageOrder.replace("K", "");
@@ -302,7 +302,7 @@
       if (![0, 1, 2].includes(s.pctDec)) s.pctDec = 1;   // decimals of the percentage in the drive bars
       // network pages: details in the bar 0 none / 1 percentage / 2 link speed, order by name or custom, hidden interfaces
       if (![0, 1, 2].includes(s.netBar)) s.netBar = 1;
-      // Docker pages (simulator so far): on with symbols for a new display, every container shown
+      // Docker pages: on with symbols for a new display, every container shown
       if (s.showDocker !== 0 && s.showDocker !== 1) s.showDocker = 1;
       if (s.dockerIcons !== 0 && s.dockerIcons !== 1) s.dockerIcons = 1;
       if (![0, 1, 2, 3].includes(s.dockerFilter)) s.dockerFilter = 0;
@@ -483,7 +483,7 @@
     function buildFor(entry, st) {
       const s0 = settingsFor(entry.id), title = (s0.name || DEFAULT_TITLE).slice(0, 12);
       let s = boardOf(entry.live).wifi ? s0 : { ...s0, showWifi: 0 };   // a board without WiFi has no WiFi page
-      if (!backend.docker) s = { ...s, showDocker: 0 };   // the Docker pages: simulator so far
+      if (!backend.docker) s = { ...s, showDocker: 0 };   // the Docker pages only where the backend has them
       // the screens bits (H field 26) of the cases: On cue and Ink of The Conversation / The Intermission
       s = { ...s, inkNothing: autoOn(s, ARTS[0]) ? 1 : 0, inkNoData: autoOn(s, ARTS[1]) ? 1 : 0 };
       return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st), st.docker || []);
@@ -1017,7 +1017,7 @@
             }),
             el("ol", { class: "order", id: `nord-${id}`, "aria-label": `Network interface order of display ${id}` }))));
 
-      // Docker (simulator so far): one row per container; Show: all of them, the ones with an error, the
+      // Docker: one row per container; Show: all of them, the ones with an error, the
       // ones with an update, or both. Moves with its grip like the other page cards
       // errors and updates in the third colour; panels without one: off
       const dockerColBox = el("div", { class: "field boxed" }, el("span", { class: "label" }, "Color highlight"),
@@ -1498,7 +1498,8 @@
       }
       const mins = Math.max(0, Math.round((Date.now() / 1000 - state.updated) / 60));
       const c = typeCounts();
-      st.textContent = `${state.host} · data from ${state.timeText || hhmm(state.updated)} (${mins} min ago) · ${c.hdd} HDD, ${c.ssd} SSD, ${c.nvme} NVMe`;
+      const dk = backend.docker && Array.isArray(state.docker) ? ` · ${state.docker.length} ${state.docker.length === 1 ? "container" : "containers"}` : "";
+      st.textContent = `${state.host} · data from ${state.timeText || hhmm(state.updated)} (${mins} min ago) · ${c.hdd} HDD, ${c.ssd} SSD, ${c.nvme} NVMe${dk}`;
       const stale = mins > fullMins() * 2 + 5;
       st.className = stale ? "status warn" : "status";
       if (stale) st.textContent += " · nothing new for a while";

@@ -87,10 +87,17 @@
  *              "Nothing to ink", the pages go on instead of "Check connection".
  *     lines  : (27th field) inverted header: the divider line at its bottom 1 (default) / none 0
  *     order  : (28th field) order of the pages: S system, D drives, N network, T time, W WiFi, each
- *              once, default SDNTW
+ *              once, K Docker once or not at all (missing: right after N), default SDNTW
  *     timehead: (29th field) the time page with the header line 1 / without 0 (default)
  *     headfill: (30th field) header: 1 the whole line in the colour of the highlighted boxes (every
  *              place drawn highlighted), 0 only the boxes (default)
+ *     netpages: (31st field) network pages 1 on also without interfaces / 0 (default)
+ *     docker : (32nd field) Docker pages 0 off (default) / 1 with symbols / 2 without
+ *     dfilter: (33rd field) Docker pages: the containers sent, 0 all / 1 errors / 2 updates / 3 both
+ *              (only for the text when none came: "No containers", "No errors", "All up to date", "All fine")
+ *     dcolor : (34th field) Docker pages: "error" and "update" in the third colour 1 (default) / black 0
+ *     dhigh  : (35th field) Docker pages: "error" and "update" highlighted, in a box 1 / 0 (default)
+ *     dcue   : (36th field) Docker pages: On cue 1 = no Docker page when no K line came / 0 (default)
  *   C|<YYYYMMDDHHMMSS>|<date 1/0>|<weekday 1/0>|<date format 0-3>|<ntp 1/0>|<ntp server or ->|<POSIX zone or ->[|<color 1/0>|<frame 1/0>]
  *                              (optional) the time page: the time in big (color: in the third
  *                              colour, frame: with a black outline; colour panels), below it
@@ -107,6 +114,10 @@
  *              that can redraw without flashing (black/white, PANELS fast): partial refresh at most this
  *              often, a full refresh on page turns and every FULL_REFRESH_MS against ghosting.
  *              Over WiFi the board then also fetches its frame this often.
+ *   K|<container>|<state R running / E error / S stopped>|<update 1/0>
+ *                              (optional, at most 24) Docker pages, one row per container in the
+ *                              order sent: name, state (error in the third colour), "update" at the
+ *                              right when a newer image is out
  *   D|<device>|<pool>|<used>|<total>|<pct>|<idle>|<boxes>|<state>[|<remain>|<timeout>[|<°C>]]
  *   #END
  *     pct     : 0..100, also with 1 or 2 decimals ("35.47", cut) for the text in the bar;
@@ -329,9 +340,20 @@ struct Head {
   uint8_t  headLines;// inverted header: the divider line at its bottom 1 / none 0
   uint8_t  clockHead;// the time page with the header line 1 / without 0
   uint8_t  headFill; // header: the gaps between the highlighted boxes filled 1 / 0
-  char     order[6]; // order of the pages: S system, D drives, N network, T time, W WiFi
+  char     order[7]; // order of the pages: S system, D drives, N network, K Docker, T time, W WiFi
   uint8_t  netPages; // network pages on 1 / off 0 (on without interfaces: the page "No interfaces")
   uint8_t  wifiPage; // WiFi page 0 off, 1 with symbols, 2 without (boards with WiFi only)
+  uint8_t  dockerPage;  // Docker pages 0 off, 1 with symbols, 2 without
+  uint8_t  dockerFilter;// the containers sent: 0 all, 1 errors, 2 updates, 3 both (the text when none came)
+  uint8_t  dockerColor; // "error" and "update" in the third colour 1 / black 0
+  uint8_t  dockerHi;    // "error" and "update" highlighted (in a box) 1 / 0
+};
+
+// A container of the Docker pages (K line)
+struct Container {
+  char name[25];
+  char st;      // R running, E error, S stopped
+  bool upd;     // a newer image is out
 };
 
 // The pictures (A line): per picture C The Conversation, I The Intermission, A The Afterhours its flags
@@ -341,7 +363,7 @@ struct Head {
 struct Pics {
   uint8_t  flags[3];
   uint8_t  sober;
-  char     card[9];
+  char     card[10];
   uint16_t win[6];
   uint8_t  clocks;  // Got the time?: the pictures with a wall clock, 1 The Conversation, 2 The Intermission, 4 The Afterhours
   uint32_t clock;   // ... and the Refresh of the display in s (colour panels redraw it that often)
@@ -406,10 +428,12 @@ struct NetIf {
 };
 
 // One row of the system page and the network pages
-enum SysIcon : uint8_t { SI_CPU, SI_RAM, SI_NET, SI_CHIP, SI_WIFI, SI_HDD, SI_HDD_ASLEEP, SI_CLOCK };
+enum SysIcon : uint8_t { SI_CPU, SI_RAM, SI_NET, SI_CHIP, SI_WIFI, SI_HDD, SI_HDD_ASLEEP, SI_CLOCK, SI_DOCKER };
 struct SysRow {
   SysIcon icon;
-  char    label[16], info[40], value[24], barText[8];
+  char    label[25], info[40], value[24], barText[8];
+  uint16_t infoC, valueC, boxC;   // text rows: colours of info and value (0 = black), of their highlight box
+  bool    infoBox, valueBox;      // ... info / value in that box
   bool    hasBar, pair, inl;   // pair: down and up belong together; inl: temperatures, no bar
   int16_t p1, p2;              // bar: black up to p1 %, grey up to p2 %
   bool    hasDur;              // info is a duration of dur minutes (-1 = unknown: "--"), as many units as fit
@@ -495,7 +519,7 @@ Disk    rxDisks[MAX_DISKS];    // what is being received
 uint8_t diskCount  = 0;
 uint8_t rxCount    = 0;
 bool    rxActive   = false;
-const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, 0, 0, "SDNTW" };
+const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, 0, 0, "SDNKTW", 0, 0, 0, 0, 1, 0 };
 Head    head   = HEAD_DEFAULT;
 Head    rxHead = HEAD_DEFAULT;
 Pics    pics;                  // the pictures shown (picsDefault() in setup)
@@ -511,6 +535,12 @@ NetIf   nets[MAX_NETS];        // shown
 NetIf   rxNets[MAX_NETS];      // being received
 uint8_t netCount   = 0;
 uint8_t rxNetCount = 0;
+const uint8_t MAX_CONTAINERS = 24;   // containers of the Docker pages (K lines)
+Container containers[MAX_CONTAINERS];     // shown
+Container rxContainers[MAX_CONTAINERS];   // being received
+uint8_t containerCount   = 0;
+uint8_t rxContainerCount = 0;
+bool    rxDockerCue = false;   // On cue (H field 36): no Docker page when no K line came
 uint32_t lastPageMs = 0;        // when the page was last turned
 
 char chipId[9]    = "";
@@ -726,22 +756,24 @@ int16_t rowHeight() { return rowsArea() / rowsPerPage(); }
 bool wifiOn() { return HAS_WIFI && head.wifiPage > 0; }
 
 // Pages: the system page (S line), the disk pages, the network pages (N lines, as many rows per
-// page as the disk pages), the time page (C line) and the WiFi page, in the order of H field 28;
-// without disks the others are the only pages
+// page as the disk pages), the Docker pages (K lines, the same), the time page (C line) and the WiFi
+// page, in the order of H field 28; without disks the others are the only pages
 uint8_t pagesOf(char kind) {
   const uint8_t rows = rowsPerPage();
   switch (kind) {
     case 'S': return sys.on ? 1 : 0;
     // network pages on without interfaces: one page "No interfaces", only when nothing else is there
-    case 'N': return netCount ? (netCount + rows - 1) / rows : head.netPages && !sys.on && !wifiOn() && !clockCfg.on && diskCount == 0 ? 1 : 0;
+    case 'N': return netCount ? (netCount + rows - 1) / rows : head.netPages && !sys.on && !wifiOn() && !clockCfg.on && !head.dockerPage && diskCount == 0 ? 1 : 0;
+    // Docker pages on: always at least one page, also with no container to show ("No errors", ...)
+    case 'K': return head.dockerPage ? imax(1, (containerCount + rows - 1) / rows) : 0;
     case 'T': return clockCfg.on ? 1 : 0;
     case 'W': return wifiOn() ? 1 : 0;
-    case 'D': return diskCount == 0 ? (sys.on || netCount || wifiOn() || clockCfg.on || (head.netPages && !head.diskPages) ? 0 : 1) : (diskCount + rows - 1) / rows;
+    case 'D': return diskCount == 0 ? (sys.on || netCount || wifiOn() || clockCfg.on || head.dockerPage || (head.netPages && !head.diskPages) ? 0 : 1) : (diskCount + rows - 1) / rows;
     default:  return 0;
   }
 }
 
-uint8_t pageCount() { return pagesOf('S') + pagesOf('D') + pagesOf('N') + pagesOf('T') + pagesOf('W'); }
+uint8_t pageCount() { return pagesOf('S') + pagesOf('D') + pagesOf('N') + pagesOf('K') + pagesOf('T') + pagesOf('W'); }
 
 // The pictures without an A line: caption on for The Intermission and The Afterhours, Tabula Rasa, the
 // time windows 18-19, 12-13, 23-07 (all with their flags off)
@@ -754,12 +786,12 @@ void picsDefault(Pics& p) {
 }
 
 // Every page switched off: no system, network, time or disk page
-bool nothingOn() { return !sys.on && !netCount && !head.netPages && !wifiOn() && !clockCfg.on && diskCount == 0 && head.diskPages == 0; }
+bool nothingOn() { return !sys.on && !netCount && !head.netPages && !head.dockerPage && !wifiOn() && !clockCfg.on && diskCount == 0 && head.diskPages == 0; }
 
 // The card order: the pages and the pictures C I A (their place in the page turn)
 const char* cardOrder(char* buf) {
   if (pics.card[0]) return pics.card;
-  snprintf(buf, 9, "%sCIA", head.order);
+  snprintf(buf, 10, "%sCIA", head.order);
   return buf;
 }
 // A picture that is a Turn candidate
@@ -772,7 +804,7 @@ bool turnPicture(char k) {
 // page off only those pictures). Position p: a picture (art = N D Q) or a page (its kind, idx = the page
 // within its kind)
 char turnAt(uint8_t p, uint8_t& idx, char& art, uint8_t* count = nullptr) {
-  char b[9];
+  char b[10];
   const char* c = cardOrder(b);
   bool any = false;
   for (const char* k = c; *k; k++) if (turnPicture(*k)) any = true;
@@ -824,11 +856,20 @@ char pageAt(uint8_t p, uint8_t& idx) {
   return 'D';
 }
 
-// Page order: S, D, N, T and W each once
+// Page order: S, D, N, T and W each once, K (Docker) once or not at all
 bool orderValid(const char* s) {
-  if (strlen(s) != 5) return false;
+  const size_t n = strlen(s);
+  if (n != 5 && !(n == 6 && strchr(s, 'K'))) return false;
   for (const char* k = "SDNTW"; *k; k++) if (!strchr(s, *k)) return false;
   return true;
+}
+// An order without K (earlier version, or the Docker pages off): K right after N
+void withDocker(char* s, size_t size) {
+  if (strchr(s, 'K') || strlen(s) + 1 >= size) return;
+  char* n = strchr(s, 'N');
+  if (!n) return;
+  memmove(n + 2, n + 1, strlen(n + 1) + 1);
+  n[1] = 'K';
 }
 
 // The time page is on the panel or about to be drawn
@@ -2095,7 +2136,26 @@ void drawSysIcon(SysIcon kind, int16_t x, int16_t y, int16_t B, bool deep, bool 
   else if (kind == SI_NET) drawNet(x, y, B);
   else if (kind == SI_WIFI) drawWifiIcon(x, y, B);
   else if (kind == SI_CLOCK) drawClockIcon(x, y, B);
+  else if (kind == SI_DOCKER) drawContainer(x, y, B);
   else drawChip(x, y, B, deep);
+}
+// Docker: cubes in pixels, edges two pixels across per pixel down. A cube of m is 4m + 1 wide: the top
+// face a flat diamond, the side faces hgt high, a 1 px outline, top and left face light, right face black.
+// One cube as big as fits, on every panel (user). Like drawCube() in inksights-render.js
+void drawCube(int16_t ox, int16_t oy, int16_t m, int16_t hgt) {
+  const int16_t w = 4 * m + 1;
+  for (int16_t x = 0; x < w; x++) {
+    // the outline flat at the top and the bottom, the front edges of the top face meeting in one pixel
+    const int16_t d = (abs(x - 2 * m) + 1) / 2, e = imax(d, 1), t = e, b = 2 * m + hgt - e, mid = 2 * m - d;
+    for (int16_t y = t; y <= b; y++) {
+      const bool black = (x > 2 * m && y > mid) || y == t || y == b || x == 0 || x == w - 1 || (x == 2 * m && y >= mid) || y == mid;
+      epd->drawPixel(ox + x, oy + y, black ? BK : WH);
+    }
+  }
+}
+void drawContainer(int16_t x, int16_t y, int16_t B) {
+  const int16_t m = (B - 1) / 4, hgt = B == 13 ? 4 : B - 2 * m - 2;   // 13 px: a little flatter, it looks better
+  drawCube(x + (B - 4 * m - 1) / 2, y + (B - 2 * m - hgt - 1) / 2, m, hgt);
 }
 // Clock: a ring with two hands (up and to the right)
 void drawClockIcon(int16_t x, int16_t y, int16_t B) {
@@ -2113,7 +2173,7 @@ void drawClockIcon(int16_t x, int16_t y, int16_t B) {
 void drawSystem(int16_t HH, bool wide, bool stacked) {
   SysRow rows[6];   // CPU, RAM, network, NVMe, SSD, HDD
   const uint8_t n = sysRows(rows);
-  drawRows(rows, n, 0, HH, wide, stacked, sys.icons, false);
+  drawRows(rows, n, 0, HH, wide, stacked, sys.icons, 0);
 }
 
 #if HAS_WIFI
@@ -2156,7 +2216,7 @@ void drawWifiPage(int16_t HH, bool wide, bool stacked) {
   rows[2].hasDur = true;
   rows[2].dur = sta ? (int32_t)((millis() - staSinceMs) / 60000UL) : -1;
   // nothing stands beside the labels, so they may take a third of the width (upright the whole first line)
-  drawRows(rows, 3, 0, HH, wide, stacked, head.wifiPage == 1, true);
+  drawRows(rows, 3, 0, HH, wide, stacked, head.wifiPage == 1, 1);
   shownWifiSig = wifiSig();
 }
 #endif
@@ -2168,13 +2228,40 @@ void drawNetPage(uint8_t np, int16_t HH, bool wide, bool stacked) {
   SysRow rows[MAX_NETS];
   uint8_t n = 0;
   for (uint8_t i = from; i < netCount && n < per && n < MAX_NETS; i++) netRow(nets[i], head.netBar, rows[n++]);
-  drawRows(rows, n, imin(netCount, per), HH, wide, stacked, head.netIcons, false);
+  drawRows(rows, n, imin(netCount, per), HH, wide, stacked, head.netIcons, 0);
 }
 
-// Rows of the system page, the network pages and the WiFi page; slots: sized for this many rows
-// (network pages: the last page keeps the size), 0 = as many as given; longLabels: the labels may
-// take a third of the width (upright the whole first line; WiFi page), else a quarter (half a line)
-void drawRows(SysRow* rows, uint8_t count, uint8_t slots, int16_t HH, bool wide, bool stacked, bool icons, bool longLabels) {
+// Docker page dp (0 = the first): one row per container like the temperature rows, every page sized
+// for a full page (a list: always from the top); the name, its state (error in the third colour) and
+// "update" at the right (third colour); highlighted: both white in a box of that colour (black on yellow)
+void drawDockerPage(uint8_t dp, int16_t HH, bool wide, bool stacked) {
+  static const char* const NONE[4] = { "No containers", "No errors", "All up to date", "All fine" };
+  if (containerCount == 0) { printAt(wide ? 4 : 2, HH + 6, NONE[head.dockerFilter & 3], BK, wide ? 2 : 1); return; }
+  const uint8_t per = imin(rowsPerPage(), MAX_NETS), from = dp * per;
+  const uint16_t third = hasColor && head.dockerColor ? RD : BK, on = third == BK ? WH : onRD;
+  const bool hi = head.dockerHi;
+  SysRow rows[MAX_NETS];
+  uint8_t n = 0;
+  for (uint8_t i = from; i < containerCount && n < per; i++) {
+    const Container& c = containers[i];
+    SysRow& r = rows[n++];
+    memset(&r, 0, sizeof(r));
+    r.icon = SI_DOCKER;
+    r.inl = true;
+    copyStr(r.label, c.name, sizeof(r.label));
+    copyStr(r.info, c.st == 'E' ? "error" : c.st == 'S' ? "stopped" : "running", sizeof(r.info));
+    if (c.st == 'E') { r.infoC = hi ? on : third; r.infoBox = hi; }
+    if (c.upd) { copyStr(r.value, "update", sizeof(r.value)); r.valueC = hi ? on : third; r.valueBox = hi; }
+    r.boxC = third;
+  }
+  drawRows(rows, n, per, HH, wide, stacked, head.dockerPage == 1, 2);
+}
+
+// Rows of the system page, the network pages, the Docker pages and the WiFi page; slots: sized for this
+// many rows (network pages: the last page keeps the size), 0 = as many as given; longLabels 1: the labels
+// may take a third of the width (upright the whole first line; WiFi page), else a quarter (half a line);
+// 2 (Docker): all the room "running" and "update" leave
+void drawRows(SysRow* rows, uint8_t count, uint8_t slots, int16_t HH, bool wide, bool stacked, bool icons, uint8_t longLabels) {
   const int16_t W = epd->width();
   const uint8_t n = slots ? slots : count;
   if (!n) { printAt(wide ? 4 : 2, HH + 6, "No values", BK, wide ? 2 : 1); return; }
@@ -2192,8 +2279,10 @@ void drawRows(SysRow* rows, uint8_t count, uint8_t slots, int16_t HH, bool wide,
   const int16_t colGap = fAsc(sc.dev) >= 12 ? 8 : 6;
   int16_t labelW = 0;
   for (uint8_t i = 0; i < count; i++) {
-    char t[16];
-    fFit(sc.dev, rows[i].label, stacked ? (longLabels ? end - x0 : (end - x0) / 2) : W / (longLabels ? 3 : 4), t, sizeof(t));
+    char t[25];
+    const int16_t labelMax = stacked ? (longLabels ? end - x0 : (end - x0) / 2)
+      : longLabels == 2 ? end - x0 - 2 * colGap - fW(sc.pool, "running") - fW(sc.pool, "update") : W / (longLabels ? 3 : 4);
+    fFit(sc.dev, rows[i].label, labelMax, t, sizeof(t));
     copyStr(rows[i].label, t, sizeof(rows[i].label));
     labelW = imax(labelW, fW(sc.dev, rows[i].label));
   }
@@ -2219,15 +2308,31 @@ void drawRows(SysRow* rows, uint8_t count, uint8_t slots, int16_t HH, bool wide,
     }
     fText(sc.dev, x0, base - fAsc(sc.dev), r.label, BK);
     if (r.inl) {   // temperatures: landscape after the name (info column), upright in the second line
-      const int16_t ix = stacked ? x0 : x0 + labelW + colGap;
+      int16_t ix = stacked ? x0 : x0 + labelW + colGap;
+      // Docker: the three columns over the whole width (user): the state as far from the names as from
+      // "update" at the right edge, the same place in every row
+      if (longLabels == 2 && !stacked) {
+        const int16_t last = end - fW(sc.pool, "update") - colGap - fW(sc.pool, "running");
+        if (last > ix) ix += (last - ix) / 2;
+      }
       char info[40];
       copyStr(info, r.info, sizeof(info));
       if (r.hasDur && r.dur >= 0) {   // a duration drops its smallest units instead of being cut
         uptimeText(0, r.dur, (end - ix + 1) / (fAsc(sc.pool) == 14 ? 12 : 6), info, sizeof(info));
         if (!info[0]) copyStr(info, "--", sizeof(info));
       }
-      fFit(sc.pool, info, end - ix, t, sizeof(t));
-      fText(sc.pool, ix, (stacked ? base + line2 : base) - fAsc(sc.pool), t, BK);
+      const int16_t iy = (stacked ? base + line2 : base) - fAsc(sc.pool);
+      // a value at the right end of the same line (Docker: "update"); the info is cut before it
+      const int16_t pad = fAsc(sc.pool) >= 12 ? 2 : 1;   // a highlight box reaches this far around its text
+      const int16_t vX = r.value[0] ? end - fW(sc.pool, r.value) - (r.valueBox ? pad : 0) : end + colGap;
+      if (r.value[0]) {
+        if (r.valueBox) fillBox(vX - pad, iy - pad, fW(sc.pool, r.value) + 2 * pad, fAsc(sc.pool) + 2 * pad, r.boxC);
+        fText(sc.pool, vX, iy, r.value, r.valueC);
+      }
+      fFit(sc.pool, info, vX - colGap - ix, t, sizeof(t));
+      const int16_t tx = ix + (r.infoBox ? pad : 0);
+      if (r.infoBox) fillBox(tx - pad, iy - pad, fW(sc.pool, t) + 2 * pad, fAsc(sc.pool) + 2 * pad, r.boxC);
+      fText(sc.pool, tx, iy, t, r.infoC);
       continue;
     }
     if (!r.hasBar) {   // no bar: the values below the name, where the bar would be (upright: in the second line)
@@ -3285,7 +3390,7 @@ void loadPowerUp() {
   if (kept && savedClock.on && savedClock.ntp) {
     clockCfg = savedClock;
     head = keptHead;
-    diskCount = 0; netCount = 0; sys.on = false; page = 0;
+    diskCount = 0; netCount = 0; containerCount = 0; sys.on = false; page = 0;
     dataReceived = true;   // as if a frame with only the time page had come; redrawn when NTP has the time
     lastFreshMs = millis();
     applyNtp();
@@ -3360,6 +3465,7 @@ void drawScreen() {
   // the header moves nothing (user)
   if (kind == 'T') { drawClockPage(wide ? 20 : HEADER_H); return; }
   if (kind == 'N') { drawNetPage(idx, HH, wide, stacked); return; }
+  if (kind == 'K') { drawDockerPage(idx, HH, wide, stacked); return; }
 #if HAS_WIFI
   if (kind == 'W') { drawWifiPage(HH, wide, stacked); return; }
 #endif
@@ -3438,7 +3544,8 @@ void refresh() {
 void parsePics(char* line) {
   char* f[7];
   const uint8_t nf = splitFields(line, f, 7);
-  if (nf < 5 || strlen(f[1]) != 3 || strlen(f[3]) != 8 || strlen(f[4]) != 29) return;
+  const size_t cl = nf >= 4 ? strlen(f[3]) : 0;
+  if (nf < 5 || strlen(f[1]) != 3 || (cl != 8 && !(cl == 9 && strchr(f[3], 'K'))) || strlen(f[4]) != 29) return;
   Pics p;
   picsDefault(p);
   for (uint8_t i = 0; i < 3; i++) {
@@ -3449,6 +3556,7 @@ void parsePics(char* line) {
   p.sober = strcmp(f[2], "0") == 0 ? 0 : strcmp(f[2], "2") == 0 ? 2 : 1;
   for (const char* k = "SDNTWCIA"; *k; k++) if (!strchr(f[3], *k)) return;
   copyStr(p.card, f[3], sizeof(p.card));
+  withDocker(p.card, sizeof(p.card));
   for (uint8_t i = 0; i < 6; i++) {
     const char* w = f[4] + (i / 2) * 10 + (i & 1) * 5;
     for (uint8_t j = 0; j < 4; j++) if (!isdigit((unsigned char)w[j])) return;
@@ -3540,6 +3648,19 @@ void parseNet(char* line) {
   ni.state = f[5][0] == 'D' || f[5][0] == 'L' ? f[5][0] : 'U';
 }
 
+// K line (after "K|"): container | state R / E / S | update 1/0
+void parseContainer(char* line) {
+  char* f[3];
+  if (splitFields(line, f, 3) < 3 || rxContainerCount >= MAX_CONTAINERS) return;
+  Container& c = rxContainers[rxContainerCount++];
+  memset(&c, 0, sizeof(c));   // every byte must be defined for the comparison (hash)
+  uint8_t k = 0;
+  for (const char* s = f[0]; *s && k < sizeof(c.name) - 1; s++)
+    if (isalnum((unsigned char)*s) || *s == '.' || *s == '_' || *s == '-') c.name[k++] = *s;
+  c.st = f[1][0] == 'E' || f[1][0] == 'S' ? f[1][0] : 'R';
+  c.upd = strcmp(f[2], "1") == 0;
+}
+
 void parseSys(char* line) {
   char* f[13];
   if (splitFields(line, f, 13) < 13) return;
@@ -3579,8 +3700,11 @@ void commitFrame() {
                             rxHead.upMonths,
                             (uint32_t)rxHead.diskPages << 24 | (uint32_t)rxHead.layout[0] << 16 |
                             (uint32_t)rxHead.layout[1] << 8 | rxHead.layout[2] };
-  const uint32_t h = fnv1a(&rxPics, sizeof(rxPics), fnv1a(&rxClock, sizeof(rxClock), fnv1a(&rxHead.timeFmt, 5, fnv1a(rxHead.order, 5, fnv1a(rxNets, sizeof(NetIf) * rxNetCount,
-                     fnv1a(&rxSys, sizeof(rxSys), fnv1a(rxDisks, sizeof(Disk) * rxCount, fnv1a(hv, sizeof(hv)))))))));
+  // On cue: no container to show, no Docker page
+  if (rxDockerCue && rxContainerCount == 0) rxHead.dockerPage = 0;
+  const uint32_t h = fnv1a(&rxHead.dockerPage, 4, fnv1a(rxContainers, sizeof(Container) * rxContainerCount,
+                     fnv1a(&rxPics, sizeof(rxPics), fnv1a(&rxClock, sizeof(rxClock), fnv1a(&rxHead.timeFmt, 5, fnv1a(rxHead.order, 6, fnv1a(rxNets, sizeof(NetIf) * rxNetCount,
+                     fnv1a(&rxSys, sizeof(rxSys), fnv1a(rxDisks, sizeof(Disk) * rxCount, fnv1a(hv, sizeof(hv)))))))))));
   const bool samePics = memcmp(&rxPics, &pics, sizeof(Pics)) == 0;
   const bool first = !dataReceived;
   const uint32_t fh = fnv1a(rxTime, strlen(rxTime), h);   // with the time: still the same frame?
@@ -3598,6 +3722,8 @@ void commitFrame() {
   keepForPowerUp();
   memcpy(nets, rxNets, sizeof(NetIf) * rxNetCount);
   netCount  = rxNetCount;
+  memcpy(containers, rxContainers, sizeof(Container) * rxContainerCount);
+  containerCount = rxContainerCount;
   head      = rxHead;
   pics      = rxPics;
   timeAtMs  = millis();
@@ -3701,6 +3827,8 @@ void handleLine(char* line) {
     memset(&rxClock, 0, sizeof(rxClock));   // no time page unless a C line comes
     rxClockDt[0] = '\0';
     rxNetCount = 0;                      // no network pages unless N lines come
+    rxContainerCount = 0;                // no containers unless K lines come
+    rxDockerCue = false;
     rxPinsGiven = false;
     rxRedraw = false;
     rxHost[0] = rxTime[0] = '\0';
@@ -3710,8 +3838,8 @@ void handleLine(char* line) {
     rxActive = false;
     commitFrame();
   } else if (line[0] == 'H' && line[1] == '|') {
-    char* f[31];
-    const uint8_t n = splitFields(line, f, 31);
+    char* f[36];
+    const uint8_t n = splitFields(line, f, 36);
     if (n >= 3) {
       copyStr(rxHost, f[1], sizeof(rxHost));
       copyStr(rxTime, f[2], sizeof(rxTime));
@@ -3744,9 +3872,15 @@ void handleLine(char* line) {
       rxHead.screens = n >= 26 ? constrain(atoi(f[25]), 0, 7) : 7;    // Advanced Ink: screens shown when needed
       rxHead.headLines = n >= 27 && strcmp(f[26], "0") == 0 ? 0 : 1;  // inverted header: the divider line
       copyStr(rxHead.order, n >= 28 && orderValid(f[27]) ? f[27] : "SDNTW", sizeof(rxHead.order));   // page order
+      withDocker(rxHead.order, sizeof(rxHead.order));
       rxHead.clockHead = n >= 29 && strcmp(f[28], "1") == 0 ? 1 : 0;  // the time page with the header line (default without)
       rxHead.headFill = n >= 30 && strcmp(f[29], "1") == 0 ? 1 : 0;   // header: the gaps between the boxes filled
       rxHead.netPages = n >= 31 && strcmp(f[30], "1") == 0 ? 1 : 0;   // network pages on (also without interfaces)
+      rxHead.dockerPage = n >= 32 ? constrain(atoi(f[31]), 0, 2) : 0;     // Docker pages: 0 off, 1 with symbols, 2 without
+      rxHead.dockerFilter = n >= 33 ? constrain(atoi(f[32]), 0, 3) : 0;   // shown: 0 all, 1 errors, 2 updates, 3 both
+      rxHead.dockerColor = n >= 34 && strcmp(f[33], "0") == 0 ? 0 : 1;   // errors and updates in the third colour
+      rxHead.dockerHi = n >= 35 && strcmp(f[34], "1") == 0 ? 1 : 0;      // errors and updates in a box
+      rxDockerCue = n >= 36 && strcmp(f[35], "1") == 0;                  // On cue: the page only when a container came
     }
   } else if (line[0] == 'D' && line[1] == '|') {
     parseDisk(line);
@@ -3754,6 +3888,8 @@ void handleLine(char* line) {
     parseSys(line + 2);
   } else if (line[0] == 'N' && line[1] == '|') {
     parseNet(line + 2);
+  } else if (line[0] == 'K' && line[1] == '|') {
+    parseContainer(line + 2);
   } else if (line[0] == 'C' && line[1] == '|') {
     parseClock(line);
   } else if (line[0] == 'A' && line[1] == '|') {

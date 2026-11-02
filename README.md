@@ -5,7 +5,7 @@ Repository: https://github.com/Gittegatt/InkSights [![Latest release](https://im
 InkSights shows the drive status of a server, often a NAS, on small e-paper displays. On request also:
 
 - a **system page** with CPU, RAM, network and drive temperatures
-- **network pages**, a **WiFi page** and a **clock**
+- **network pages**, **Docker pages**, a **WiFi page** and a **clock**
 
 Every display hangs on its own small board: plugged into the server via USB, or (boards with WiFi) anywhere in
 reach of the WiFi. All settings are made on a small web page.
@@ -73,10 +73,12 @@ all (see [Header card](#header-card)).
 
 - a **system page** (see [System page](#system-page))
 - **network pages** with one row per interface (see [Network card](#network-card))
+- **Docker pages** with one row per container (see [Docker card](#docker-card))
 - a **time page** (see [Time card](#time-card))
 - a **WiFi page**
 
-Each page is switched on or off per display, in any order (by default: time, system, drives, network, WiFi).
+Each page is switched on or off per display, in any order (by default: time, system, drives, network, Docker,
+WiFi).
 
 <img src="examples/example_06_2-13_drives_page_yellow.png" alt="Drive page on a 2.13″ display with yellow as third colour" width="400">
 
@@ -386,6 +388,7 @@ The settings are in `docker-compose.yaml` itself. The lines to adjust are marked
 | `- 8099:8099` | left: the port of the page on your server | `- 8100:8099` |
 | `image: ...:latest` (in both containers) | a fixed version instead of the newest | `image: ghcr.io/gittegatt/inksights:1.1.0` |
 | `- INKSIGHTS_OTA=on` | firmware updates of the WiFi boards from the page: `on` or `off` (see [Security](#security)) | `- INKSIGHTS_OTA=off` |
+| `- INKSIGHTS_DOCKER_CHECK=360` | Docker pages: every how many minutes the script looks for newer images of the containers, 10 to 10080 (see [Docker card](#docker-card)) | `- INKSIGHTS_DOCKER_CHECK=60` |
 | `# - INKSIGHTS_PASSWORD=` | remove the `#` and enter a password: the login is on (a `$` in it is written `$$`); or switch it on in the **Login** card of the page | `- INKSIGHTS_PASSWORD=MyPassword` |
 | `# - INKSIGHTS_USER=inksights` | the user name of the login | `- INKSIGHTS_USER=admin` |
 | `command: /app/script-entry.sh -l` | more options for the script at the end (see `inksights.sh -h`) | `command: /app/script-entry.sh -l -x sdz` |
@@ -434,7 +437,7 @@ The script collects the data and sends every display its frame. It runs in the s
   then (a display connected, a problem).
 - It runs as root with full access to the system (see [Security](#security)): it needs the USB ports of the
   boards, the drives, the pools and the network interfaces. It uses the tools of the system itself (`bash`,
-  `lsblk`, `zpool`, `df`, ...), exactly as if it was started there, so it never wakes hard disks either.
+  `lsblk`, `zpool`, `df`, `docker`, ...), exactly as if it was started there, so it never wakes hard disks either.
 - More options for the script (e.g. `-x sdz` to never show a disk): at the end of the line `command:` of
   `inksights-script`, then `sudo docker compose up -d`.
 - **Run it only in this container.** If you started it with tmux or cron before, remove that (Init/Shutdown Script
@@ -598,7 +601,8 @@ Open **http://&lt;server&gt;:8099**.
 - On the left the display with a live preview of what it will show; it stays in view while the page scrolls. On
   narrow screens it stands above the cards.
 - On the right its own foldable cards: **Display**, **Header**, **Time**, **System**, **Drives**, **Network**,
-  (boards with WiFi) **WiFi**, **The Conversation**, **The Intermission**, **The Afterhours** and **Advanced Ink**.
+  **Docker**, (boards with WiFi) **WiFi**, **The Conversation**, **The Intermission**, **The Afterhours** and
+  **Advanced Ink**.
 - A display that was connected before stays in the list with its settings, also after its controller was replaced
   (a new controller has a new chip ID). Take its settings over with **Export** / **Import** in the Advanced Ink
   card, then remove the old one with **Remove display** there.
@@ -612,19 +616,20 @@ Open **http://&lt;server&gt;:8099**.
 
 | Card | Default |
 |---|---|
-| Pages | all on, in this order: time, system, drives, network, WiFi |
+| Pages | all on, in this order: time, system, drives, network, Docker, WiFi |
 | Header | time · title · uptime, black, no divider line, nothing highlighted |
 | Time | weekday and date (`2026-10-26`), time zone UTC, no NTP, no top line |
 | System | every row, no ZFS RAM cache, asleep hard disks `STBY` |
 | Drives | every drive type, the used capacity in the bar, no temperatures, no spindown timer (ring, counterclockwise when switched on), highlight from 85 % |
 | Network | symbols, the percentage in the bar |
+| Docker | symbols, every container ordered by state, Color highlight, no boxes, On cue off |
 | WiFi | symbols, setup access point on after 30 s |
 | The Conversation, The Intermission, The Afterhours | header, caption, in the page turn, On cue on, no time window; Beverages Roast |
 
 **Order of the pages:**
 
-- The cards **System**, **Drives**, **Network**, **Time** and **WiFi** have a grip (two horizontal lines left of
-  **Ink**).
+- The cards **System**, **Drives**, **Network**, **Docker**, **Time** and **WiFi** have a grip (two horizontal lines
+  left of **Ink**).
 - Drag a card by it up or down, or click the grip and use the arrow keys.
 - The order of these cards is the order of the pages on the display; *Save* applies it.
 - **Display**, **Header** and **Advanced Ink** stay in their place.
@@ -836,6 +841,43 @@ shows a page **No interfaces**, like **No drives** for the drive pages.
 
 The same goes for the network row of the system page. Virtual interfaces (Docker, VMs) are left out.
 
+### Docker card
+
+Pages with one row per Docker container of the system (by default after the network pages), as many rows per page
+as the drive pages.
+
+<img align="top" vspace="4" src="examples/example_22_4-2_docker_page.png" alt="Docker page on a 4.2″ display: seven containers, errors first, then the ones with an update, error and update in black boxes, a black top line" width="400"> <img align="top" vspace="4" src="examples/example_23_2-13_docker_page.png" alt="Docker page on a red 2.13″ display: error and update highlighted in red boxes" width="400"> <img align="top" vspace="4" src="examples/example_24_2-13_docker_page_yellow.png" alt="Docker page on a yellow 2.13″ display: error and update in yellow boxes with black text" width="400">
+
+| Setting | Options | Notes |
+|---|---|---|
+| **Ink** | tick | Shows the Docker pages or not; their settings stay. |
+| **Show** | All, Errors, Updates, Errors and updates | Which containers get a row. None to show: the page says **No containers**, **No errors**, **All up to date** or **All fine**. |
+| **On cue** | tick | Not with All: the Docker page comes only while a container is shown (e.g. one with an error); else it leaves the page turn. |
+| **Icons** | On, Off | A cube in front of each container. |
+| **Highlight** | On, Off | `error` and `update` in a box: white on black, or on the third colour with Color highlight (black on yellow). |
+| **Color highlight** | On, Off | `error` and `update` in the third colour (colour panels only). |
+| **Order and visibility by** | State, Name, Custom | State: errors first, then the ones with an update, then the others, each by name. The tick next to each container shows or hides it. At most 24 on the display. Custom: drag a container by its grip, or the arrow keys on it. |
+
+Each row shows:
+
+- the name of the container
+- its state: **running**, **error** (stopped with an error, restarting, dead or unhealthy) or **stopped** (stopped
+  normally, created or paused)
+- **update** at the right end when a newer image is out for it
+
+Where it comes from:
+
+- The script asks the Docker of the system for its containers at every full run (`docker ps -a`). The card lists
+  them, the line at the top of the page counts them.
+- **Newer image:** the script asks the registry of each image (Docker Hub, ghcr.io, lscr.io, ...) for the
+  fingerprint (digest) of its tag and compares it with the image on the system. Only that short question, nothing is
+  downloaded. Every `INKSIGHTS_DOCKER_CHECK` minutes per image (default 360 = 6 hours, set in `docker-compose.yaml`,
+  see [3 c)](#c-start-the-settings-page-and-the-script-as-a-docker-app)), at most 10 images per run, and only while a
+  display shows the Docker pages. Script without Docker: put `INKSIGHTS_DOCKER_CHECK=60 ` in front of `/bin/bash`
+  in its line.
+- Images built on the system or pinned to a digest never show **update**. The system needs `curl` for the question.
+- No Docker on the system: **No containers**.
+
 ### Time card
 
 A page with the time in big, below it the weekday and the date (each when ticked); by default the first page.
@@ -1039,12 +1081,6 @@ The **Value simulation** card below the displays has these frames:
 Also in the simulator:
 
 - The simulated interfaces cover every case: wired, no cable, switched off, a bridge and WiFi.
-- **Docker** card and pages (a preview of what is planned, not on the real settings page yet): one row per container
-  with its state and "update" when a newer image is out; **Show** all, errors, updates or both; **Color highlight**
-  and **Highlight** (in a box) for errors and updates; **Order and visibility by** State, Name or Custom; a grip like
-  the other page cards.
-
-  <img align="top" vspace="4" src="examples/example_22_4-2_docker_page.png" alt="Docker page on a 4.2″ display: seven containers, errors first, then the ones with an update, error and update in black boxes, a black top line" width="400"> <img align="top" vspace="4" src="examples/example_23_2-13_docker_page.png" alt="Docker page on a red 2.13″ display: error and update highlighted in red boxes" width="400"> <img align="top" vspace="4" src="examples/example_24_2-13_docker_page_yellow.png" alt="Docker page on a yellow 2.13″ display: error and update in yellow boxes with black text" width="400">
 - The Value simulation card folds (the triangle next to its heading).
 - The **USB** card at the bottom is the [USB setup](#usb-setup), plus **Send to display**: it sends what a simulated
   display gets to the real board, so the display shows it right away (without "NO DATA" later, as the simulated time
@@ -1239,7 +1275,9 @@ updates, at least once a minute while such a display is there.
   ([3 c)](#c-start-the-settings-page-and-the-script-as-a-docker-app)).
 - **The script container has full access to the system** (`privileged`, the processes of the system): it needs
   the USB ports, drives, pools and network interfaces, as root, like a script started on the system. It has no
-  port and no network of its own, so it cannot be reached from outside. The settings page runs in its own
+  port and no network of its own, so it cannot be reached from outside. For the Docker pages it asks the Docker of
+  the system for its containers, and the registries of their images whether a newer one is out (through the network
+  of the system, see [Docker card](#docker-card)). The settings page runs in its own
   container without these rights: whoever gets into the page does not get into the system.
 - **Firmware updates can be switched off:** per display with **OTA** Off in its Advanced Ink card, or for all of them
   with `- INKSIGHTS_OTA=off` in `docker-compose.yaml`, then `sudo docker compose up -d`. The page then flashes nothing at all, and it cannot be switched on again from the
@@ -1267,6 +1305,8 @@ updates, at least once a minute while such a display is there.
 | Log says `Data folder … not found`, settings page shows old data | Script without Docker: it was started with another folder after `-d` than the data folder of the app. Fix the line in 3 d) and start it again. |
 | `inksights-script` stops with *cannot reach the system* | The container needs `privileged: true` and `pid: host` (as in `docker-compose.yaml`). |
 | `inksights-script` stops with *the system has no /bin/bash* | The script needs bash on the system (TrueNAS, Debian, Proxmox and Unraid have it). |
+| Docker page says **No containers**, but containers run | The script needs the `docker` command of the system. Look at `sudo docker logs --tail 20 inksights-script`, then **Update now**. |
+| **update** never shows | The script looks only every `INKSIGHTS_DOCKER_CHECK` minutes (default 6 hours), and only while a display shows the Docker pages. The system needs `curl` and access to the registry. |
 
 ## Protocol (for the curious)
 
@@ -1297,13 +1337,14 @@ the panel status with its next fetch.
 
 | Line | Fields | Notes |
 |---|---|---|
-| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, the 24 optional fields below] | The settings of the screen. |
-| `A` | per picture C I A one hex digit (1 caption, 2 header, 4 in the page turn, 8 scheduled), Beverages 0 House Wine / 1 Tabula Rasa / 2 Roast, card order (`SDNTW` and `CIA`), time windows `HHMM-HHMM,HHMM-HHMM,HHMM-HHMM` [, Got the time? per picture C I A `1`/`0`, the Refresh in seconds; missing = none] | The pictures; only when they differ from the defaults (`011`, 1, page order + `CIA`, `1800-1900,1200-1300,2300-0700`; a new display has Roast, so it gets this line). |
+| `H` | title, time, rows, highlight from %, quarter turns, page turn in seconds [, the 29 optional fields below] | The settings of the screen. |
+| `A` | per picture C I A one hex digit (1 caption, 2 header, 4 in the page turn, 8 scheduled), Beverages 0 House Wine / 1 Tabula Rasa / 2 Roast, card order (`SDNTW`, `K` and `CIA`), time windows `HHMM-HHMM,HHMM-HHMM,HHMM-HHMM` [, Got the time? per picture C I A `1`/`0`, the Refresh in seconds; missing = none] | The pictures; only when they differ from the defaults (`011`, 1, page order + `CIA`, `1800-1900,1200-1300,2300-0700`; a new display has Roast, so it gets this line). |
 | `D` | device, pool, used, total, percent, filled boxes, total boxes, state, seconds until spindown, timeout seconds [, °C] | One per drive. |
 | `S` | rows, CPU %, CPU °C, CPU W, RAM used MiB, ZFS cache MiB, RAM total MiB, interface, down KiB/s, up KiB/s, link Mb/s, NVMe °C,…, SSD °C,… | Only with the system page. |
 | `C` | local date and time `YYYYMMDDHHMMSS`, date 1/0, weekday 1/0, date format 0-3, NTP 1/0, NTP server, POSIX time zone [, time in the third colour 1/0, black outline 1/0] | Only with the time page. |
 | `T` | HDD °C,… | After the `S` line, only with the HDD row and drive-temp-export running. |
 | `N` | interface, down KiB/s, up KiB/s, link Mb/s, wireless 1/0, state | Only with the network pages, one per interface, at most 8. |
+| `K` | container, state, update 1/0 | Only with the Docker pages, one per container in the order shown, at most 24. |
 | `P` | CS, D/C, Reset, Busy [, panel] | Only when pins or the panel type are set on the settings page. |
 | `W` | network, password, host, settings page, access point 1/0, access point name, access point password, access point after (s) | USB only, boards with WiFi; texts hex encoded. |
 | `R` | - | Only after "Redraw now". |
@@ -1333,10 +1374,15 @@ the panel status with its next fetch.
 | 25 | time format | 0 24 hours / 1 12 hours with AM/PM / 2 12 hours without |
 | 26 | screens | shown when needed: 1 start screen + 2 Nothing to ink + 4 Check connection (default 7; 2 and 4 only with the Ink of their picture on) |
 | 27 | divider line | 1 below the top line / 0 none (default 1) |
-| 28 | page order | `S` system, `D` drives, `N` network, `T` time, `W` WiFi, each once (default `SDNTW`) |
+| 28 | page order | `S` system, `D` drives, `N` network, `T` time, `W` WiFi, each once, `K` Docker once or not at all (missing: after `N`; default `SDNTW`) |
 | 29 | time page header | 1 with the top line / 0 without (default 0) |
 | 30 | header fill | 1 the top line filled in the third colour / 0 (default 0, sent only with header inverted and header colour) |
 | 31 | network pages | 1 on / 0 off (on without interfaces: the page "No interfaces") |
+| 32 | Docker pages | 0 off / 1 with symbols / 2 without |
+| 33 | Docker show | 0 all / 1 errors / 2 updates / 3 both (only for the text when no `K` line came) |
+| 34 | Docker colour | `error` and `update` 1 in the third colour / 0 black (default 1) |
+| 35 | Docker highlight | `error` and `update` 1 in a box / 0 (default 0) |
+| 36 | Docker on cue | 1 no Docker page when no `K` line came / 0 (default 0) |
 
 **Notes on the other lines:**
 
@@ -1354,6 +1400,7 @@ the panel status with its next fetch.
   with the colour; both only on colour panels.
 - `T`: -1 = unknown, -2 = asleep, at most six.
 - `N`: state `U` up, `L` no link, `D` down.
+- `K`: state `R` running, `E` error, `S` stopped.
 - `P`: pin numbers of the board (D numbers on the SAMD21, GPIO numbers on the ESP32 boards). New values → store and
   restart.
 - `R`: redraw right away, even without changes and before the 3 minutes are up.

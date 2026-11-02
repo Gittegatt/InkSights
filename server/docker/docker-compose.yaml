@@ -39,3 +39,5 @@ services:
       disable: true                             # no web server in this container
     volumes:
       - ./data:/data                            # <- the same data folder as above
+    environment:
+      - INKSIGHTS_DOCKER_CHECK=360              # <- Docker pages: minutes between checks for newer images (10 to 10080)

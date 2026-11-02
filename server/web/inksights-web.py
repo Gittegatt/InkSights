@@ -80,7 +80,7 @@ MAX_NETS = 32                          # interfaces in the order and hidden list
 NET_SORTS = ("name", "manual")
 NET_BARS = (0, 1, 2)                   # details in the bar of the network pages: none, percentage of the link, link speed
 SYS_PARTS = ("cpu", "ram", "net", "nvme", "ssd", "hdd")       # system page components (rows); none = no system page
-CONF_COLS = 68
+CONF_COLS = 72
 # Time page: NTP server (boards with WiFi), time zone name and its POSIX rule for the board
 NTP_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$")
 TZ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_+/-]{0,39}$")
@@ -99,11 +99,14 @@ def layout_ok(v):
 
 # Order of the pages on the display: S system, D drives, N network, T time, W WiFi, each once
 # (like order_valid in inksights.sh)
-DEFAULT_PAGE_ORDER = "TSDNW"   # a new display: time, system, drives, network, WiFi (user)
+DEFAULT_PAGE_ORDER = "TSDNW"   # time, system, drives, network, WiFi (user)
+NEW_PAGE_ORDER = "TSDNKW"      # a new display: the Docker pages (K) after the network pages
+PAGE_LETTERS = "SDNTWK"
 
 
 def page_order_ok(v):
-    return isinstance(v, str) and len(v) == 5 and sorted(v) == sorted(DEFAULT_PAGE_ORDER)
+    """S D N T W each once, K (the Docker pages) once or not at all"""
+    return isinstance(v, str) and len(v) in (5, 6) and sorted(v) in (sorted(DEFAULT_PAGE_ORDER), sorted(NEW_PAGE_ORDER))
 
 
 # The pictures: The Conversation (C, "Nothing to ink"), The Intermission (I, "Check connection"), The Afterhours
@@ -117,14 +120,18 @@ CARD_LETTERS = "SDNTWCIA"
 
 
 def card_order_ok(v):
-    return isinstance(v, str) and len(v) == len(CARD_LETTERS) and sorted(v) == sorted(CARD_LETTERS)
+    return isinstance(v, str) and len(v) in (8, 9) and sorted(v) in (sorted(CARD_LETTERS), sorted(CARD_LETTERS + "K"))
 
 
 def card_order_fix(card, page_order):
     """The card order with its pages in the page order (that one decides the order of the pages)."""
     card = card if card_order_ok(card) else page_order + "CIA"
+    if "K" in page_order and "K" not in card:
+        card = card.replace("N", "NK")   # the Docker pages new: after the network pages
+    if "K" not in page_order:
+        card = card.replace("K", "")
     pages = iter(page_order)
-    return "".join(next(pages) if k in DEFAULT_PAGE_ORDER else k for k in card)
+    return "".join(next(pages) if k in PAGE_LETTERS else k for k in card)
 
 
 def in_window(m, start, end):
@@ -148,6 +155,49 @@ def pics_from_conf(parts, page_order):
             out[p + k] = 1 if bits & b else 0
         f, t = (wins[i][:2] + ":" + wins[i][2:4], wins[i][5:7] + ":" + wins[i][7:]) if wins else (f0, t0)
         out[p + "From"], out[p + "To"] = (f, t) if HHMM_RE.match(f) and HHMM_RE.match(t) else (f0, t0)
+    return out
+
+
+# Docker pages: Show 0 all / 1 errors / 2 updates / 3 both, the order (state / name / manual) and container names
+DOCKER_SORTS = ("state", "name", "manual")
+CNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+MAX_CONTAINERS = 64   # names in the order and hidden lists
+
+
+def docker_from_conf(cols):
+    """The Docker settings from conf columns 69-72 (missing: the defaults)."""
+    style, sort, order, hidden = cols
+    v = style.split(",") if re.match(r"^[01],[0-3],[01],[01],[01]$", style) else ["1", "0", "1", "0", "0"]
+    names = lambda t: [] if t in ("-", "") else [n for n in t.split(",") if CNAME_RE.match(n)][:MAX_CONTAINERS]
+    return {"dockerIcons": int(v[0]), "dockerFilter": int(v[1]), "dockerColor": int(v[2]), "dockerHi": int(v[3]), "dockerCue": int(v[4]),
+            "dockerSort": sort if sort in DOCKER_SORTS else "state", "dockerOrder": names(order), "dockerHidden": names(hidden)}
+
+
+def docker_to_conf(s):
+    """conf columns 69-72 of the Docker settings."""
+    style = ",".join(str(s.get(k, d)) for k, d in (("dockerIcons", 1), ("dockerFilter", 0), ("dockerColor", 1), ("dockerHi", 0), ("dockerCue", 0)))
+    return [style, s.get("dockerSort", "state"), ",".join(s.get("dockerOrder") or []) or "-", ",".join(s.get("dockerHidden") or []) or "-"]
+
+
+def validate_docker(did, s):
+    out = {}
+    for key, default in (("showDocker", 1), ("dockerIcons", 1), ("dockerColor", 1), ("dockerHi", 0), ("dockerCue", 0)):
+        v = s.get(key, default)
+        if v not in (0, 1) or isinstance(v, bool):
+            raise SettingsError(f"Display {did}: invalid {key}.")
+        out[key] = v
+    f = s.get("dockerFilter", 0)
+    if not is_int(f) or not 0 <= f <= 3:
+        raise SettingsError(f"Display {did}: invalid Docker filter.")
+    sort = s.get("dockerSort", "state")
+    if sort not in DOCKER_SORTS:
+        raise SettingsError(f"Display {did}: invalid Docker order.")
+    out.update(dockerFilter=f, dockerSort=sort)
+    for key in ("dockerOrder", "dockerHidden"):
+        v = s.get(key, [])
+        if not isinstance(v, list) or len(v) > MAX_CONTAINERS or not all(isinstance(n, str) and CNAME_RE.match(n) for n in v):
+            raise SettingsError(f"Display {did}: invalid list of containers.")
+        out[key] = list(dict.fromkeys(v))
     return out
 
 
@@ -323,6 +373,9 @@ def read_conf(path):
                     "sysIcons": 0 if parts[27] == "0" else 1,
                     "showHeader": 0 if parts[32] == "0" else 1,
                     "showNet": 1 if "network" in parts[26].split(",") else 0,
+                    # Docker pages (columns 69-72): symbols, filter, colour, highlight, On cue; order; hidden
+                    "showDocker": 1 if "docker" in parts[26].split(",") else 0,
+                    **docker_from_conf(parts[68:72]),
                     "netSort": parts[33] if parts[33] in NET_SORTS else "name",
                     "netOrder": iface_list(parts[34]),
                     "netHidden": iface_list(parts[35]),
@@ -462,6 +515,7 @@ def validate(displays, old_conf=None):
             raise SettingsError(f"Display {did}: invalid page order.")
         show["pageOrder"] = page_order
         show.update(validate_pics(did, s, page_order))
+        show.update(validate_docker(did, s))
         fast = refresh if refresh < 60 else 0   # under a minute: fast refresh
         zfs = s.get("zfs", 0)
         if zfs not in (0, 1) or isinstance(zfs, bool):
@@ -563,7 +617,7 @@ def write_conf(path, conf, interval, page_name=""):
         "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted<TAB>header color<TAB>refresh"
         "<TAB>time format<TAB>date<TAB>weekday<TAB>date format<TAB>ntp<TAB>ntp server<TAB>time zone<TAB>posix time zone"
         "<TAB>start screen<TAB>nothing to ink<TAB>no connection<TAB>divider line<TAB>page order<TAB>just time<TAB>time header<TAB>header fill<TAB>time color<TAB>time frame"
-        "<TAB>picture ink<TAB>picture flags<TAB>card order<TAB>picture windows<TAB>sober<TAB>ota<TAB>picture clocks",
+        "<TAB>picture ink<TAB>picture flags<TAB>card order<TAB>picture windows<TAB>sober<TAB>ota<TAB>picture clocks<TAB>docker style<TAB>docker sort<TAB>docker order<TAB>docker hidden",
         "#   '-' = empty. boxes 0 = timer off, rows 0 = auto, warn = highlight from % used (0 = never),",
         "#   rot = degrees clockwise (0, 90, 180, 270), page = seconds between page turns (0 = off),",
         "#   pins = cs,dc,rst,busy (rst/busy -1 = none, '-' = keep the pins of the display),",
@@ -575,7 +629,7 @@ def write_conf(path, conf, interval, page_name=""):
         "#   ('-' = no system page; types '-' = only the system page),",
         "#   network = interface for the system page ('-' = the one with the default route),",
         "#   zfs = ZFS cache on the system page 1 = shown / 0 = hidden,",
-        "#   pages = pages switched on: system,disks,network,time,wifi or none (the settings below a page stay when it is off),",
+        "#   pages = pages switched on: system,disks,network,time,wifi,docker or none (the settings below a page stay when it is off),",
         "#   system icons = symbols on the system page 1 = on / 0 = off, header = 1 the layout shows the uptime,",
         "#   panel = panel type 1-8 (1 GDEW0213Z16, 2 GDEH0213Z19, 3 GDEY0213Z98, 4 GDEY0213B74, 5 GDEY042T81, 6-8 = 1-3 yellow;",
         "#   '-' = keep the panel type of the display), wifi icons = symbols on the WiFi page 1 = on / 0 = off,",
@@ -601,7 +655,9 @@ def write_conf(path, conf, interval, page_name=""):
         "#   card order = the pages and the pictures C I A, each once (their place in the page turn),",
         "#   picture windows = HHMM-HHMM of each picture (scheduled: only that picture), sober = Beverages 0 House Wine / 1 Tabula Rasa / 2 Roast,",
         "#   ota = firmware updates of this display from the settings page 1 allowed / 0 off,",
-        "#   picture clocks = Got the time? (a wall clock showing the time now) for C I A, 1 / 0 each (default 000)",
+        "#   picture clocks = Got the time? (a wall clock showing the time now) for C I A, 1 / 0 each (default 000),",
+        "#   docker style = Docker pages: symbols, show 0 all / 1 errors / 2 updates / 3 both, colour, highlight, on cue (default 1,0,1,0,0),",
+        "#   docker sort = state / name / manual, docker order = container names (manual first), docker hidden = containers not shown",
     ]
     for did, s in sorted(conf.items()):
         order = ",".join(s["order"]) or "-"
@@ -616,7 +672,7 @@ def write_conf(path, conf, interval, page_name=""):
                                 str(s["warn"]), str(s["rot"]), str(s["page"]), pins, s["name"] or "-",
                                 style, hidden, s.get("dname") or "-", *wifi,
                                 str(s.get("fast", 0)), ",".join(s.get("sys") or []) or "-", s.get("net") or "-", str(s.get("zfs", 0)),
-                                ",".join(p for p, k, d in (("system", "showSys", 1), ("disks", "showDisks", 1), ("network", "showNet", 0), ("time", "showTime", 0), ("wifi", "showWifi", 0))
+                                ",".join(p for p, k, d in (("system", "showSys", 1), ("disks", "showDisks", 1), ("network", "showNet", 0), ("time", "showTime", 0), ("wifi", "showWifi", 0), ("docker", "showDocker", 0))
                                          if s.get(k, d)) or "none",   # "-" would read as the defaults (an earlier version)
                                 str(s.get("sysIcons", 1)),
                                 "1" if layout_ok(s.get("layout")) and "U" in s["layout"].upper() else "0",
@@ -633,7 +689,7 @@ def write_conf(path, conf, interval, page_name=""):
                                 s.get("pageOrder") if page_order_ok(s.get("pageOrder")) else DEFAULT_PAGE_ORDER,
                                 str(s.get("justTime", 0)), str(s.get("timeHead", 0)), str(s.get("headFill", 0)),
                                 str(s.get("timeColor", 0)), str(s.get("timeFrame", 0)), *pics_to_conf(s), str(s.get("ota", 1)),
-                                "".join(str(s.get(p + "Clock", 0)) for p, _, _, _ in PICS)]))
+                                "".join(str(s.get(p + "Clock", 0)) for p, _, _, _ in PICS), *docker_to_conf(s)]))
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".conf.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
