@@ -24,6 +24,9 @@
  *   backend.otaPlus       -> firmware updates with a status that counts (last contact, restarting), the last contact
  *                            of WiFi boards in the display card, and the Maintenance fold in Advanced Ink with
  *                            Backup, Force reinstall and Remove
+ *   backend.pageTimes     -> Auto page turn per page (Same for all / Per page), Get data every 15 s and the defaults
+ *                            of a new display by its panel
+ *   backend.resetDefaults -> Maintenance: Reset to defaults (with Reset WiFi)
  *   backend.offlineNoData -> a display that is not connected previews its "Check connection" screen (simulator)
  *
  * Drawing: inksights-render.js. No description texts next to the controls (labels only).
@@ -133,6 +136,9 @@
   const REFRESH = [[2, "2 s"], [5, "5 s"], [10, "10 s"], [30, "30 s"], [60, "1 min"], [180, "3 min"], [300, "5 min"], [600, "10 min"],
     [900, "15 min"], [1800, "30 min"], [3600, "1 h"], [5400, "1.5 h"], [7200, "2 h"], [10800, "3 h"], [14400, "4 h"]];
   const DEFAULT_REFRESH = 600;
+  // backend.pageTimes: also 15 s; a new display gets data every 15 s on a fast (black/white) panel, every minute on a
+  // colour panel, and turns its pages every 3 minutes (user)
+  const REFRESH_15 = [15, "15 s"], NEW_REFRESH_FAST = 15, NEW_REFRESH_SLOW = 60, NEW_PAGE = 180;
   // Time page with NTP (boards with WiFi): common time zones with their POSIX rule (daylight saving
   // included) for the board; the preview takes the zone name
   const ZONES = [["UTC", "UTC0"], ["Europe/London", "GMT0BST,M3.5.0/1,M10.5.0"], ["Europe/Dublin", "GMT0IST,M3.5.0/1,M10.5.0"],
@@ -255,8 +261,19 @@
 
     function settingsFor(id) {
       if (!config[id]) config[id] = {};
-      return normalize(config[id]);
+      const c = config[id];
+      // backend.pageTimes: a display without these settings yet gets the defaults of its panel (as far as it is known)
+      if (backend.pageTimes) {
+        if (c.refresh === undefined && c.fast === undefined) {
+          const live = ((state && state.displays) || []).find(d => d && d.id === id) || null;
+          c.refresh = panelOf(live, c).fast ? NEW_REFRESH_FAST : NEW_REFRESH_SLOW;
+        }
+        if (c.page === undefined) c.page = NEW_PAGE;
+      }
+      return normalize(c);
     }
+    // the choices of Get data every (backend.pageTimes: with 15 s)
+    const refreshList = () => (backend.pageTimes ? [...REFRESH.slice(0, 3), REFRESH_15, ...REFRESH.slice(3)] : REFRESH);
     // the settings of a display with defaults for anything missing or unusable (changed in place)
     function normalize(s) {
       if (!Array.isArray(s.types)) s.types = [...ALL_TYPES];
@@ -268,6 +285,9 @@
       if (typeof s.warn !== "number") s.warn = DEFAULT_WARN;
       if (![0, 90, 180, 270].includes(s.rot)) s.rot = 0;
       if (typeof s.page !== "number") s.page = DEFAULT_PAGE;
+      // Auto page turn: 0 the same time for every page (s.page), 1 per page (s.pageTimes: letter -> seconds)
+      if (s.turnMode !== 0 && s.turnMode !== 1) s.turnMode = 0;
+      if (!s.pageTimes || typeof s.pageTimes !== "object" || Array.isArray(s.pageTimes)) s.pageTimes = {};
       if (!Array.isArray(s.pins) || s.pins.length !== 4) s.pins = null;   // null = keep the pins of the display
       if (!panels.some(p => p.id === s.panel)) s.panel = null;              // null = keep the panel type of the display
       if (typeof s.name !== "string") s.name = "";
@@ -327,7 +347,7 @@
       if (!Array.isArray(s.sys)) s.sys = [];
       s.sys = SYS_PARTS.map(([p]) => p).filter(p => s.sys.includes(p));
       // refresh in seconds; missing (earlier version): the fast refresh, else the update interval of all displays
-      if (!REFRESH.some(([v]) => v === s.refresh)) s.refresh = [2, 5, 10, 30].includes(s.fast) ? s.fast : REFRESH.some(([v]) => v === interval * 60) ? interval * 60 : DEFAULT_REFRESH;
+      if (!refreshList().some(([v]) => v === s.refresh)) s.refresh = [2, 5, 10, 30].includes(s.fast) ? s.fast : REFRESH.some(([v]) => v === interval * 60) ? interval * 60 : DEFAULT_REFRESH;
       s.fast = s.refresh < 60 ? s.refresh : 0;   // under a minute: fast refresh
       if (typeof s.net !== "string") s.net = "";
       if (!s.wifi || typeof s.wifi !== "object") s.wifi = {};
@@ -372,7 +392,19 @@
         if (s.dname.length > 32) out.push(`${who}: name max. 32 characters.`);
         if (s.ntp && !NTP_RE.test(s.ntpServer)) out.push(`${who}: NTP server like pool.ntp.org.`);
         if (!Number.isInteger(s.warn) || s.warn < 0 || s.warn > 100) out.push(`${who}: highlight threshold must be between 1 and 100 %.`);
+        // display pins chosen here that the board does not allow (it would keep its old pins)
+        if (Array.isArray(s.pins)) {
+          const b = boardOf(live);
+          s.pins.forEach((p, n) => { if (p !== PIN_NONE && !b.pins.includes(p)) out.push(`${who}: ${PIN_NAMES[n]}: ${pinLabel(b, p)} cannot be used on ${b.name}.`); });
+        }
         if (s.page < 0) out.push(`${who}: page turn must be a time like 00:10:00 (max. 24:00:00).`);
+        // the panel redraws at most every 3 minutes (black/white with a refresh in seconds: that often)
+        const least = minTurn(id, s), atLeast = fmtHms(least);
+        if (!(backend.pageTimes && s.turnMode === 1) && s.page > 0 && s.page < least) out.push(`${who}: Auto page turn: at least ${atLeast} on this display.`);
+        if (backend.pageTimes && s.turnMode === 1) for (const [k, label] of turnPages(id, s)) {
+          if (!(pageSecs(s, k) >= 1)) out.push(`${who}: page turn of ${label} must be a time like 00:00:30 (00:00:01 to 24:00:00).`);
+          else if (pageSecs(s, k) < least) out.push(`${who}: ${label}: at least ${atLeast} on this display.`);
+        }
         const timed = artsTimed(s, live);
         for (const a of timed) if (s[a.p + "From"] === s[a.p + "To"]) out.push(`${who}: ${a.title}: start and end must differ.`);
         for (let i = 0; i < timed.length; i++) for (let j = i + 1; j < timed.length; j++) {
@@ -448,11 +480,59 @@
       return now && pg ? { at: live.answerAt, shown: +pg[1], drawn: 0, turn: +m[3], fresh: true }
         : { at: live.answerAt, shown: +m[1], drawn: +m[2], turn: +m[3] };
     }
+    // Auto page turn: the shortest time a page can stay (the panel redraws at most every 3 minutes; a black/white
+    // panel with a refresh in seconds that often)
+    function minTurn(id, s) {
+      const live = (displayList().find(e => e.id === id) || {}).live;
+      return panelOf(live, s).fast && s.fast > 0 ? s.fast : 180;
+    }
+    // the time fields of Auto page turn in red while shorter than that
+    function markTurn(id, s) {
+      const least = minTurn(id, s), all = $(`pturn-all-${id}`), box = $(`ptimes-${id}`);
+      if (all) { const i = all.querySelector("input"); if (i) i.classList.toggle("too-short", s.page > 0 && s.page < least); }
+      if (box) for (const i of box.querySelectorAll("input")) { const v = pageSecs(s, i.dataset.k); i.classList.toggle("too-short", v >= 1 && v < least); }
+    }
+    // Auto page turn: the seconds page k stays (per page, else the time for all)
+    // Per page: a page without its own time stays 3 minutes (user)
+    const PAGE_TIME = 180;
+    const pageSecs = (s, k) => (backend.pageTimes && s.turnMode === 1 ? (Number.isInteger(s.pageTimes[k]) ? s.pageTimes[k] : PAGE_TIME) : s.page);
+    // the kinds of pages in the page turn of a display, in the card order: [letter, label]
+    const PAGE_TITLES = { T: "Time", S: "System", D: "Drives", N: "Network", K: "Docker", W: "WiFi" };
+    function turnPages(id, s) {
+      const live = (displayList().find(e => e.id === id) || {}).live;
+      const on = { T: s.showTime === 1 || s.justTime === 1, S: s.justTime !== 1 && s.showSys === 1 && (s.sys || []).length > 0,
+        D: s.justTime !== 1 && s.showDisks === 1, N: s.justTime !== 1 && s.showNet === 1,
+        K: s.justTime !== 1 && !!backend.docker && s.showDocker === 1, W: s.justTime !== 1 && s.showWifi === 1 && boardOf(live).wifi };
+      const out = [];
+      for (const k of s.cardOrder.includes("K") ? s.cardOrder : s.cardOrder.replace("N", "NK")) {
+        const a = afterhours && ARTS.find(x => x.key === k);
+        if (a) { if (s[inkKey(a)] !== 0 && s[a.p + "Rot"] === 1) out.push([k, a.title]); }
+        else if (on[k]) out.push([k, PAGE_TITLES[k]]);
+      }
+      return out;
+    }
+    // Per page: one time field per page of the turn, in the card order (rebuilt when the pages change)
+    function renderPageTimes(entry) {
+      const id = entry.id, s = settingsFor(id), box = $(`ptimes-${id}`), all = $(`pturn-all-${id}`);
+      if (!box || !all) return;
+      const per = s.turnMode === 1;
+      box.hidden = !per; all.hidden = per;
+      const rows = turnPages(id, s), key = rows.map(r => r[0]).join("");
+      if (box.dataset.key === key) { markTurn(id, s); return; }
+      box.dataset.key = key;
+      box.replaceChildren(...rows.flatMap(([k, label]) => [el("span", { class: "label ptime" }, label),
+        el("input", { type: "text", inputmode: "numeric", maxlength: "8", value: fmtHms(Math.max(0, pageSecs(s, k))), placeholder: "00:00:30",
+          autocomplete: "off", class: "hms", "data-k": k, "aria-label": `Page turn of ${label} (HH:MM:SS)`,
+          oninput: e => { s.pageTimes[k] = parseHms(e.target.value); markTurn(id, s); changed(); drawPreview(entry); } })]));
+      markTurn(id, s);
+    }
     function mirrorStep(entry, text) {
       const now = Date.now(), s = settingsFor(entry.id);
       // the firmware compares the frames without their time
       const bare = t => (t || "").replace(/^(H\|[^|\n]*\|)[^|\n]*/m, "$1");
       let v = mirror[entry.id];
+      // the seconds page i of the turn stays (v.times from the last drawing: per page, or the time for all)
+      const pt = i => (v && v.times && v.times[i] != null ? v.times[i] : s.page);
       const made = !v || v.force;
       if (made) v = mirror[entry.id] = { text, page: v ? v.page : 0, drawn: now, turned: now, pc: v ? v.pc : 1, sync: v ? v.sync : "" };
       const pn = panelNow(entry.live);
@@ -463,13 +543,14 @@
           const at = pn.at * 1000;
           v.page = pn.shown - 1;
           v.drawn = at - pn.drawn * 1000;
-          if (pn.turn >= 0 && s.page > 0) v.turned = at + (pn.turn === 0 && pn.fresh ? s.page : pn.turn) * 1000 - s.page * 1000;
+          const ps = pt(v.page);
+          if (pn.turn >= 0 && ps > 0) v.turned = at + (pn.turn === 0 && pn.fresh ? ps : pn.turn) * 1000 - ps * 1000;
           if (pn.fresh) v.text = text;
         }
       }
       if (made) return v;
       const minMs = panelOf(entry.live, s).fast && s.fast > 0 ? s.fast * 1000 - 500 : 180000;
-      const turn = s.page > 0 && v.pc > 1 && now - v.turned >= s.page * 1000;
+      const turn = pt(v.page) > 0 && v.pc > 1 && now - v.turned >= pt(v.page) * 1000;
       if ((turn || bare(text) !== bare(v.text)) && now - v.drawn >= minMs) {
         if (turn) { v.page = (v.page + 1) % v.pc; v.turned = now; }
         v.text = text;
@@ -493,6 +574,7 @@
       // the screens bits (H field 26) of the cases: On cue and Ink of The Conversation / The Intermission
       s = { ...s, inkNothing: autoOn(s, ARTS[0]) ? 1 : 0, inkNoData: autoOn(s, ARTS[1]) ? 1 : 0 };
       if (!backend.dockerStacks) s = { ...s, dockerStacks: 0 };   // one row per stack only where the backend has it
+      if (!backend.pageTimes) s = { ...s, turnMode: 0 };          // Auto page turn per page only where the backend has it
       // docker null: no Docker on the system ("Docker not found")
       return EPD.buildFrame(st.disks || [], s, title, st.timeText || hhmm(st.updated), st.system || null, panelOf(entry.live, s).fast, refreshMins(s), dataStamp(st),
         st.docker === null ? null : st.docker || []);
@@ -564,8 +646,8 @@
       let bi = 0;
       for (const k of s.cardOrder.includes("K") ? s.cardOrder : s.cardOrder.replace("N", "NK")) {   // Docker: its place, else after the network pages
         const a = extra.find(x => x.key === k);
-        if (a) turn.push({ art: a });
-        else if (!model.extraOnly) for (let i = 0; i < (counts[k] || 0); i++) turn.push({ base: bi++ });
+        if (a) turn.push({ art: a, kind: k });
+        else if (!model.extraOnly) for (let i = 0; i < (counts[k] || 0); i++) turn.push({ base: bi++, kind: k });
       }
       if (!turn.length) turn.push({ base: 0 });
       // the screens of the firmware with the pictures: the time page keeps its places without
@@ -574,7 +656,7 @@
       // Beverages: 0 House Wine, 1 Tabula Rasa (without the bottle and the glass), 2 Roast (a coffee cup instead)
       model.sober = afterhours ? s.sober : 0;
       const pc = timed ? 1 : turn.length;
-      if (mv) { mv.pc = pc; pages[id] = mv.page; }
+      if (mv) { mv.pc = pc; pages[id] = mv.page; mv.times = timed ? null : turn.map(t => pageSecs(s, t.kind)); }
       pages[id] = (((pages[id] || 0) % pc) + pc) % pc;
       const at = timed ? { base: 0 } : turn[pages[id]];
       model.page = at.base ?? 0;
@@ -621,7 +703,7 @@
         const [sw, sh] = panelSize(panel, 0), sfb = new EPD.Fb(sw, sh), board = boardOf(live);
         const pins = String(live.pins || "").split(",").map(Number);
         const net = live.transport === "wifi" ? "sta" : live.net || "off";
-        EPD.drawSplash(sfb, { product: "InkSights", fw: live.fw || "1.1.2", id, board: board.name, panel: panel.name, color: panel.colors === 3,
+        EPD.drawSplash(sfb, { product: "InkSights", fw: live.fw || "1.2.0", id, board: board.name, panel: panel.name, color: panel.colors === 3,
           pinTitle: board.samd ? "Pins D" : "GPIO", pins: pins.length === 4 ? pins : [-1, -1, -1, -1],
           wifi: !board.wifi ? null : net === "sta" ? live.ip || "" : net === "ap" ? `AP ${s.wifi.apSsid || DEFAULT_AP_SSID} 192.168.4.1` : s.wifi.ssid ? "connecting ..." : "off",
           key: board.wifi && net === "ap" ? live.apKey || "" : null });
@@ -658,7 +740,7 @@
       EPD.blit(canvas, fb, whole === 1 && fit >= 1.25 ? fit : whole, yellow);
     }
 
-    function drawAll() { displayList().forEach(e => { drawPreview(e); renderOrder(e); renderNetOrder(e); renderDockerOrder(e); }); }
+    function drawAll() { displayList().forEach(e => { drawPreview(e); renderOrder(e); renderNetOrder(e); renderDockerOrder(e); renderPageTimes(e); }); }
 
     // Disks of the display's types in its order (hidden ones included, so they can be ticked again)
     const orderedFor = s => EPD.orderDisks(state.disks || [], s);
@@ -767,7 +849,7 @@
     function card(entry) {
       const { id, live } = entry;
       const s = settingsFor(id), board = boardOf(live), w = s.wifi;
-      const redraw = () => { changed(); drawPreview(entry); renderOrder(entry); renderNetOrder(entry); renderDockerOrder(entry); };
+      const redraw = () => { changed(); drawPreview(entry); renderOrder(entry); renderNetOrder(entry); renderDockerOrder(entry); renderPageTimes(entry); };
       const radios = (name, options, current, onPick) => el("div", { class: "choices" }, ...options.map(([value, label]) =>
         el("label", { class: "check" },
           el("input", { type: "radio", name: `${name}-${id}`, value: String(value), checked: value === current, onchange: () => { onPick(value); redraw(); } }),
@@ -803,10 +885,13 @@
       const pinSelects = PIN_NAMES.map((label, n) => {
         const choices = [...board.pins, ...(n >= 2 ? [PIN_NONE] : [])];
         if (!choices.includes(shownPins[n])) choices.unshift(shownPins[n]);   // what the board reports, even if unusual
+        // a pin the board does not allow (e.g. an old setting: GPIO9 on the ESP32-C3 Super Mini) in red (user)
+        const bad = p => p !== PIN_NONE && !board.pins.includes(p);
         const sel = el("select", { id: `pin-${id}-${n}`, "aria-label": `${label} pin`,
-          onchange: () => { s.pins = PIN_NAMES.map((_, m) => Number($(`pin-${id}-${m}`).value)); changed(); } },
+          onchange: e => { e.target.classList.toggle("bad-pin", bad(Number(e.target.value))); s.pins = PIN_NAMES.map((_, m) => Number($(`pin-${id}-${m}`).value)); changed(); } },
           ...choices.map(p => el("option", { value: String(p) }, pinLabel(board, p))));
         sel.value = String(shownPins[n]);
+        sel.classList.toggle("bad-pin", bad(shownPins[n]));
         return el("label", { class: "check", for: sel.id }, `${label} `, sel);
       });
 
@@ -817,9 +902,9 @@
       // Refresh: the seconds (fast refresh) only on panels that can redraw fast without flashing
       // (black/white); a panel that cannot gets 1 minute instead
       if (!panel.fast && s.refresh < 60) { s.refresh = 60; s.fast = 0; }
-      const refreshSel = el("select", { "aria-label": "Refresh", onchange: e => {
+      const refreshSel = el("select", { "aria-label": "Get data every", onchange: e => {
         s.refresh = Number(e.target.value); s.fast = s.refresh < 60 ? s.refresh : 0; redraw(); } },
-        ...REFRESH.filter(([v]) => panel.fast || v >= 60).map(([v, l]) => el("option", { value: String(v), selected: v === s.refresh }, l)));
+        ...refreshList().filter(([v]) => panel.fast || v >= 60).map(([v, l]) => el("option", { value: String(v), selected: v === s.refresh }, l)));
       // System page: network interface, "" = the one with the default route
       const sysInfo = state.system || {};
       const ifNames = (Array.isArray(sysInfo.ifaces) ? sysInfo.ifaces : []).map(i => i.name).filter(n => IFACE_RE.test(n || ""));
@@ -858,8 +943,8 @@
         label, ...(p === "nvme" || p === "ssd" || p === "hdd" ? [el("span", { class: "count", id: `scount-${id}-${p}` }, `(${counts[p]})`)] : [])));
 
       const pageTurn = el("input", { type: "text", inputmode: "numeric", maxlength: "8", value: fmtHms(Math.max(0, s.page)),
-        placeholder: "00:10:00", autocomplete: "off", style: "max-width: 7em; font-family: var(--font-mono)",
-        "aria-label": "Auto page turn (HH:MM:SS)", oninput: e => { s.page = parseHms(e.target.value); redraw(); } });
+        placeholder: "00:03:00", autocomplete: "off", style: "max-width: 7em; font-family: var(--font-mono)",
+        "aria-label": "Auto page turn (HH:MM:SS)", oninput: e => { s.page = parseHms(e.target.value); redraw(); markTurn(id, s); } });
 
       const redrawNow = live ? [el("button", { class: "btn small redraw", type: "button", onclick: async () => {
         try {
@@ -1181,16 +1266,26 @@
           el("fieldset", { class: `set-${id}` },
             el("div", { class: "field boxed" }, el("span", { class: "label" }, "Rows per page"),
               el("div", { class: "oneline" }, radios("rows", rowOptions, s.rows, v => { s.rows = v; pages[id] = 0; }))),
-            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Refresh"), refreshSel),
-            // the only hint text on the page
-            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Auto page turn (HH:MM:SS)"),
-              el("div", { class: "choices", style: "flex-wrap: nowrap; gap: 8px" }, pageTurn,
-                el("span", { class: "count", style: "white-space: nowrap" }, "00:00:00 = off")))),
+            // Get data every with Preview beside it, Auto page turn in a line of its own (user)
+            el("div", { class: "field boxed" }, el("span", { class: "label" }, "Get data every"), refreshSel)),
           // Sync with display: the preview shows what the panel shows (this browser, no need to save)
-          el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Preview"),
+          el("div", { class: "field boxed" }, el("span", { class: "label" }, "Preview"),
             el("div", { class: "choices" }, el("label", { class: "check" },
               el("input", { type: "checkbox", checked: mirrorOn(id), onchange: e => { setPref(id, "mirror", e.target.checked ? 1 : 0); delete mirror[id]; drawPreview(entry); } }),
               "Sync with display"))),
+          el("fieldset", { class: `set-${id}` },
+            // the only hint text on the page
+            // Same for all: one time; Per page (backend.pageTimes): a time per page of the turn, in the card order (user)
+            el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Auto page turn (HH:MM:SS)"),
+              ...(backend.pageTimes ? [radios("turnmode", [[0, "Same for all"], [1, "Per page"]], s.turnMode, v => {
+                if (v === 1) for (const [k] of turnPages(id, s)) if (!Number.isInteger(s.pageTimes[k])) s.pageTimes[k] = Math.max(minTurn(id, s), PAGE_TIME);
+                s.turnMode = v;
+                const box = $(`ptimes-${id}`); if (box) delete box.dataset.key;
+              })] : []),
+              // narrow cards: "00:00:00 = off" goes below the field instead of out of the card
+              el("div", { class: "choices", id: `pturn-all-${id}`, style: "gap: 8px" }, pageTurn,
+                el("span", { class: "count", style: "white-space: nowrap" }, "00:00:00 = off")),
+              el("div", { class: "ptimes", id: `ptimes-${id}`, hidden: true }))),
           el("div", { class: "field wide boxed" },
             el("span", { class: "label" }, "Display pins"),
             el("div", { class: "choices pins" }, ...pinSelects)),
@@ -1211,10 +1306,36 @@
           ...(!canReinstall ? [el("p", { class: `about-text${ota.plain ? "" : " warn"}` }, ota.why)] : []),
           ...(otaStatus(live) ? [otaStatus(live)] : []))
         : null;
+      // Reset to defaults (Maintenance): every setting of this display back to its default as unsaved changes
+      // (Save applies them); display pins and panel type stay (the wiring). Reset WiFi Yes: also its WiFi
+      // settings, so the board opens its setup access point. The button only after the tick Confirm (user)
+      const resetWifiYes = el("input", { type: "radio", name: `resetwifi-${id}`, value: "1" });
+      const resetBtn = el("button", { class: "btn", type: "button", disabled: true, onclick: () => {
+        const old = config[id] || {}, n = { pins: old.pins, panel: old.panel };
+        n.wifi = board.wifi && resetWifiYes.checked
+          ? { ssid: "", pass: "", host: "", server: "", apOn: true, apDelay: DEFAULT_AP_DELAY, apSsid: DEFAULT_AP_SSID, apPass: DEFAULT_AP_PASS }
+          : old.wifi;
+        if (board.wifi && resetWifiYes.checked) n.wifiReset = 1;   // the board forgets its WiFi network (with Save)
+        config[id] = n;
+        delete mirror[id];
+        changed();
+        render(true);
+        setMsg(`${nameOf(id, settingsFor(id))}: reset to defaults${n.wifiReset ? ", WiFi too" : ""}. Save applies it.`, "ok");
+      } }, "Reset to defaults");
+      // the hint in red while Confirm is ticked (user)
+      const resetNote = el("p", { class: "about-text" }, "All settings of this display go back to their defaults. Display pins and panel type stay.");
+      const resetBox = el("div", { class: "field wide boxed" }, el("span", { class: "label" }, "Reset to defaults"),
+        resetNote,
+        ...(board.wifi ? [el("div", { class: "choices" }, el("span", { class: "label" }, "Reset WiFi"),
+          el("label", { class: "check" }, resetWifiYes, "Yes"),
+          el("label", { class: "check" }, el("input", { type: "radio", name: `resetwifi-${id}`, value: "0", checked: true }), "No"))] : []),
+        el("div", { class: "choices" },
+          el("label", { class: "check" }, el("input", { type: "checkbox", onchange: e => { resetBtn.disabled = !e.target.checked; resetNote.classList.toggle("warn", e.target.checked); } }), "Confirm"),
+          resetBtn));
       const maintenance = backend.otaPlus
         ? el("details", { class: "fold boxed", open: !!pref(id, "maintOpen", false), ontoggle: e => setPref(id, "maintOpen", e.target.open) },
           el("summary", {}, "Maintenance"),
-          el("div", { class: "form" }, backup, ...(reinstallBox ? [reinstallBox] : []), ...remove))
+          el("div", { class: "form" }, backup, ...(reinstallBox ? [reinstallBox] : []), ...(backend.resetDefaults ? [resetBox] : []), ...remove))
         : null;
       if (wifiCard) wifiCard.classList.add("keep-on");   // its settings are not dimmed when the page is off
       // Time: a page with the time in big, below it weekday and date (each when ticked); the system
@@ -1917,7 +2038,7 @@
     }
     // simulator: a release one step after this installation (or after the skipped one)
     function testUpdate() {
-      const skip = pref("app", "skipVersion", ""), base = skip && newer(skip, appVersion) ? skip : appVersion || "1.1.2";
+      const skip = pref("app", "skipVersion", ""), base = skip && newer(skip, appVersion) ? skip : appVersion || "1.2.0";
       const p = verParts(base);
       latestRel = { version: `v${p[0] || 0}.${(p[1] || 0) + 1}`, url: "https://github.com/Gittegatt/InkSights/releases" };
       muted = false;

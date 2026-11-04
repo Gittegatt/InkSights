@@ -1816,6 +1816,9 @@
         const num = (i, hi) => (/^-?\d+$/.test(f[i]) ? clamp(Number(f[i]), -1, hi) : -1);
         rx.nets.push({ name: f[1].replace(/[^A-Za-z0-9._-]/g, "").slice(0, 15), rx: num(2, 2147483647), tx: num(3, 2147483647),
           link: num(4, 1000000), wifi: f[5] === "1", state: f[6] === "D" || f[6] === "L" ? f[6] : "U" });
+      } else if (line.startsWith("G|")) {   // Auto page turn per page: letter -> seconds (missing: H field 7)
+        rx.pageTimes = Object.fromEntries(line.slice(2).split(",").map(x => /^([SDNTWKCIA])(\d{1,5})$/.exec(x))
+          .filter(Boolean).map(m => [m[1], Math.min(86400, Number(m[2]))]));
       } else if (line.startsWith("D|")) {
         const f = splitFields(line, 12);
         if (f.length < 9 || rx.disks.length >= L.MAX_DISKS) continue;
@@ -1933,6 +1936,8 @@
     const clocks = PICS.map(([p]) => (s[p + "Clock"] === 1 ? 1 : 0)).join(""), clock = clocks !== "000";
     if (flags !== PIC_FLAGS || sober !== 1 || card !== po + "CIA" || win !== PIC_WIN || clock)
       lines.push(`A|${flags}|${sober}|${card}|${win}${clock ? `|${clocks}|${Math.max(1, s.refresh || 600)}` : ""}`);
+    // G line: Auto page turn per page (own line: the H line stays below the 128 bytes of the SAMD21)
+    if (s.turnMode === 1) lines.push(`G|${pageTimesText(s)}`);
     if (s.showTime === 1) {   // the time page: date and time of the data, what it shows, NTP (WiFi boards)
       let when = /^\d{14}$/.test(dt) ? dt : "";
       if (!when) { const n = new Date(), hm = /^(\d\d):(\d\d)$/.exec(time || ""); when = `${n.getFullYear()}${two(n.getMonth() + 1)}${two(n.getDate())}${hm ? hm[1] + hm[2] : two(n.getHours()) + two(n.getMinutes())}00`; }
@@ -1976,6 +1981,14 @@
     return lines.join("\n");
   }
 
+  // G line: the seconds of every page kind in the card order (pages S D N T W K, pictures C I A), e.g.
+  // G|T30,S10,D10,K5,C60; a kind without its own time stays 3 minutes
+  function pageTimesText(s) {
+    const order = cardOrderOk(s.cardOrder) ? s.cardOrder : pageOrderOf(s) + "CIA";
+    return [...(order.includes("K") ? order : order.replace("N", "NK"))]
+      .filter(k => k !== "K" || s.showDocker === 1)
+      .map(k => `${k}${Number.isInteger((s.pageTimes || {})[k]) && s.pageTimes[k] > 0 ? Math.min(86400, s.pageTimes[k]) : 180}`).join(",");
+  }
   // The rows of the Docker pages: the containers, or (dockerStacks 1) one per stack (Compose project; a
   // container without one is its own): error when one of its containers has one, else running when one
   // runs, else stopped; update when one has a newer image; count = its containers

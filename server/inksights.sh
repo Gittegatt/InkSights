@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# inksights.sh v1.1.2
+# inksights.sh v1.2.0
 #
 # Collects drive status and system values (CPU, RAM, network, NVMe temperatures) on a Linux
 # server and sends them to one or more e-paper displays (firmware: firmware/InkSights):
@@ -105,8 +105,8 @@ ALL_TYPES="hdd,ssd,nvme"
 DEFAULT_BOXES=0           # spindown timer off for a new display
 DEFAULT_WARN=85          # bar is highlighted from this % used
 DEFAULT_TITLE="InkSights" # title of the top line when the settings page sets none
-VERSION="1.1.2"           # of InkSights (firmware, script and settings page go together; state.json "version")
-DEFAULT_PAGE=600         # seconds between automatic page turns on the display, 0 = off
+VERSION="1.2.0"           # of InkSights (firmware, script and settings page go together; state.json "version")
+DEFAULT_PAGE=180         # seconds between automatic page turns on the display, 0 = off (a new display: 3 minutes)
 WIFI_STALE=300           # a WiFi display that has not fetched its frame for this long is left out
 TEMPS_EVERY=30           # seconds between NVMe / SSD temperature readings
 SYS_PARTS_RE='^(cpu|ram|net|nvme|ssd|hdd)(,(cpu|ram|net|nvme|ssd|hdd))*$'
@@ -219,6 +219,7 @@ NODATA_SECS=$(( INTERVAL * 120 + 120 ))
 STATE_FILE="$DATA_DIR/state.json"
 REFRESH_FILE="$DATA_DIR/refresh-request"
 REDRAW_FILE="$DATA_DIR/redraw-request"
+FORGET_FILE="$DATA_DIR/forget-request"   # USB displays that forget their WiFi (Reset to defaults, Reset WiFi)
 WIFI_DIR="$DATA_DIR/wifi"
 FRAMES_DIR="$RUN_DIR/frames"      # frames of the WiFi displays, in memory (written often)
 DOCKER_FILE="$RUN_DIR/docker-updates"   # <epoch of the check> <update 1/0> <image>
@@ -323,7 +324,7 @@ read_fast_file() {
     local id secs port last
     [[ -r "$FAST_FILE" ]] || return
     while read -r id secs port last; do
-        [[ "$id" =~ ^[0-9A-F]{8}$ && "$secs" =~ ^(2|5|10|30)$ && "$last" =~ ^[0-9]+$ ]] || continue
+        [[ "$id" =~ ^[0-9A-F]{8}$ && "$secs" =~ ^(2|5|10|15|30)$ && "$last" =~ ^[0-9]+$ ]] || continue
         [[ "$port" == "wifi" || "$port" =~ ^/dev/ttyACM[0-9]+$ ]] || continue
         FAST_SECS[$id]=$secs; FAST_PORT[$id]=$port; FAST_LAST[$id]=$last
         (( NOW - last >= secs )) && FAST_DUE[$id]=1
@@ -431,6 +432,16 @@ if [ "$MODE" = full ] && [ "$DRY_RUN" = false ] && mv -f "$REDRAW_FILE" "$REDRAW
     done < <(head -n 32 "$REDRAW_FILE.$$")
     rm -f "$REDRAW_FILE.$$"
 fi
+# USB displays that forget their WiFi settings (Reset to defaults with Reset WiFi; boards on WiFi get it from the
+# settings page): taken over the same way
+declare -A FORGET
+if [ "$MODE" = full ] && [ "$DRY_RUN" = false ] && mv -f "$FORGET_FILE" "$FORGET_FILE.$$" 2>/dev/null; then
+    while read -r rid; do
+        rid="${rid%$'\r'}"
+        [[ "$rid" =~ ^[0-9A-F]{8}$ ]] && FORGET[$rid]=1
+    done < <(head -n 32 "$FORGET_FILE.$$")
+    rm -f "$FORGET_FILE.$$"
+fi
 
 # -----------------------
 # Display settings (written by the web page; parsed strictly, never executed)
@@ -487,7 +498,7 @@ fi
 # -----------------------
 NTP_RE='^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$'              # time page: NTP server
 TZPOSIX_RE='^[A-Za-z<][A-Za-z0-9<>+,./:-]{0,47}$'      # time page: POSIX time zone for the board
-declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH CFG_TIMEFMT CFG_CLOCK CFG_SCREENS CFG_LINES CFG_PORDER CFG_THEAD CFG_HFILL CFG_PICS CFG_WIFIICONS CFG_PICSALL CFG_ACLOCK CFG_DOCKER
+declare -A CFG_TYPES CFG_BOXES CFG_ROWS CFG_SORT CFG_ORDER CFG_WARN CFG_ROT CFG_PAGE CFG_PINS CFG_NAME CFG_STYLE CFG_HIDDEN CFG_WIFI CFG_FAST CFG_SYS CFG_NET CFG_ZFS CFG_PAGES CFG_SYSICONS CFG_HEADER CFG_PANEL CFG_LAYOUT CFG_NETP CFG_DRIVETEMP CFG_STBY CFG_HEADINV CFG_HEADCOL CFG_REFRESH CFG_TIMEFMT CFG_CLOCK CFG_SCREENS CFG_LINES CFG_PORDER CFG_THEAD CFG_HFILL CFG_PICS CFG_WIFIICONS CFG_PICSALL CFG_ACLOCK CFG_DOCKER CFG_PTIMES
 IFLIST_RE='^[A-Za-z0-9._-]{1,15}(,[A-Za-z0-9._-]{1,15}){0,31}$'
 NAME_RE='^[A-Za-z0-9 ._+/-]{0,12}$'
 ORDER_RE='^[A-Za-z0-9._-]{1,40}(,[A-Za-z0-9._-]{1,40}){0,31}$'
@@ -550,7 +561,7 @@ order_valid() {
 }
 
 if [[ -r "$CONF_FILE" ]]; then
-    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc tcolc tframec picinkc picflagc cardc picwinc soberc _otac aclockc dstylec dsortc dorderc dhidec; do
+    while IFS=$'\t' read -r id types boxes rows sortm order warn rot pagesec pins name style hidden _dname wssid wpass whost wserver wap wapssid wappass wapdelay fastc sysc netc zfsc pagesc sysiconc headerc panelc _wifiiconc layoutc headonc nsortc norderc nhidec niconc nbarc dtempc stbyc headinvc headcolc refreshc tfmtc tdatec twdayc dfmtc ntpc ntpsc tzc tzpc inksplc inknotc inkndc lbotc pordc justc theadc hfillc tcolc tframec picinkc picflagc cardc picwinc soberc _otac aclockc dstylec dsortc dorderc dhidec ptimesc; do
         name="${name%$'\r'}"; wappass="${wappass%$'\r'}"; wapdelay="${wapdelay%$'\r'}"
         fastc="${fastc%$'\r'}"; sysc="${sysc%$'\r'}"; netc="${netc%$'\r'}"; zfsc="${zfsc%$'\r'}"; pagesc="${pagesc%$'\r'}"; sysiconc="${sysiconc%$'\r'}"; headerc="${headerc%$'\r'}"; panelc="${panelc%$'\r'}"
         layoutc="${layoutc%$'\r'}"; headonc="${headonc%$'\r'}"
@@ -565,7 +576,8 @@ if [[ -r "$CONF_FILE" ]]; then
         hfillc="${hfillc%$'\r'}"; tcolc="${tcolc%$'\r'}"
         tframec="${tframec%$'\r'}"; picinkc="${picinkc%$'\r'}"; picflagc="${picflagc%$'\r'}"; cardc="${cardc%$'\r'}"; picwinc="${picwinc%$'\r'}"
         aclockc="${aclockc%$'\r'}"; dstylec="${dstylec%$'\r'}"; dsortc="${dsortc%$'\r'}"; dorderc="${dorderc%$'\r'}"
-        dhidec="${dhidec%%[$'\t\r']*}"   # last column: also cut anything after it
+        dhidec="${dhidec%$'\r'}"
+        ptimesc="${ptimesc%%[$'\t\r']*}"   # last column: also cut anything after it
         soberc="${soberc%$'\r'}"
         # Just give me time: the header line as the Time card's Header tick says (default off)
         if [[ "$justc" == 1 ]]; then [[ "$theadc" == 1 ]] && headonc=1 || headonc=0; fi
@@ -589,10 +601,10 @@ if [[ -r "$CONF_FILE" ]]; then
         [[ "$name" =~ $NAME_RE ]] || name=""
         [[ "$style" =~ ^[01],[01],[01],[01](,[01](,[012])?)?$ ]] || style="1,1,1,1,1,1"   # a new display: ring timer, counterclockwise, the used capacity in the bar
         [[ "$hidden" =~ $ORDER_RE && "$hidden" != "-" ]] || hidden=""
-        [[ "$fastc" =~ ^(0|2|5|10|30)$ ]] || fastc=0
+        [[ "$fastc" =~ ^(0|2|5|10|15|30)$ ]] || fastc=0
         # refresh in seconds (under 60 = fast refresh); missing (earlier version): the fast refresh,
         # else the interval line
-        if [[ ! "$refreshc" =~ ^(2|5|10|30|60|180|300|600|900|1800|3600|5400|7200|10800|14400)$ ]]; then
+        if [[ ! "$refreshc" =~ ^(2|5|10|15|30|60|180|300|600|900|1800|3600|5400|7200|10800|14400)$ ]]; then
             refreshc=$(( fastc > 0 ? fastc : INTERVAL * 60 ))
         fi
         fastc=$(( refreshc < 60 ? refreshc : 0 ))
@@ -706,6 +718,9 @@ if [[ -r "$CONF_FILE" ]]; then
         [[ "$dorderc" =~ $CLIST_RE ]] || dorderc=""
         [[ "$dhidec" =~ $CLIST_RE ]] || dhidec=""
         CFG_DOCKER[$id]="${dstylec//,/;};$dsortc;$dorderc;$dhidec;$dstacks"
+        # Auto page turn per page (column 73): <0 the same for all / 1 per page>:<letter seconds,...>
+        [[ "$ptimesc" =~ ^[01]:([SDNTWKCIA][0-9]{1,5}(,[SDNTWKCIA][0-9]{1,5}){0,8})?$ ]] || ptimesc="0:"
+        CFG_PTIMES[$id]=$ptimesc
         CFG_DRIVETEMP[$id]=$dtempc
         CFG_STBY[$id]=$stbyc
         CFG_HEADINV[$id]=$headinvc
@@ -1384,7 +1399,7 @@ order_disks() {
 # -----------------------
 build_frame() {
     local title="$1" types=",$2," maxb="$3" rows="$4" warn="$7" turns=$(( ${8:-0} / 90 )) pagesec="${9:-$DEFAULT_PAGE}"
-    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-1}" porder="${30:-SDNTW}" thead="${31:-0}" hfill="${32:-0}" pics="${33:-}" wifip="${34:-0}" dockp="${35:-}"
+    local pins="${10:-}" style="${11:-0,0,1,0}" hidden=",${12:-}," fast="${13:-0}" sysp="${14:-}" net="${15:-}" zfs="${16:-1}" sysicons="${17:-1}" header="${18:-0}" layout="${19:-TCP}" netp="${20:-}" dtemp="${21:-0}" stby="${22:-0}" headinv="${23:-0}" headcol="${24:-0}" nodata="${25:-$NODATA_SECS}" timefmt="${26:-0}" clock="${27:-}" screens="${28:-7}" lines="${29:-1}" porder="${30:-SDNTW}" thead="${31:-0}" hfill="${32:-0}" pics="${33:-}" wifip="${34:-0}" dockp="${35:-}" ptimes="${36:-0:}"
     local d steps idle tmo poll st remain tsec head i dt pct pdec u t
     local -a sv defs=(0 0 1 0 0 -1 0 0 0 TCP 1 0 1 0 0 0 0 0 7 1 SDNTW 0 0 0 0 0 1 0 0 1)
     order_disks "$5" "$6"
@@ -1426,6 +1441,19 @@ build_frame() {
     FRAME=("#BEGIN" "$head")
     # the pictures: A|<flags C I A>|<Beverages 0/1/2>|<card order>|<time windows>[|<Got the time? C I A>|<Refresh s>] (only when not the defaults)
     [[ -n "$pics" ]] && FRAME+=("A|$pics")
+    # Auto page turn per page: G|<letter seconds,...> (own line: the H line stays below the 128 bytes of the SAMD21)
+    if [[ "$ptimes" == 1:* ]]; then
+        local card="${porder}CIA" gl="" k v i
+        [[ -n "$pics" ]] && IFS='|' read -r _ _ card _ <<< "$pics"
+        [[ "$card" =~ ^[SDNTWKCIA]{8,9}$ ]] || card="${porder}CIA"
+        for (( i = 0; i < ${#card}; i++ )); do   # in the card order, like pageTimesText() in inksights-render.js
+            k=${card:i:1}; v=""
+            [[ ",${ptimes#1:}," =~ ,$k([0-9]{1,5}), ]] && v=${BASH_REMATCH[1]}
+            [[ -n "$v" ]] && (( 10#$v >= 1 && 10#$v <= 86400 )) || v=180
+            gl+="${gl:+,}$k$((10#$v))"
+        done
+        FRAME+=("G|$gl")
+    fi
     # time page: C|<local date and time>|<date>|<weekday>|<date format>|<NTP>|<NTP server>|<POSIX zone>|<time in colour>|<outline>
     if [[ -n "$clock" ]]; then
         local dt
@@ -1527,7 +1555,17 @@ frame_for() {
         "${CFG_PAGE[$id]:-$DEFAULT_PAGE}" "$pins" "${CFG_STYLE[$id]:-1,1,1,1,1,1}" "${CFG_HIDDEN[$id]:-}" \
         "$fast" "$sysp" "${CFG_NET[$id]:-}" "${CFG_ZFS[$id]:-0}" "${CFG_SYSICONS[$id]:-1}" "${CFG_HEADER[$id]:-1}" \
         "${CFG_LAYOUT[$id]:-CTU}" "$netp" "${CFG_DRIVETEMP[$id]:-0}" "${CFG_STBY[$id]:-1}" "${CFG_HEADINV[$id]:-0}" "${CFG_HEADCOL[$id]:-0}" "$nodata" \
-        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-0}" "$porder" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}" "$pics" "$wifip" "$dockp"
+        "${CFG_TIMEFMT[$id]:-0}" "$clock" "${CFG_SCREENS[$id]:-7}" "${CFG_LINES[$id]:-0}" "$porder" "${CFG_THEAD[$id]:-0}" "${CFG_HFILL[$id]:-0}" "$pics" "$wifip" "$dockp" "${CFG_PTIMES[$id]:-0:}"
+}
+
+# A display without settings yet: the defaults of its panel (user): black/white panels that redraw fast get
+# data every 15 s, colour panels every minute; pages turn every 3 minutes
+new_defaults() {
+    local id="$1" fastcap="$2"
+    [[ -n "${CFG_REFRESH[$id]+set}" ]] && return
+    CFG_REFRESH[$id]=$(( fastcap ? 15 : 60 ))
+    CFG_FAST[$id]=$(( fastcap ? 15 : 0 ))
+    CFG_PAGE[$id]=$DEFAULT_PAGE
 }
 
 # Display with fast refresh: remember it (port or wifi) for the fast runs in between
@@ -1560,7 +1598,7 @@ write_sent() {
 display_due() {
     local id="$1" r="${CFG_REFRESH[$1]:-$(( INTERVAL * 60 ))}"
     (( FORCE_ALL )) && return 0
-    [[ -n "${REDRAW[$id]:-}" || -z "${SENT[$id]:-}" ]] && return 0
+    [[ -n "${REDRAW[$id]:-}" || -n "${FORGET[$id]:-}" || -z "${SENT[$id]:-}" ]] && return 0
     (( r < 60 || NOW - SENT[$id] >= r - 30 ))
 }
 
@@ -1608,10 +1646,13 @@ update_display() {
         return 1
     fi
 
+    new_defaults "$id" "$fastcap"
     frame_for "$id" "$fastcap" "$devpins" "$wifi"   # a board without WiFi gets no WiFi page
     local live=("${FRAME[@]}")   # for the live preview: without "R" and WiFi settings
     # "Redraw now" for this display: R just before #END
     [[ -n "${REDRAW[$id]:-}" ]] && FRAME=("${FRAME[@]:0:${#FRAME[@]}-1}" "R" "#END")
+    # Reset to defaults with Reset WiFi: Z = forget the WiFi settings (the board then opens its setup access point)
+    (( wifi )) && [[ -n "${FORGET[$id]:-}" ]] && FRAME=("${FRAME[@]:0:${#FRAME[@]}-1}" "Z" "#END")
     # WiFi settings (USB only); the copy for the web page and the log hides them
     local shown=("${FRAME[@]}")
     if (( wifi )) && [[ -n "${CFG_WIFI[$id]:-}" ]]; then
@@ -1691,6 +1732,7 @@ update_wifi_display() {
     done < <(head -n 20 "$info")
     [[ -n "$size" ]] || return
 
+    new_defaults "$id" "$fastcap"
     frame_for "$id" "$fastcap" "$devpins"
     if [ "$DRY_RUN" = true ]; then
         echo "===== WiFi $ip  ID $id  $size  board=${board:-?} ====="

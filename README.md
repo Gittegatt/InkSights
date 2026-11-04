@@ -202,7 +202,7 @@ chosen later on the settings page.
 
 Download the file of your board from the [releases](https://github.com/Gittegatt/InkSights/releases). The name
 ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
-`inksights-v1.1.2-esp32-c3-supermini-factory.bin`. `SHA256SUMS.txt` in the release lists the checksums of all files.
+`inksights-v1.2.0-esp32-c3-supermini-factory.bin`. `SHA256SUMS.txt` in the release lists the checksums of all files.
 
 **ESP32 boards (`-factory.bin`) in the browser** with [ESPWebTool](https://esptool.spacehuhn.com/) (Chrome or Edge):
 
@@ -224,7 +224,7 @@ ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
 
 1. Plug in the board and press RESET twice quickly (the two pads next to the USB port; touch them twice with
    tweezers or a wire). The orange LED pulses and a drive named **Arduino** appears.
-2. Copy `inksights-v1.1.2-xiao-samd21.uf2` onto that drive.
+2. Copy `inksights-v1.2.0-xiao-samd21.uf2` onto that drive.
 3. The board restarts with the new firmware by itself; the drive disappears.
 
 > [!TIP]
@@ -248,9 +248,9 @@ ends with the PlatformIO environment of the board ([Boards](#boards)), e.g.
 
 - `python scripts/build_release.py` builds every board and writes the files to `dist/v<version>/`
   (`--environment <env>` for one board only).
-- Pushing a tag such as `v1.1.2` to GitHub builds them there as well and creates a draft release with them.
+- Pushing a tag such as `v1.2.0` to GitHub builds them there as well and creates a draft release with them.
 - In the public repository the tag also builds the Docker image of the settings page and the script
-  (`ghcr.io/gittegatt/inksights:1.1.2` and `:latest`).
+  (`ghcr.io/gittegatt/inksights:1.2.0` and `:latest`).
 
 </details>
 
@@ -286,7 +286,7 @@ After power-up every display shows a start screen until the first data arrives: 
 InkSights in big letters with its logo. It can be switched off in the [Advanced Ink card](docs/settings-page.md#advanced-ink-card).
 
 ```
-InkSights                  v1.1.2
+InkSights                  v1.2.0
            InkSights
 ID     1A2B3C4D
 Board  ESP32-C3 Super Mini
@@ -394,7 +394,7 @@ The settings are in `docker-compose.yaml` itself. The lines to adjust are marked
 | `- ./data:/data` (in both containers) | the data folder from b), left of the colon; the same in both | `- /mnt/apps/docker/data/inksights:/data` |
 | `user: 568:568` | the user that may write to the data folder (TrueNAS: `apps`) | `user: 1000:1000` |
 | `- 8099:8099` | left: the port of the page on your server | `- 8100:8099` |
-| `image: ...:latest` (in both containers) | a fixed version instead of the newest | `image: ghcr.io/gittegatt/inksights:1.1.2` |
+| `image: ...:latest` (in both containers) | a fixed version instead of the newest | `image: ghcr.io/gittegatt/inksights:1.2.0` |
 | `- INKSIGHTS_OTA=on` | firmware updates of the WiFi boards from the page: `on` or `off` (see [Security](#security)) | `- INKSIGHTS_OTA=off` |
 | `- INKSIGHTS_DOCKER_CHECK=360` | Docker pages: every how many minutes the script looks for newer images of the containers, 10 to 10080 (see [Docker card](docs/settings-page.md#docker-card)) | `- INKSIGHTS_DOCKER_CHECK=60` |
 | `# - INKSIGHTS_PASSWORD=` | remove the `#` and enter a password: the login is on (a `$` in it is written `$$`); or switch it on in the **Login** card of the page | `- INKSIGHTS_PASSWORD=MyPassword` |
@@ -503,12 +503,12 @@ Dry run: `sudo bash /home/truenas_admin/inksights/server/inksights.sh -d /mnt/ap
 - Every 10 seconds (every second with fast refresh) it checks whether there is anything to do; almost always
   there is nothing.
 - A **full update** (drives, pools, system values, the settings page) happens:
-  - as often as the shortest **Refresh** of your displays (one under a minute counts as 1 minute)
+  - as often as the shortest **Get data every** of your displays (one under a minute counts as 1 minute)
   - after saving on the settings page
   - when a display is plugged in or out
   - on "Update now" / "Redraw now"
-- In a full update every display whose own **Refresh** has passed gets a frame; after a change all of them.
-- In between, displays with a refresh in seconds get a new frame with fresh system values and spindown timers.
+- In a full update every display whose own **Get data every** has passed gets a frame; after a change all of them.
+- In between, displays that get data every few seconds get a new frame with fresh system values and spindown timers.
   - The time left counts down between the polls of the spindown timer; its next poll corrects it.
   - Disk and pool data then come from the last full update.
 
@@ -626,6 +626,7 @@ Open **http://&lt;server&gt;:8099**.
 
 | Card | Default |
 |---|---|
+| Display | **Get data every** 15 s on a black/white panel, 1 min on a colour panel; **Auto page turn** 3 minutes, the same for all pages |
 | Pages | all on, in this order: time, system, drives, network, Docker, WiFi |
 | Header | time · title · uptime, black, no divider line, nothing highlighted |
 | Time | weekday and date (`2026-10-26`), time zone UTC, no NTP, no top line |
@@ -649,7 +650,7 @@ Open **http://&lt;server&gt;:8099**.
 **At the top of the page** (for all displays):
 
 - **Update now** sends fresh values to all displays right away. How often each display gets fresh values is set in
-  its card (**Refresh**).
+  its card (**Get data every**).
 - **New version:** when the page is opened, your browser asks GitHub for the latest InkSights release (at most every
   6 hours; the system does not). When it is newer than the installed version, a line shows it:
   - **Download** opens the release page
@@ -733,11 +734,12 @@ mount point (`/` = `root`). A disk with nothing mounted shows its size and "not 
 
 ### Spares the panel
 
-- A display does not redraw when nothing changed, and never more often than every 3 minutes.
+- A display does not redraw when nothing changed, and never more often than every 3 minutes (the panel makers
+  recommend at least 180 seconds between full redraws: more often leaves shadows and wears the panel).
 - With several pages it turns one page per redraw.
 - Only "Redraw now" skips both.
-- A **Refresh** of 1 min gets changes there as fast as possible. With a refresh in seconds (black/white panels) it
-  redraws as often as set.
+- **Get data every** 1 min gets changes there as fast as possible. With seconds (black/white panels) it redraws as
+  often as set.
 
 ### The Conversation
 
@@ -756,7 +758,7 @@ When a display gets no fresh data for a while, it shows **Check connection** bel
 **NO DATA** in the top line (with its **Header** ticked). E-paper keeps its picture even without power, so a display
 that gets nothing any more would look the same as one that works.
 
-- **When:** after twice its **Refresh** plus 2 minutes without fresh data (at least 10 minutes; e.g. 22 minutes at
+- **When:** after twice its **Get data every** plus 2 minutes without fresh data (at least 10 minutes; e.g. 22 minutes at
   10 minutes, 8 hours 2 minutes at 4 hours).
 - **NO DATA** stands where the page number or the uptime stands. The display stops turning pages.
 - The time at the top right stays: that is when the last data came.
@@ -782,7 +784,7 @@ its logo instead:
 
 <img src="examples/example_20_2-13_logo_screen.png" alt="A 2.13″ display with every page switched off: the InkSights logo" width="400">
 
-### Refresh in seconds and minutes
+### Get data every few seconds or minutes
 
 A display on seconds gets fresh system values and timers that often. Its drives and pools come from the full
 updates, at least once a minute while such a display is there.
@@ -841,7 +843,7 @@ updates, at least once a minute while such a display is there.
 | `--:--` (badge) or a circle with a dash (ring) | The spindown timer is not running, or its status file is older than two rounds. The symbol then shows the last known state. |
 | Setup page of the board does not open | Wait up to a minute after power-up, or open **http://192.168.4.1** yourself while connected to **InkSights**. |
 | Port not found when uploading | SAMD21: press RESET twice quickly, or the 1200 baud touch (see [2.](#2-upload-the-firmware)). ESP32: hold BOOT while plugging in. |
-| XIAO ESP32-C3 does not start with the display connected | Choose another pin than D9 for D/C on the settings page. |
+| An ESP32-C3 board (XIAO, Super Mini, C3-Zero) does not start with the display connected, or the display stays blank | D/C must not be on GPIO9 (the BOOT pin; D9 on the XIAO): choose another pin on the settings page and move the wire. A pin the board does not allow is shown in red. |
 | Hard disks wake up | Data folder and Docker data must be on an SSD (see 3 b). |
 | Settings page asks for a login | User `inksights` (or the one set with `INKSIGHTS_USER`) and the password set in the Login card or with `INKSIGHTS_PASSWORD`. Forgotten: see [Security](#security). |
 | Settings page does not start, or *Save* fails | Look at `sudo docker logs --tail 20 inksights`. *Permission denied*: the app user cannot use the data folder, see "Check the app user" in 3 b). |

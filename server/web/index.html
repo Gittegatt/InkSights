@@ -30,6 +30,8 @@ InkSightsUI.start({
   docker: true,   // the Docker card and pages (state.json carries the containers)
   dockerStacks: true,   // Docker: one row per stack
   otaPlus: true,        // firmware updates with a counting status, last contact, the Maintenance fold
+  pageTimes: true,      // Auto page turn: the same time for all, or per page; the defaults of a new display by panel
+  resetDefaults: true,  // Maintenance: Reset to defaults (with Reset WiFi)
   load: async () => {
     const r = await fetch("api/state", { cache: "no-store" });
     if (!r.ok) throw new Error(String(r.status));

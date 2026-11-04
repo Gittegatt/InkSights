@@ -157,6 +157,15 @@
  *                              &ota=failed:<why>)
  *   R                          (optional) redraw now, even if nothing changed and
  *                              before MIN_REFRESH_MS ("Redraw now" on the web page)
+ *   G|<letter seconds>,...     (optional) Auto page turn per page: how long each kind of page stays, e.g.
+ *                              G|T30,S10,D10,K5,C60 (S D N T W K pages, C I A pictures); a kind not listed
+ *                              stays 3 minutes. Without it the page time of the H line counts for all.
+ *   Z                          (optional, boards with WiFi, USB or WiFi) forget the WiFi settings
+ *                              (Reset to defaults on the settings page): network, password, host name and
+ *                              settings page cleared, the access point back to its defaults; the board
+ *                              restarts and opens its setup access point at once
+ *   GET /poll on the board's own page (WiFi): fetch the frame now instead of with the next request
+ *                              (the settings page asks for it when a firmware update waits)
  *   W|<ssid>|<password>|<hostname>|<server>|<ap>|<ap ssid>|<ap password>[|<ap delay>]
  *                              (optional, USB only, ESP32 boards) WiFi settings, every text
  *                              field hex encoded (UTF-8), "-" = empty; password "*" = keep;
@@ -195,7 +204,7 @@
 
 const char PRODUCT_NAME[] = "InkSights";  // name in the start screen header (display name only;
                                                 // "PONG InkSights" below stays, the server looks for it)
-const char FW_VERSION[]   = "1.1.2";             // shown on the start screen and reported in PONG
+const char FW_VERSION[]   = "1.2.0";             // shown on the start screen and reported in PONG
 
 // ============================== Settings ===============================
 
@@ -353,6 +362,8 @@ struct Head {
   uint8_t  dockerColor; // "error" and "update" in the third colour 1 / black 0
   uint8_t  dockerHi;    // "error" and "update" highlighted (in a box) 1 / 0
   uint8_t  dockerNone;  // no Docker on the system 1 ("Docker not found") / 0
+  uint8_t  turnPer;     // Auto page turn per page (G line) 1 / the page time for all 0
+  uint32_t turnSecs[9]; // ... seconds per kind S D N T W K C I A (0 = 3 minutes)
 };
 
 // A container of the Docker pages (K line)
@@ -525,7 +536,7 @@ Disk    rxDisks[MAX_DISKS];    // what is being received
 uint8_t diskCount  = 0;
 uint8_t rxCount    = 0;
 bool    rxActive   = false;
-const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, 0, 0, "SDNKTW", 0, 0, 0, 0, 1, 0, 0 };
+const Head HEAD_DEFAULT = { 0, (uint8_t)WARN_PCT, 0, 0, 0, 1, 0, 0, PAGE_SECS, -1, 0, 0, "TCP", 1, 0, 1, 0, 0, 0, 0, 0, 7, 1, 0, 0, "SDNKTW", 0, 0, 0, 0, 1, 0, 0, 0, {} };
 Head    head   = HEAD_DEFAULT;
 Head    rxHead = HEAD_DEFAULT;
 Pics    pics;                  // the pictures shown (picsDefault() in setup)
@@ -548,6 +559,8 @@ uint8_t containerCount   = 0;
 uint8_t rxContainerCount = 0;
 bool    rxDockerCue = false;   // On cue (H field 36): no Docker page when no K line came
 bool    rxNoTimer   = false;   // H field 8 = 2: the disks of this frame get no timer
+bool    rxForget    = false;   // Z line: forget the WiFi settings after this frame
+const char TURN_KINDS[] = "SDNTWKCIA";   // the kinds of pages of the G line
 uint32_t lastPageMs = 0;        // when the page was last turned
 
 char chipId[9]    = "";
@@ -894,13 +907,26 @@ bool wifiPageNow() {
   return dataReceived && wifiOn() && !noDataShown && !timedArt() && turnAt(page, idx, art) == 'W';
 }
 
+// Auto page turn: on (the page time for all > 0, or per page), and the seconds the page shown stays (per
+// page: the time of its kind, 3 minutes when the G line has none)
+bool turnOn() { return head.turnPer || head.page > 0; }
+uint32_t turnSecsNow() {
+  if (!head.turnPer) return head.page;
+  uint8_t idx;
+  char art, k = turnAt(page, idx, art);
+  if (k == 'P') { k = 0; for (uint8_t i = 0; i < 3; i++) if (PIC_KIND[i] == art) k = PIC_KEYS[i]; }
+  const char* p = k ? strchr(TURN_KINDS, k) : nullptr;
+  const uint32_t t = p ? head.turnSecs[p - TURN_KINDS] : 0;
+  return t ? t : 180;
+}
+
 // What the panel shows now, for Sync with display on the settings page: " shown=<page> drawn=<s since
 // the last redraw> turn=<s until the next page turn, -1 = none>"
 void panelStatus(char* buf, size_t size) {
-  const bool turns = dataReceived && !noDataShown && !timedArt() && head.page > 0 && turnCount() > 1;
-  const uint32_t since = (millis() - lastPageMs) / 1000UL;
+  const bool turns = dataReceived && !noDataShown && !timedArt() && turnOn() && turnCount() > 1;
+  const uint32_t since = (millis() - lastPageMs) / 1000UL, ts = turnSecsNow();
   snprintf(buf, size, " shown=%u drawn=%lu turn=%ld", refreshed && !screenIsSplash ? (unsigned)shownPage + 1 : 0U,
-           (unsigned long)((millis() - lastRefreshMs) / 1000UL), turns ? (long)(since >= head.page ? 0 : head.page - since) : -1L);
+           (unsigned long)((millis() - lastRefreshMs) / 1000UL), turns ? (long)(since >= ts ? 0 : ts - since) : -1L);
 }
 
 // The picture on the panel (N D Q, 0 = none): the one of a time window first, then its case ("Check
@@ -946,22 +972,22 @@ bool noDataNow() { return dataReceived && head.noData > 0 && (head.screens & 4) 
 // together, the shortest of 3 minutes, half the time between fresh frames and half the page turn time;
 // 0 = they never wait for each other (fast refresh, no page turn, the time between frames not known yet)
 uint32_t coupleMs() {
-  if (fastMode() || !dataEveryMs || head.page == 0) return 0;
+  if (fastMode() || !dataEveryMs || !turnOn()) return 0;
   uint32_t c = MIN_REFRESH_MS;
   if (dataEveryMs / 2 < c) c = dataEveryMs / 2;
-  if (head.page * 500UL < c) c = head.page * 500UL;
+  if (turnSecsNow() * 500UL < c) c = turnSecsNow() * 500UL;
   return c;
 }
 // Fresh data came and the page turn is due within that window: turn with them
 bool turnSoon() {
   const uint32_t c = coupleMs();
-  return c && !noDataNow() && !timedArt() && turnCount() > 1 && millis() - lastPageMs + c >= head.page * 1000UL;
+  return c && !noDataNow() && !timedArt() && turnCount() > 1 && millis() - lastPageMs + c >= turnSecsNow() * 1000UL;
 }
 // The page turn is due, but fresh data are expected within that window (or up to a minute late): wait for
 // them, at most that window and a minute past the turn
 bool waitForData() {
   const uint32_t c = coupleMs();
-  if (!c || millis() - lastPageMs >= head.page * 1000UL + c + 60000UL) return false;
+  if (!c || millis() - lastPageMs >= turnSecsNow() * 1000UL + c + 60000UL) return false;
   const int32_t until = (int32_t)(lastFreshMs + dataEveryMs - millis());
   return until > -60000L && until <= (int32_t)c;
 }
@@ -993,6 +1019,17 @@ void loadNet() {
   if (net.host.isEmpty()) { net.host = "inksights-" + String(chipId); net.host.toLowerCase(); }
   if (net.apSsid.isEmpty()) net.apSsid = DEFAULT_AP_SSID;
   if (net.apPass.length() < 8) net.apPass = DEFAULT_AP_PASS;   // WPA2 needs at least 8 characters
+}
+
+// Z line: forget the WiFi settings (Reset to defaults with Reset WiFi), the access point back to its defaults;
+// after the restart the board has no network and opens its setup access point at once
+void forgetWifi() {
+  net.ssid = ""; net.pass = ""; net.host = ""; net.server = "";
+  net.apOn = true; net.apSsid = DEFAULT_AP_SSID; net.apPass = DEFAULT_AP_PASS; net.apDelay = DEFAULT_AP_DELAY;
+  saveNet();
+  Serial.flush();
+  delay(300);
+  ESP.restart();
 }
 
 void saveNet() {
@@ -3568,7 +3605,8 @@ void drawScreen() {
 void refresh() {
   epd->setRotation(currentRotation());
   const bool fast = fastMode() || (fastPanel && (clockPageNow() || wifiPageNow() || wallClockNow()));
-  const bool full = !fast || !refreshed || screenIsSplash || forceRedraw || page != shownPage ||
+  // with fast refresh a page turn is a partial redraw too (no flashing); a full one at least every FULL_REFRESH_MS
+  const bool full = !fast || !refreshed || screenIsSplash || forceRedraw || (page != shownPage && !fastMode()) ||
                     millis() - lastFullMs >= FULL_REFRESH_MS;
   noDataShown = noDataNow();
   if (full) epd->setFullWindow();
@@ -3696,6 +3734,20 @@ void parseNet(char* line) {
   ni.state = f[5][0] == 'D' || f[5][0] == 'L' ? f[5][0] : 'U';
 }
 
+// G line (after "G|"): Auto page turn per page, <letter><seconds> comma separated (1 s to 24 h each)
+void parseTurns(const char* s) {
+  rxHead.turnPer = 1;
+  memset(rxHead.turnSecs, 0, sizeof(rxHead.turnSecs));
+  while (*s) {
+    const char* p = strchr(TURN_KINDS, *s);
+    const long v = atol(s + 1);
+    if (p && *p && v >= 1 && v <= 86400) rxHead.turnSecs[p - TURN_KINDS] = (uint32_t)v;
+    const char* c = strchr(s, ',');
+    if (!c) break;
+    s = c + 1;
+  }
+}
+
 // K line (after "K|"): container | state R / E / S | update 1/0
 void parseContainer(char* line) {
   char* f[3];
@@ -3785,7 +3837,7 @@ void commitFrame() {
   // Only redraw when something changed (spares the panel). Pages are turned by the timer in loop(); a
   // page turn due soon goes with fresh data (turnSoon, waitForData), so both come in one redraw.
   const uint8_t pages = turnCount();
-  if (first || pages == 1 || head.page == 0) { page = 0; turnPage = false; }
+  if (first || pages == 1 || !turnOn()) { page = 0; turnPage = false; }
   if (page >= pages) page = 0;
   if (first) lastPageMs = millis();
   // also redraw when the page on the panel is no longer the right one
@@ -3797,7 +3849,7 @@ void commitFrame() {
   lastHash = h;
   if (changed) pending = true;
   if (rxRedraw) forceRedraw = true;
-  if (fresh && !first && head.page > 0 && !turnPage && turnSoon()) { turnPage = true; pending = true; }
+  if (fresh && !first && turnOn() && !turnPage && turnSoon()) { turnPage = true; pending = true; }
 
   char answer[112];
   snprintf(answer, sizeof(answer), "OK disks=%u page=%u/%u refresh=%s", diskCount,
@@ -3881,6 +3933,7 @@ void handleLine(char* line) {
     rxContainerCount = 0;                // no containers unless K lines come
     rxDockerCue = false;
     rxNoTimer = false;
+    rxForget = false;
     rxPinsGiven = false;
     rxRedraw = false;
     rxHost[0] = rxTime[0] = '\0';
@@ -3889,6 +3942,13 @@ void handleLine(char* line) {
   } else if (strcmp(line, "#END") == 0) {
     rxActive = false;
     commitFrame();
+#if HAS_WIFI
+    if (rxForget) forgetWifi();   // Reset to defaults with Reset WiFi: after the answer, then restart
+#endif
+  } else if (line[0] == 'G' && line[1] == '|') {
+    parseTurns(line + 2);
+  } else if (strcmp(line, "Z") == 0) {
+    rxForget = true;
   } else if (line[0] == 'H' && line[1] == '|') {
     char* f[37];
     const uint8_t n = splitFields(line, f, 37);
@@ -4005,6 +4065,8 @@ void setup() {
   web.on("/", HTTP_GET, handleRoot);
   web.on("/save", HTTP_POST, handleSave);
   web.on("/scan", HTTP_GET, handleScan);
+  // the settings page: a firmware update waits, fetch the frame now (not only with the next request)
+  web.on("/poll", HTTP_GET, []() { pollDone = false; web.send(200, "text/plain", "ok"); });
   web.onNotFound(handleNotFound);
   web.begin();
   epd->epd2.setBusyCallback(whileBusy);   // the setup page answers while the panel draws
@@ -4048,8 +4110,8 @@ void loop() {
   // Automatic page turn (the redraw itself still waits for MIN_REFRESH_MS); not while "NO DATA", not
   // in a time window
   // fresh data due within moments: wait for them (one redraw for both)
-  if (dataReceived && !noDataShown && !noDataNow() && !timedArt() && head.page > 0 && turnCount() > 1 && !turnPage &&
-      millis() - lastPageMs >= head.page * 1000UL && !waitForData()) {
+  if (dataReceived && !noDataShown && !noDataNow() && !timedArt() && turnOn() && turnCount() > 1 && !turnPage &&
+      millis() - lastPageMs >= turnSecsNow() * 1000UL && !waitForData()) {
     turnPage = true;
     pending  = true;
   }

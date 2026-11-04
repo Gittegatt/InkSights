@@ -31,8 +31,8 @@ The page keeps its labels short. What they mean:
 | **Third colour** | Red or yellow, on colour panels. Black/white panels draw it black. |
 | **Highlight** | Text in the opposite colours: black on white, or white on black, in a box. |
 | **Color highlight** | The same in the third colour (colour panels only). |
-| **Refresh** | How often a display gets fresh values from the system (Display card). |
-| **Fast refresh** | A Refresh in seconds: black/white panels only, redrawn without flashing. |
+| **Get data every** | How often a display gets fresh values from the system (Display card). How often it redraws is a matter of the panel: at most every 3 minutes, or as often as the data come with fast refresh. |
+| **Fast refresh** | **Get data every** in seconds: black/white panels only, redrawn without flashing. |
 | **Auto page turn** | How long a page stays on the display before the next one comes. |
 | **Update now** | Fresh values to every display right away (top of the page). |
 | **Redraw now** | Redraws one display within a minute, even if nothing changed (display card). |
@@ -52,8 +52,8 @@ The display itself: its names, panel type, rotation, rows per page, refresh, pag
 | **Panel** | the panel types ([Panels](../README.md#panels)) | By the name on the flat cable; next to it the board. |
 | **Rotation** | 0°, 90°, 180°, 270° | Clockwise. 90° and 270° stand the display upright. |
 | **Rows per page** | Auto, 2-5 (6 on the 4.2″) | More rows fit more disks per page. Fewer rows: bigger bar, symbols and timer. |
-| **Refresh** | 1, 3, 5, 10, 15, 30 min, 1, 1.5, 2, 3, 4 h; black/white panels also 2, 5, 10, 30 s | How often this display gets fresh values (default 10 min). |
-| **Auto page turn** | HH:MM:SS | 00:00:00 = always page 1. |
+| **Get data every** | 1, 3, 5, 10, 15, 30 min, 1, 1.5, 2, 3, 4 h; black/white panels also 2, 5, 10, 15, 30 s | How often this display gets fresh values. A new display: 15 s on a black/white panel, 1 min on a colour panel. |
+| **Auto page turn** | **Same for all** (HH:MM:SS) or **Per page** (HH:MM:SS for each page) | How long a page stays (a new display: 3 minutes). 00:00:00 with Same for all = always page 1. |
 | **Preview** | tick **Sync with display** | The preview shows what the panel shows (off by default, remembered in this browser). |
 | **Display pins** | CS, D/C, Reset, Busy | Only the pins the board allows; Reset and Busy can be None. |
 
@@ -68,15 +68,24 @@ The display itself: its names, panel type, rotation, rows per page, refresh, pag
 - **Panel:** the board saves it and restarts with it (over USB with the next update, over WiFi with its next fetch).
   Preview, rows and fast refresh follow it.
 - **Rotation** upright: device and used/total in the first line, the pool in its own line.
-- **Auto page turn:** the display redraws at most every 3 minutes, so shorter times act like 00:03:00 (not with
-  fast refresh). Fresh data and a page turn that is due within a few minutes come in one redraw: the display turns
-  with the data, or waits for data that are due in a moment. With the same time for **Refresh** and **Auto page
-  turn** both then stay in step (one redraw each time instead of two).
-- **Refresh:**
+- **Auto page turn:**
+  - **Same for all:** every page stays this long.
+  - **Per page:** a time for each page of the page turn, listed in the order of the cards (their grips decide it),
+    pictures only as a **Turn candidate**. Several pages of one kind (e.g. three drive pages) each stay that long.
+    Every page starts with 3 minutes.
+  - **At least:** 3 minutes, or on a black/white panel with **Get data every** in seconds that time. A shorter time
+    is shown in red and cannot be saved. The panel makers (Good Display) recommend at least 180 seconds between two
+    full redraws: more often leaves shadows of earlier pictures and wears the panel. Colour panels can only redraw
+    in full (about 15 seconds of flashing); black/white panels with seconds redraw without flashing, also when they
+    turn a page (a full redraw against ghosting every 10 minutes).
+  - Fresh data and a page turn that is due within a few minutes come in one redraw: the display turns with the
+    data, or waits for data that are due in a moment. With the same time for **Get data every** and **Auto page
+    turn** both then stay in step (one redraw each time instead of two).
+- **Get data every:**
   - Colour panels redraw at most every 3 minutes and only on changes, so 1 min gets changes there as fast as
     possible.
   - **Seconds** = fast refresh, only black/white panels: the display gets a new frame this often and redraws the
-    changed parts without flashing. A full refresh on page turns and every 10 minutes against ghosting.
+    changed parts without flashing, page turns too. A full refresh every 10 minutes against ghosting.
   - Seconds need the loop: the Docker app runs it; without Docker the tmux line with `-l` (see [3 d)](../README.md#d-the-script)).
   - The preview then follows the display just as often (live, the frame it was sent), except while settings are
     changed and not saved.
@@ -337,7 +346,7 @@ Each picture has a card named after it, with the screen as this display shows it
   display (`07:00`, `07:00AM`). The time is never left out: where the line is too wide, the time goes to a second line.
 - **Got the time?** (off by default, per picture): the wall clock goes on with the time, so the display redraws the
   picture while it is shown: black/white panels every minute without flashing, colour panels as often as their
-  **Refresh** says (at least every 3 minutes, each time with the flashing full refresh). Leave it off to spare the
+  **Get data every** says (at least every 3 minutes, each time with the flashing full refresh). Leave it off to spare the
   panel: then the picture stays as it is. The clock takes the time of the last data, counted on by the board.
 - **Fixed places:** every picture has its fixed place on a display, the same with or without top line or caption,
   and all captions start on the same line below it. On every 2.13″ the captions are 5x7, on the 4.2″ three times
@@ -361,6 +370,11 @@ Framed sections:
   - **Firmware** (boards with WiFi): **Force reinstall** puts the firmware the settings page brings with it on the
     board again, also when the board already runs that version (e.g. after a build with the same number). The same
     steps and status line as **Update firmware**.
+  - **Reset to defaults:** every setting of this display back to its default (as for a new display), its name
+    included; display pins and panel type stay (the wiring). **Reset WiFi** Yes also clears its network, password,
+    host name and settings page address, the access point back to `InkSights` / `ink!1234`: the board then opens
+    its setup access point at once (see [4. WiFi](../README.md#4-wifi-optional)). The button only works after
+    ticking **Confirm**; *Save* applies it (the board forgets its WiFi with its next frame, over USB or WiFi).
   - **Remove** (only for a display that is not connected): **Remove display** takes it and its settings off the page
     (with *Save*), e.g. an old display that is no longer plugged in. When it is connected again, it shows up again,
     with the settings of a new display.
@@ -380,7 +394,7 @@ Framed sections:
 
 - **Export** saves the settings of this display as a JSON file, with the InkSights version it was made with:
   - name: `inksights-v<version>-<name>-<chip id>-<date>.json`, e.g.
-    `inksights-v1.1.2-living-room-1a2b3c4d-2026-10-26.json` (the name only when the display has one)
+    `inksights-v1.2.0-living-room-1a2b3c4d-2026-10-26.json` (the name only when the display has one)
   - WiFi passwords are not in it: they never reach the page
 - **Import** reads such a file into this display, also one of another board (e.g. after replacing a board, which
   has a new chip ID):
@@ -405,10 +419,11 @@ Framed sections:
   ESP32 firmware for this chip and this board, small enough for its firmware slot. The result stands below the buttons:
   **Firmware valid.** in green, then **Upload** flashes it.
 - While it runs, only its status line stands in the frame, and the page asks every 2 seconds:
-  - `Waiting for the board · last contact 12 s ago`: the board fetches it with its next request (every 30 seconds)
-  - `Loading firmware 1.1.2 … 45 %`
+  - `Waiting for the board · last contact 12 s ago`: the page asks the board to fetch it right away; an older
+    firmware or a board out of reach fetches it with its next request (every 30 seconds)
+  - `Loading firmware 1.2.0 … 45 %`
   - `Restarting … 8 s`: the board checks size and checksum, switches, restarts and joins the WiFi again
-  - `Updated to firmware 1.1.2; the board has restarted.`, or `Update failed` with the reason
+  - `Updated to firmware 1.2.0; the board has restarted.`, or `Update failed` with the reason
 - The old firmware stays when the download breaks off or the check fails. A board that is off or out of the WiFi
   goes on by itself once it is back (the page waits up to 10 minutes).
 - The Docker image carries the firmware of every board with WiFi (built with the image). Running the settings page

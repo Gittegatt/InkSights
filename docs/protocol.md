@@ -4,7 +4,7 @@ The lines between the script and a board (USB) and what a WiFi board fetches. Se
 [README](../README.md) for the rest.
 
 ```
-PING                                   -> PONG InkSights id=1A2B3C4D size=212x104 colors=3 rows=4 pins=7,9,6,5 panel=1 board=xiao-samd21 wifi=0 fw=1.1.2
+PING                                   -> PONG InkSights id=1A2B3C4D size=212x104 colors=3 rows=4 pins=7,9,6,5 panel=1 board=xiao-samd21 wifi=0 fw=1.2.0
 #BEGIN
 H|HDD|14:30|5|85|0|600
 D|sda|data|3.18T|8.95T|35|3|10|A
@@ -38,6 +38,8 @@ the panel status with its next fetch.
 | `P` | CS, D/C, Reset, Busy [, panel] | Only when pins or the panel type are set on the settings page. |
 | `W` | network, password, host, settings page, access point 1/0, access point name, access point password, access point after (s) | USB only, boards with WiFi; texts hex encoded. |
 | `R` | - | Only after "Redraw now". |
+| `G` | per kind of page a letter and seconds, e.g. `T30,S10,D10,K5,C60` (`S D N T W K` pages, `C I A` pictures) | Only with **Auto page turn: Per page**; a kind not listed stays 3 minutes. Its own line, so the `H` line stays short. |
+| `Z` | - | Only after **Reset to defaults** with **Reset WiFi**: the board forgets its WiFi settings and restarts with its setup access point (boards with WiFi; over USB or WiFi, it carries no secrets). |
 | `U` | size, MD5 | WiFi only: a firmware update waits. The board fetches it from the settings page, checks it and restarts with it; the result goes with its next fetch. |
 
 **Optional fields of the `H` line,** in this order (`H` itself is field 1):
@@ -95,6 +97,8 @@ the panel status with its next fetch.
 - `P`: pin numbers of the board (D numbers on the SAMD21, GPIO numbers on the ESP32 boards). New values → store and
   restart.
 - `R`: redraw right away, even without changes and before the 3 minutes are up.
+- A board with WiFi also answers `GET /poll` on its own page: it fetches its frame right away. The settings page
+  asks for it when a firmware update waits.
 
 WiFi boards fetch the same frame with `GET /api/frame?id=…&size=…` from the settings page; their answer goes along
 with the next request.

@@ -43,7 +43,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
-VERSION = "1.1.2"   # of InkSights (firmware, script and this app go together); the page compares it with the latest release
+VERSION = "1.2.0"   # of InkSights (firmware, script and this app go together); the page compares it with the latest release
 ID_RE = re.compile(r"^[0-9A-F]{8}$")
 NAME_RE = re.compile(r"^[A-Za-z0-9 ._+/-]{0,12}$")
 PAGE_NAME_RE = re.compile(r"^[^\x00-\x1f\x7f]{0,32}$")   # name of this page (header, browser tab); no tabs/line breaks
@@ -57,13 +57,13 @@ ROWS = (0, 2, 3, 4, 5, 6)               # rows per page; 0 = automatic; 6 only f
 # Refresh per display in seconds: below a minute only for panels that redraw fast without flashing
 # (black/white, fast=1), as fast refresh; from a minute on a full update that often (colour panels
 # redraw at most every 3 min, and only on change)
-REFRESH = (2, 5, 10, 30, 60, 180, 300, 600, 900, 1800, 3600, 5400, 7200, 10800, 14400)
+REFRESH = (2, 5, 10, 15, 30, 60, 180, 300, 600, 900, 1800, 3600, 5400, 7200, 10800, 14400)
 DEFAULT_REFRESH = 600
 MAX_INTERVAL = 240                      # minutes; the interval line = the shortest refresh of the displays
 DEFAULT_INTERVAL = 10
 DEFAULT_WARN = 85                     # bar is highlighted from this % used; 0 = never
 ROTATIONS = (0, 90, 180, 270)         # degrees clockwise
-DEFAULT_PAGE = 600                    # seconds between automatic page turns; 0 = off
+DEFAULT_PAGE = 180                    # seconds between automatic page turns; 0 = off (a new display: 3 minutes, user)
 MAX_PAGE = 86400
 MAX_PIN = 48                          # pin numbers of the board (D numbers / GPIO); the page offers
                                       # only the board's pins, the board itself takes only those
@@ -74,13 +74,13 @@ SERVER_RE = re.compile(r"^https?://[^\s|]{1,120}$")          # address of this p
 HEX_RE = re.compile(r"^([0-9a-f]{2}){1,128}$")
 WIFI_KEYS = ("ssid", "pass", "host", "server", "apOn", "apSsid", "apPass", "apDelay")
 DEFAULT_AP_DELAY, MAX_AP_DELAY = 30, 3600   # seconds without WiFi before the board opens its access point
-FAST = (0, 2, 5, 10, 30)              # seconds between fast refreshes (panels that report fast=1); 0 = off
+FAST = (0, 2, 5, 10, 15, 30)          # seconds between fast refreshes (panels that report fast=1); 0 = off
 IFACE_RE = re.compile(r"^[A-Za-z0-9._-]{1,15}$")             # network interface for the system page
 MAX_NETS = 32                          # interfaces in the order and hidden lists of the network pages
 NET_SORTS = ("name", "manual")
 NET_BARS = (0, 1, 2)                   # details in the bar of the network pages: none, percentage of the link, link speed
 SYS_PARTS = ("cpu", "ram", "net", "nvme", "ssd", "hdd")       # system page components (rows); none = no system page
-CONF_COLS = 72
+CONF_COLS = 73
 # Time page: NTP server (boards with WiFi), time zone name and its POSIX rule for the board
 NTP_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,39}$")
 TZ_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_+/-]{0,39}$")
@@ -162,6 +162,45 @@ def pics_from_conf(parts, page_order):
 DOCKER_SORTS = ("state", "name", "manual")
 CNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 MAX_CONTAINERS = 64   # names in the order and hidden lists
+
+
+# Auto page turn per page (conf column 73): "<mode>:<letter seconds,...>", mode 0 the same time for all / 1 per page;
+# the times stay when the mode is 0 (switched back and forth on the page)
+PAGE_KINDS = "SDNTWKCIA"
+PAGE_TIMES_RE = re.compile(r"^[01]:([SDNTWKCIA][0-9]{1,5}(,[SDNTWKCIA][0-9]{1,5}){0,8})?$")
+
+
+def page_times_from_conf(col):
+    if not PAGE_TIMES_RE.match(col or ""):
+        return {"turnMode": 0, "pageTimes": {}}
+    mode, times = col.split(":", 1)
+    out = {}
+    for x in times.split(",") if times else []:
+        v = int(x[1:])
+        if 1 <= v <= MAX_PAGE:
+            out[x[0]] = v
+    return {"turnMode": int(mode), "pageTimes": out}
+
+
+def page_times_to_conf(s):
+    t = s.get("pageTimes") or {}
+    return f"{s.get('turnMode', 0)}:" + ",".join(f"{k}{t[k]}" for k in PAGE_KINDS if k in t)
+
+
+def validate_page_times(did, s):
+    mode = s.get("turnMode", 0)
+    if mode not in (0, 1) or isinstance(mode, bool):
+        raise SettingsError(f"Display {did}: invalid page turn mode.")
+    t = s.get("pageTimes", {})
+    if not isinstance(t, dict) or any(k not in PAGE_KINDS for k in t):
+        raise SettingsError(f"Display {did}: invalid page turn times.")
+    out = {}
+    for k, v in t.items():
+        if not is_int(v) or not (v == -1 or 1 <= v <= MAX_PAGE):
+            raise SettingsError(f"Display {did}: page turn must be between 00:00:01 and 24:00:00.")
+        if v > 0:
+            out[k] = v
+    return {"turnMode": mode, "pageTimes": out}
 
 
 def docker_from_conf(cols):
@@ -282,6 +321,7 @@ CONF_NAME = "inksights.conf"
 STATE_NAME = "state.json"
 REFRESH_NAME = "refresh-request"
 REDRAW_NAME = "redraw-request"
+FORGET_NAME = "forget-request"   # chip IDs of USB displays that forget their WiFi (Reset to defaults), for inksights.sh
 MAX_BODY = 64 * 1024
 MAX_DISPLAYS = 32
 WIFI_DIR = "wifi"
@@ -377,6 +417,7 @@ def read_conf(path):
                     # Docker pages (columns 69-72): symbols, filter, colour, highlight, On cue; order; hidden
                     "showDocker": 1 if "docker" in parts[26].split(",") else 0,
                     **docker_from_conf(parts[68:72]),
+                    **page_times_from_conf(parts[72]),   # Auto page turn per page (column 73)
                     "netSort": parts[33] if parts[33] in NET_SORTS else "name",
                     "netOrder": iface_list(parts[34]),
                     "netHidden": iface_list(parts[35]),
@@ -517,6 +558,7 @@ def validate(displays, old_conf=None):
         show["pageOrder"] = page_order
         show.update(validate_pics(did, s, page_order))
         show.update(validate_docker(did, s))
+        show.update(validate_page_times(did, s))
         fast = refresh if refresh < 60 else 0   # under a minute: fast refresh
         zfs = s.get("zfs", 0)
         if zfs not in (0, 1) or isinstance(zfs, bool):
@@ -618,7 +660,7 @@ def write_conf(path, conf, interval, page_name=""):
         "<TAB>net sort<TAB>net order<TAB>net hidden<TAB>net icons<TAB>net bar<TAB>drive temps<TAB>stby<TAB>header inverted<TAB>header color<TAB>refresh"
         "<TAB>time format<TAB>date<TAB>weekday<TAB>date format<TAB>ntp<TAB>ntp server<TAB>time zone<TAB>posix time zone"
         "<TAB>start screen<TAB>nothing to ink<TAB>no connection<TAB>divider line<TAB>page order<TAB>just time<TAB>time header<TAB>header fill<TAB>time color<TAB>time frame"
-        "<TAB>picture ink<TAB>picture flags<TAB>card order<TAB>picture windows<TAB>sober<TAB>ota<TAB>picture clocks<TAB>docker style<TAB>docker sort<TAB>docker order<TAB>docker hidden",
+        "<TAB>picture ink<TAB>picture flags<TAB>card order<TAB>picture windows<TAB>sober<TAB>ota<TAB>picture clocks<TAB>docker style<TAB>docker sort<TAB>docker order<TAB>docker hidden<TAB>page times",
         "#   '-' = empty. boxes 0 = timer off, rows 0 = auto, warn = highlight from % used (0 = never),",
         "#   rot = degrees clockwise (0, 90, 180, 270), page = seconds between page turns (0 = off),",
         "#   pins = cs,dc,rst,busy (rst/busy -1 = none, '-' = keep the pins of the display),",
@@ -658,7 +700,8 @@ def write_conf(path, conf, interval, page_name=""):
         "#   ota = firmware updates of this display from the settings page 1 allowed / 0 off,",
         "#   picture clocks = Got the time? (a wall clock showing the time now) for C I A, 1 / 0 each (default 000),",
         "#   docker style = Docker pages: symbols, show 0 all / 1 errors / 2 updates / 3 both, colour, highlight, on cue, rows 0 containers / 1 stacks (default 1,0,1,0,0,0),",
-        "#   docker sort = state / name / manual, docker order = container names (manual first), docker hidden = containers not shown",
+        "#   docker sort = state / name / manual, docker order = container names (manual first), docker hidden = containers not shown,",
+        "#   page times = Auto page turn <0 the page turn for all / 1 per page>:<S D N T W K C I A + seconds, ...> (e.g. 1:T30,S10)",
     ]
     for did, s in sorted(conf.items()):
         order = ",".join(s["order"]) or "-"
@@ -690,7 +733,8 @@ def write_conf(path, conf, interval, page_name=""):
                                 s.get("pageOrder") if page_order_ok(s.get("pageOrder")) else DEFAULT_PAGE_ORDER,
                                 str(s.get("justTime", 0)), str(s.get("timeHead", 0)), str(s.get("headFill", 0)),
                                 str(s.get("timeColor", 0)), str(s.get("timeFrame", 0)), *pics_to_conf(s), str(s.get("ota", 1)),
-                                "".join(str(s.get(p + "Clock", 0)) for p, _, _, _ in PICS), *docker_to_conf(s)]))
+                                "".join(str(s.get(p + "Clock", 0)) for p, _, _, _ in PICS), *docker_to_conf(s),
+                                page_times_to_conf(s)]))
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".conf.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
@@ -786,6 +830,11 @@ def wifi_frame(data_dir, run_dir, query):
         if os.path.exists(redraw) and "#END" in frame:   # "Redraw now": once, with this frame
             frame = frame.replace("#END", "R\n#END", 1)
             os.unlink(redraw)
+        forget = os.path.join(wdir, did + ".forget")   # Reset WiFi: once, and only within 10 minutes of the reset
+        if os.path.exists(forget):
+            if time.time() - os.path.getmtime(forget) <= OTA_WAIT and "#END" in frame:
+                frame = frame.replace("#END", "Z\n#END", 1)
+            os.unlink(forget)
     if ota_line and ota_allowed() and ota_display_on(data_dir, did) and "#END" in frame:   # a firmware update waits: fetched after this frame
         frame = frame.replace("#END", ota_line + "\n#END", 1)
     return frame, 200
@@ -956,6 +1005,32 @@ def ota_request(did, data, version):
                     "size": len(data), "md5": hashlib.md5(data).hexdigest(), "data": data}
 
 
+def nudge_board(data_dir, did):
+    """A firmware update waits: ask the board to fetch its frame now (GET /poll on its own page, at the address it
+    reported) instead of with its next request (every 30 s). In the background, tried three times; a board
+    without it (older firmware) or out of reach just fetches it as before."""
+    try:
+        with open(os.path.join(data_dir, WIFI_DIR, did + ".info"), encoding="utf-8") as f:
+            info = dict(l.split("=", 1) for l in f.read(4096).splitlines() if "=" in l)
+    except OSError:
+        return
+    ip = info.get("ip", "")
+    if not FRAME_ARGS["ip"].match(ip):
+        return
+
+    def run():
+        import urllib.request
+        for _ in range(3):
+            try:
+                with urllib.request.urlopen(f"http://{ip}/poll", timeout=3) as r:
+                    if r.status == 200:
+                        return
+            except OSError:
+                pass
+            time.sleep(3)
+    threading.Thread(target=run, daemon=True).start()
+
+
 def ota_note(did, report, fw):
     """A frame fetch of display did: its report of the update (&ota=) and its firmware; returns the U line to
     send with the frame, "" for none"""
@@ -1083,6 +1158,23 @@ def live_frame(run_dir, query):
 
 
 REDRAW_LOCK = threading.Lock()
+
+
+def request_forget(data_dir, did):
+    """Reset to defaults with Reset WiFi: the display forgets its WiFi settings once (the Z line) and opens its setup
+    access point. A display fetching over WiFi gets it with its next frame (wifi/<id>.forget), one on USB from
+    inksights.sh (forget-request)."""
+    try:
+        with open(os.path.join(data_dir, WIFI_DIR, did + ".seen"), encoding="utf-8") as f:
+            seen = f.read(32).split("\n")[0]
+        on_wifi = seen.isdigit() and time.time() - int(seen) <= WIFI_STALE
+    except OSError:
+        on_wifi = False
+    if on_wifi:
+        with open(os.path.join(data_dir, WIFI_DIR, did + ".forget"), "w", encoding="utf-8"):
+            pass
+    else:
+        request_redraw(os.path.join(data_dir, FORGET_NAME), did)
 
 
 def request_redraw(path, did):
@@ -1279,6 +1371,8 @@ class Handler(BaseHTTPRequestHandler):
                         raise SettingsError("Invalid data.")
                     old_conf, _, _ = read_conf(os.path.join(data_dir, CONF_NAME))
                     conf = validate(data.get("displays"), old_conf)
+                    # Reset to defaults with Reset WiFi: these displays forget their WiFi (after the settings are written)
+                    forget = [d for d, s in (data.get("displays") or {}).items() if ID_RE.match(d) and isinstance(s, dict) and s.get("wifiReset") == 1]
                     interval = read_interval(conf)   # the shortest refresh of the displays
                     page_name = data.get("pagename", "")
                     if not isinstance(page_name, str) or not PAGE_NAME_RE.match(page_name):
@@ -1292,6 +1386,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(200, {"ok": True})
                 write_conf(os.path.join(data_dir, CONF_NAME), conf, interval, page_name)
                 self.log_message("settings saved for %d display(s)", len(conf))
+                for did in forget:
+                    request_forget(data_dir, did)
+                    self.log_message("display %s forgets its WiFi settings", did)
                 self._json(200, {"ok": True})
             elif path == "/api/ota":   # update a WiFi display with the firmware the WebUI carries for its board
                 try:
@@ -1315,6 +1412,7 @@ class Handler(BaseHTTPRequestHandler):
                 except SettingsError as e:
                     return self._json(400, {"error": str(e)})
                 self.log_message("firmware %s requested for display %s", fw["version"], did)
+                nudge_board(data_dir, did)
                 self._json(200, {"ok": True})
             elif path == "/api/refresh":
                 with open(os.path.join(data_dir, REFRESH_NAME), "w", encoding="utf-8"):
@@ -1373,6 +1471,7 @@ class Handler(BaseHTTPRequestHandler):
         except SettingsError as e:
             return self._json(400, {"error": str(e)})
         self.log_message("firmware file uploaded for display %s (%d bytes)", did, length)
+        nudge_board(data_dir, did)
         self._json(200, {"ok": True})
 
     def log_message(self, fmt, *args):
